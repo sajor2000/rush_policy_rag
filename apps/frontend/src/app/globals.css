@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 
+ * Rush University Brand Typography
+ * Primary: Inter (geometric sans-serif) - loaded via next/font
+ * Fallbacks: system fonts for graceful degradation
+ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 150 100% 10%;
+  --border: 150 20% 90%;
+  --card: 0 0% 98%;
+  --card-foreground: 150 100% 10%;
+  --popover: 0 0% 98%;
+  --popover-foreground: 150 100% 12%;
+  --primary: 150.3 100% 19.4%;
+  --primary-foreground: 150 20% 98%;
+  --secondary: 149.5 56.8% 43.5%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 150 50% 95%;
+  --muted-foreground: 150 20% 40%;
+  --accent: 150 50% 95%;
+  --accent-foreground: 150 100% 15%;
+  --destructive: 0 84% 35%;
+  --destructive-foreground: 0 20% 98%;
+  --input: 150 30% 75%;
+  --ring: 150 100% 20%;
+  --radius: 0.375rem;
+  /* Inter loaded via next/font, CSS variable set in layout.tsx */
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-mono: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+}
+
+.dark {
+  --background: 150 10% 8%;
+  --foreground: 150 20% 95%;
+  --border: 150 10% 18%;
+  --card: 150 8% 12%;
+  --card-foreground: 150 20% 95%;
+  --popover: 150 8% 12%;
+  --popover-foreground: 150 20% 90%;
+  --primary: 150 75% 40%;
+  --primary-foreground: 150 15% 97%;
+  --secondary: 150 60% 42%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 150 10% 16%;
+  --muted-foreground: 150 15% 65%;
+  --accent: 150 10% 15%;
+  --accent-foreground: 150 40% 88%;
+  --destructive: 0 75% 32%;
+  --destructive-foreground: 0 15% 97%;
+  --input: 150 20% 30%;
+  --ring: 150 75% 40%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply antialiased bg-background text-foreground;
+  }
+
+  /* Headings use Inter with semibold weight */
+  h1, h2, h3 {
+    @apply font-semibold;
+  }
+
+  /* Georgia is for emphasis and italics only */
+  em, .emphasis {
+    @apply font-serif italic;
+  }
+}
+
+/* Rush Brand Utilities */
+@layer utilities {
+  .rush-legacy-green {
+    color: #006332;
+  }
+
+  .rush-bg-legacy-green {
+    background-color: #006332;
+  }
+
+  .rush-border-legacy-green {
+    border-color: #006332;
+  }
+
+  .hover-elevate {
+    @apply transition duration-200 shadow-sm hover:shadow-xl hover:-translate-y-0.5;
+  }
+
+  .active-elevate-2:active {
+    @apply translate-y-0.5;
+  }
+
+  .glass-panel {
+    @apply bg-white/80 backdrop-blur supports-[backdrop-filter]:backdrop-blur-lg;
+  }
+}

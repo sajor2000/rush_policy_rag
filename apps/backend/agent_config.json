@@ -1,0 +1,12 @@
+{
+  "agent_id": "asst_WQSFmyXMHpJedZM0Rwo43zk1",
+  "agent_name": "rush-policy-agent",
+  "model": "gpt-4.1",
+  "created_at": "2025-11-26 16:31:55+00:00",
+  "updated_at": "2025-11-26T16:31:56.193082+00:00",
+  "index_name": "rush-policies",
+  "search_connection_id": "/subscriptions/e5282183-61c9-4c17-a58a-9442db9594d5/resourceGroups/RU-A-NonProd-AI-Innovation-RG/providers/Microsoft.CognitiveServices/accounts/rua-nonprod-ai-innovation/projects/rua-nonprod-ai-innovation-project/connections/ruaprodkmnlpaisearch",
+  "query_type": "VECTOR_SEMANTIC_HYBRID",
+  "top_k": 50,
+  "status": "updated"
+}

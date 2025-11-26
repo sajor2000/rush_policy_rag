@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.pytest_cache/
+
+# Node / frontend artifacts that might sit above backend root
+node_modules/
+.next/
+
+# Git & tooling
+.git/
+.gitignore
+.DS_Store
+
+# Env/config
+.env*
+env/
+venv/
+.venv/
+
+# Editor
+.idea/
+.vscode/
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Docker
+Dockerfile.*
+.dockerignore
+
+# Misc
+*.log
+tmp/

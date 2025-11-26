@@ -1,0 +1,3 @@
+{"query": "What is the policy for chaperone duties?", "expected_answer": "Chaperones must be provided for sensitive examinations. The policy outlines specific roles and responsibilities for staff members acting as chaperones."}
+{"query": "Who can approve verbal orders?", "expected_answer": "Verbal orders can be accepted by registered nurses, pharmacists, and other authorized personnel as defined in the Medical Staff Bylaws."}
+{"query": "What are the visitor hours for ICU?", "expected_answer": "ICU visiting hours are generally flexible but may be restricted based on patient condition. Visitors are limited to two at a time."}

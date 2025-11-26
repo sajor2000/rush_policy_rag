@@ -1,0 +1,42 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.9.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# Azure AI Foundry SDK (unified AI platform)
+azure-ai-projects>=1.0.0b10
+azure-ai-agents>=1.1.0
+azure-search-documents>=11.6.0b8
+azure-identity>=1.15.0
+azure-storage-blob>=12.27.1
+
+# OpenAI SDK (fallback for direct Azure OpenAI calls)
+openai>=1.55.0
+
+# PDF processing (Docling is the primary chunker)
+docling>=2.15.0
+docling-core>=2.21.0
+# PyMuPDF used for accurate checkbox/form extraction (fixes Docling table truncation)
+pymupdf>=1.24.0
+
+# Retry logic for transient failures
+tenacity>=8.2.0
+
+# HTTP
+requests>=2.31.0
+
+# RAG Evaluation
+azure-ai-evaluation>=1.0.0b5
+promptflow>=1.14.0
+promptflow-tools>=1.4.0
+ragas>=0.2.0
+datasets>=2.18.0
+langchain-openai>=0.1.0
+
+# Observability (Azure AI Foundry tracing + OpenTelemetry)
+azure-monitor-opentelemetry>=1.6.0
+azure-ai-inference>=1.0.0b7
+opentelemetry-instrumentation-fastapi>=0.48b0
+opentelemetry-instrumentation-openai>=0.29.0

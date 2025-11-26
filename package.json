@@ -1,0 +1,20 @@
+{
+  "name": "rush-policy-rag",
+  "version": "2.0.0",
+  "description": "RUSH Policy RAG Agent - Azure AI Foundry + FastAPI + Next.js",
+  "scripts": {
+    "dev": "cd apps/frontend && npm run dev",
+    "build": "cd apps/frontend && npm run build",
+    "start:frontend": "./start_frontend.sh",
+    "start:backend": "./start_backend.sh"
+  },
+  "keywords": [
+    "rag",
+    "azure-ai",
+    "policy-search",
+    "fastapi",
+    "nextjs"
+  ],
+  "author": "RUSH University System for Health",
+  "license": "MIT"
+}

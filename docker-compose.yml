@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: rush-policy-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Azure AI Search
+      - SEARCH_ENDPOINT=${SEARCH_ENDPOINT}
+      - SEARCH_API_KEY=${SEARCH_API_KEY}
+
+      # Azure OpenAI
+      - AOAI_ENDPOINT=${AOAI_ENDPOINT}
+      - AOAI_API=${AOAI_API}
+      - AOAI_CHAT_DEPLOYMENT=${AOAI_CHAT_DEPLOYMENT:-gpt-4.1}
+      - AOAI_EMBEDDING_DEPLOYMENT=${AOAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-large}
+
+      # Azure AI Foundry
+      - AZURE_AI_PROJECT_ENDPOINT=${AZURE_AI_PROJECT_ENDPOINT}
+
+      # Azure Storage
+      - STORAGE_CONNECTION_STRING=${STORAGE_CONNECTION_STRING}
+      - CONTAINER_NAME=${CONTAINER_NAME:-policies-active}
+
+      # Agentic Retrieval
+      - USE_AGENTIC_RETRIEVAL=${USE_AGENTIC_RETRIEVAL:-false}
+      - KNOWLEDGE_AGENT_NAME=${KNOWLEDGE_AGENT_NAME:-rush-policy-agent}
+      - KNOWLEDGE_SOURCE_NAME=${KNOWLEDGE_SOURCE_NAME:-rush-policies}
+
+      # Observability
+      - APPLICATIONINSIGHTS_CONNECTION_STRING=${APPLICATIONINSIGHTS_CONNECTION_STRING}
+
+      # Admin
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+
+      # CORS
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+
+      # Backend Config
+      - BACKEND_PORT=8000
+    volumes:
+      - ./apps/backend:/app
+      - /app/__pycache__
+      - /app/venv
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - rush-network
+    restart: unless-stopped
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: rush-policy-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - BACKEND_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./apps/frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - rush-network
+    restart: unless-stopped
+
+  # Redis Cache (optional - for session management)
+  redis:
+    image: redis:7-alpine
+    container_name: rush-policy-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - rush-network
+    restart: unless-stopped
+
+networks:
+  rush-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
