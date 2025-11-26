@@ -1,13 +1,18 @@
-name: Deploy FastAPI backend to Azure Container Apps
+name: Deploy FastAPI backend to Azure Container Apps (Manual)
 
+# Manual deployment workflow - use for direct ACR deployments
+# Main CI/CD pipeline is in ci-cd.yml
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "apps/backend/**"
-      - "scripts/**"
-      - ".github/workflows/deploy-aca.yml"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 env:
   RESOURCE_GROUP: rush-rg
