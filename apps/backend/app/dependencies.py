@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional, AsyncGenerator, Dict, Any
 from contextlib import asynccontextmanager
@@ -14,6 +15,29 @@ logger = logging.getLogger(__name__)
 _search_index: Optional[PolicySearchIndex] = None
 _on_your_data_service: Optional[OnYourDataService] = None
 _auth_validator: Optional[AzureADTokenValidator] = None
+
+# Request tracking for graceful shutdown
+_active_requests: int = 0
+_request_lock = asyncio.Lock()
+
+
+async def increment_requests() -> None:
+    """Increment active request counter (thread-safe)."""
+    global _active_requests
+    async with _request_lock:
+        _active_requests += 1
+
+
+async def decrement_requests() -> None:
+    """Decrement active request counter (thread-safe)."""
+    global _active_requests
+    async with _request_lock:
+        _active_requests -= 1
+
+
+def get_active_request_count() -> int:
+    """Get current number of active requests."""
+    return _active_requests
 
 
 def get_search_index() -> PolicySearchIndex:
@@ -120,6 +144,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         raise
 
     yield
+
+    # Graceful shutdown - wait for in-flight requests to complete
+    logger.info("Initiating graceful shutdown...")
+    shutdown_start = asyncio.get_event_loop().time()
+    max_wait = 25  # Leave 5s buffer before container kill (default 30s)
+
+    while _active_requests > 0:
+        elapsed = asyncio.get_event_loop().time() - shutdown_start
+        if elapsed > max_wait:
+            logger.warning(
+                f"Shutdown timeout after {max_wait}s - "
+                f"{_active_requests} requests still active, proceeding with cleanup"
+            )
+            break
+        logger.info(f"Waiting for {_active_requests} active request(s) to complete...")
+        await asyncio.sleep(0.5)
+
+    if _active_requests == 0:
+        logger.info("All requests completed, proceeding with cleanup")
 
     # Shutdown - clean up all service connections
     logger.info("Application shutting down - cleaning up resources")

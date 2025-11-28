@@ -14,7 +14,7 @@ import sys
 import logging
 from pathlib import Path
 from typing import Optional, List
-from pydantic import field_validator, model_validator
+from pydantic import field_validator, model_validator, ConfigDict
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -135,6 +135,12 @@ class Settings(BaseSettings):
         if not self.AOAI_ENDPOINT:
             warnings.append("AOAI_ENDPOINT not set - Azure OpenAI fallback unavailable")
 
+        # Critical: AOAI_API_KEY required when USE_ON_YOUR_DATA is enabled
+        if self.USE_ON_YOUR_DATA and not self.AOAI_API_KEY:
+            critical_errors.append(
+                "USE_ON_YOUR_DATA=true but AOAI_API_KEY not set - vectorSemanticHybrid search will fail"
+            )
+
         # Critical: AAD config required when auth is enabled
         if self.REQUIRE_AAD_AUTH:
             missing_auth = []
@@ -148,8 +154,16 @@ class Settings(BaseSettings):
                 )
 
         # Critical: Admin API key should be set in production
-        if self.FAIL_ON_MISSING_CONFIG and not self.ADMIN_API_KEY:
-            critical_errors.append("ADMIN_API_KEY not set - admin endpoints are unprotected")
+        # Detect production environment (Azure Container Apps sets these)
+        is_production = bool(
+            os.environ.get("WEBSITE_SITE_NAME") or
+            os.environ.get("CONTAINER_APP_NAME") or
+            os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT")
+        )
+        if (is_production or self.FAIL_ON_MISSING_CONFIG) and not self.ADMIN_API_KEY:
+            critical_errors.append(
+                "ADMIN_API_KEY not set - admin endpoints unprotected in production"
+            )
 
         # Log all warnings
         for w in warnings:
@@ -168,10 +182,11 @@ class Settings(BaseSettings):
 
         return self
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"  # Ignore extra env vars
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",  # Ignore extra env vars
+    )
 
 
 settings = Settings()
