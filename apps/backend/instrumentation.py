@@ -1,10 +1,7 @@
 """
 OpenTelemetry Tracing Configuration for RUSH Policy RAG Agent
 
-Supports two modes:
-1. Foundry Mode: Uses AIProjectClient to get App Insights connection string
-2. Fallback Mode: Uses APPLICATIONINSIGHTS_CONNECTION_STRING environment variable
-
+Uses APPLICATIONINSIGHTS_CONNECTION_STRING environment variable for Azure Monitor integration.
 Instruments FastAPI, OpenAI client, and Azure AI Inference (when available).
 """
 
@@ -18,17 +15,14 @@ logger = logging.getLogger(__name__)
 _tracing_initialized = False
 
 
-def setup_tracing(app: FastAPI, foundry_client=None):
+def setup_tracing(app: FastAPI):
     """
     Configure OpenTelemetry tracing with Azure Monitor.
 
     Args:
         app: FastAPI application instance
-        foundry_client: Optional FoundryRAGClient for Foundry mode
 
-    Tracing is enabled if either:
-    - APPLICATIONINSIGHTS_CONNECTION_STRING env var is set, OR
-    - foundry_client is provided and can retrieve connection string
+    Tracing is enabled if APPLICATIONINSIGHTS_CONNECTION_STRING env var is set.
     """
     global _tracing_initialized
 
@@ -36,20 +30,7 @@ def setup_tracing(app: FastAPI, foundry_client=None):
         logger.debug("Tracing already initialized, skipping")
         return
 
-    connection_string = None
-
-    # Try to get connection string from Foundry client first
-    if foundry_client:
-        try:
-            connection_string = foundry_client.get_application_insights_connection_string()
-            if connection_string:
-                logger.info("Using App Insights connection string from Foundry")
-        except Exception as e:
-            logger.warning(f"Failed to get App Insights from Foundry: {e}")
-
-    # Fallback to environment variable
-    if not connection_string:
-        connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
+    connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
 
     if not connection_string:
         logger.warning("No Application Insights connection string found. Tracing disabled.")
@@ -69,7 +50,7 @@ def setup_tracing(app: FastAPI, foundry_client=None):
         # Instrument OpenAI SDK
         OpenAIInstrumentor().instrument()
 
-        # Try to instrument Azure AI Inference (Foundry SDK)
+        # Try to instrument Azure AI Inference
         try:
             from azure.ai.inference.tracing import AIInferenceInstrumentor
             AIInferenceInstrumentor().instrument()

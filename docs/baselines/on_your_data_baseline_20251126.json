@@ -1,0 +1,109 @@
+{
+  "backend_url": "http://localhost:8000",
+  "generated_at": "2025-11-26T23:22:06Z",
+  "iterations": 3,
+  "results": [
+    {
+      "name": "health",
+      "method": "GET",
+      "url": "http://localhost:8000/health",
+      "iterations": 3,
+      "successes": 3,
+      "failures": 0,
+      "avg_ms": 105.75106966037613,
+      "p50_ms": 92.27900000405498,
+      "p95_ms": 134.87333778175525,
+      "status_codes": [
+        200,
+        200,
+        200
+      ],
+      "errors": [],
+      "raw": {
+        "name": "health",
+        "method": "GET",
+        "url": "http://localhost:8000/health",
+        "iterations": 3,
+        "latency_ms": [
+          139.6060419792775,
+          92.27900000405498,
+          85.36816699779592
+        ],
+        "status_codes": [
+          200,
+          200,
+          200
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "search",
+      "method": "POST",
+      "url": "http://localhost:8000/api/search",
+      "iterations": 3,
+      "successes": 3,
+      "failures": 0,
+      "avg_ms": 201.29868066093573,
+      "p50_ms": 186.90224998863414,
+      "p95_ms": 231.3760505989194,
+      "status_codes": [
+        200,
+        200,
+        200
+      ],
+      "errors": [],
+      "raw": {
+        "name": "search",
+        "method": "POST",
+        "url": "http://localhost:8000/api/search",
+        "iterations": 3,
+        "latency_ms": [
+          236.3175840000622,
+          186.90224998863414,
+          180.67620799411088
+        ],
+        "status_codes": [
+          200,
+          200,
+          200
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "chat",
+      "method": "POST",
+      "url": "http://localhost:8000/api/chat",
+      "iterations": 3,
+      "successes": 3,
+      "failures": 0,
+      "avg_ms": 3797.9303613246884,
+      "p50_ms": 3414.700624998659,
+      "p95_ms": 4839.312649995554,
+      "status_codes": [
+        200,
+        200,
+        200
+      ],
+      "errors": [],
+      "raw": {
+        "name": "chat",
+        "method": "POST",
+        "url": "http://localhost:8000/api/chat",
+        "iterations": 3,
+        "latency_ms": [
+          4997.602874995209,
+          2981.487583980197,
+          3414.700624998659
+        ],
+        "status_codes": [
+          200,
+          200,
+          200
+        ],
+        "errors": []
+      }
+    }
+  ]
+}

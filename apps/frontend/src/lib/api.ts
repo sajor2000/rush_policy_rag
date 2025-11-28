@@ -150,3 +150,113 @@ export async function sendMessage(message: string): Promise<ChatApiResponse> {
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// ============================================================================
+// PDF Upload API
+// ============================================================================
+
+export interface UploadResponse {
+  job_id: string;
+  filename: string;
+  status: string;
+  message: string;
+}
+
+export interface UploadStatus {
+  job_id: string;
+  filename: string;
+  status: "queued" | "uploading" | "processing" | "indexing" | "completed" | "failed";
+  progress: number;
+  chunks_created: number;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const UPLOAD_TIMEOUT_MS = 120000; // 2 minutes for large files
+
+/**
+ * Upload a PDF file for processing and indexing.
+ */
+export async function uploadPDF(file: File): Promise<UploadResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    let data: Record<string, unknown>;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("Invalid response from server");
+    }
+
+    if (!response.ok) {
+      const errorMessage =
+        (typeof data.detail === "string" ? data.detail : null) ||
+        (typeof data.error === "string" ? data.error : null) ||
+        `Upload failed (${response.status})`;
+      throw new Error(errorMessage);
+    }
+
+    return {
+      job_id: data.job_id as string,
+      filename: data.filename as string,
+      status: data.status as string,
+      message: data.message as string,
+    };
+  } catch (err) {
+    clearTimeout(timeoutId);
+
+    if (err instanceof Error) {
+      if (err.name === "AbortError") {
+        throw new Error("Upload timed out. Please try again with a smaller file.");
+      }
+      throw err;
+    }
+    throw new Error("Upload failed");
+  }
+}
+
+/**
+ * Get the status of an upload job.
+ */
+export async function getUploadStatus(jobId: string): Promise<UploadStatus> {
+  const response = await fetch(`/api/upload/status/${jobId}`);
+
+  let data: Record<string, unknown>;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Invalid response from server");
+  }
+
+  if (!response.ok) {
+    const errorMessage =
+      (typeof data.detail === "string" ? data.detail : null) ||
+      (typeof data.error === "string" ? data.error : null) ||
+      `Failed to get status (${response.status})`;
+    throw new Error(errorMessage);
+  }
+
+  return {
+    job_id: data.job_id as string,
+    filename: data.filename as string,
+    status: data.status as UploadStatus["status"],
+    progress: data.progress as number,
+    chunks_created: data.chunks_created as number,
+    error: data.error as string | undefined,
+    created_at: data.created_at as string,
+    updated_at: data.updated_at as string,
+  };
+}

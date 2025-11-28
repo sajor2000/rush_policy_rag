@@ -1,11 +1,11 @@
 import logging
+import asyncio
 from typing import Optional, List
 from app.models.schemas import ChatRequest, ChatResponse, EvidenceItem
 from app.core.prompts import RISEN_PROMPT, NOT_FOUND_MESSAGE, LLM_UNAVAILABLE_MESSAGE
 from app.core.security import build_applies_to_filter
 from azure_policy_index import PolicySearchIndex, format_rag_context, SearchResult
-from foundry_client import FoundryRAGClient
-from app.services.foundry_agent import FoundryAgentService, AgentRetrievalResult
+from app.services.on_your_data_service import OnYourDataService, OnYourDataResult
 from app.services.synonym_service import get_synonym_service, QueryExpansion
 
 logger = logging.getLogger(__name__)
@@ -53,9 +53,9 @@ def _extract_quick_answer(response_text: str) -> str:
     Extract just the quick answer portion from a RISEN-formatted response.
 
     Strips out:
-    - 📋 QUICK ANSWER header
-    - 📄 POLICY REFERENCE section with ASCII box
-    - ⚠️ NOTICE footer
+    - QUICK ANSWER header
+    - POLICY REFERENCE section with ASCII box
+    - NOTICE footer
     - Citation lines at the end of quick answer
 
     Returns clean prose suitable for display in the Quick Answer UI box.
@@ -68,12 +68,12 @@ def _extract_quick_answer(response_text: str) -> str:
     text = response_text.strip()
 
     # If the response is already short (no formatting), return as-is
-    if "📄 POLICY REFERENCE" not in text and "┌─" not in text:
+    if "POLICY REFERENCE" not in text and "┌─" not in text:
         # Still strip the quick answer header if present
         text = re.sub(r'^📋\s*QUICK ANSWER\s*\n*', '', text, flags=re.IGNORECASE)
         return text.strip()
 
-    # Extract text between "📋 QUICK ANSWER" and "📄 POLICY REFERENCE"
+    # Extract text between "QUICK ANSWER" and "POLICY REFERENCE"
     quick_answer_match = re.search(
         r'📋\s*QUICK ANSWER\s*\n+(.*?)(?=📄\s*POLICY REFERENCE|\n*┌─|$)',
         text,
@@ -233,22 +233,23 @@ def build_supporting_evidence(
     return evidence_items
 
 
-from promptflow.core import Prompty
-from pathlib import Path
-
-# Load Prompty from file
-PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "policytech.prompty"
-
 class ChatService:
+    """
+    Chat service for policy Q&A using Azure OpenAI "On Your Data".
+
+    Uses vectorSemanticHybrid search for best quality:
+    - Vector search (text-embedding-3-large)
+    - BM25 + 132 synonym rules
+    - L2 Semantic Reranking
+    """
+
     def __init__(
         self,
         search_index: PolicySearchIndex,
-        foundry_client: Optional[FoundryRAGClient] = None,
-        foundry_agent_service: Optional[FoundryAgentService] = None
+        on_your_data_service: Optional[OnYourDataService] = None
     ):
         self.search_index = search_index
-        self.foundry_client = foundry_client
-        self.foundry_agent_service = foundry_agent_service
+        self.on_your_data_service = on_your_data_service
 
         # Initialize synonym service for query expansion
         try:
@@ -257,13 +258,6 @@ class ChatService:
         except Exception as e:
             logger.warning(f"Synonym service unavailable: {e}")
             self.synonym_service = None
-
-        # Load Prompty prompt
-        try:
-            self.prompty = Prompty.load(source=PROMPT_PATH)
-        except Exception as e:
-            logger.warning(f"Failed to load Prompty: {e}")
-            self.prompty = None
 
     def _expand_query(self, query: str) -> tuple[str, Optional[QueryExpansion]]:
         """
@@ -298,16 +292,21 @@ class ChatService:
 
     async def process_chat(self, request: ChatRequest) -> ChatResponse:
         """
-        Process a chat message.
+        Process a chat message using Azure OpenAI "On Your Data" (vectorSemanticHybrid).
+
+        Uses vectorSemanticHybrid search for best quality:
+        - Vector search (text-embedding-3-large)
+        - BM25 + 132 synonym rules
+        - L2 Semantic Reranking
         """
         # Build safe filter expression
         filter_expr = build_applies_to_filter(request.filter_applies_to)
 
-        # Try agentic retrieval first
-        if self.foundry_agent_service:
-             return await self._chat_with_agentic_retrieval(request, filter_expr)
+        # Primary: Use On Your Data for full semantic hybrid search
+        if self.on_your_data_service and self.on_your_data_service.is_configured:
+            return await self._chat_with_on_your_data(request, filter_expr)
 
-        # Fall back to standard retrieval
+        # Fallback: Standard retrieval (search + basic response)
         return await self._chat_with_standard_retrieval(request, filter_expr)
 
     def _extract_policy_refs_from_response(self, response_text: str) -> List[dict]:
@@ -336,7 +335,6 @@ class ChatService:
             refs.append({'title': match.group(1).strip(), 'reference_number': match.group(2).strip()})
 
         # Pattern 3: Policy: Title Name (in formatted box) + Reference Number: XXXX
-        # Extract policy title from the formatted box
         policy_title_match = re.search(r'Policy:\s*([^\n│]+)', response_text)
         ref_num_match = re.search(r'Reference\s*Number[:#]?\s*([A-Z0-9\.\-]{2,15})', response_text, re.IGNORECASE)
         if policy_title_match and ref_num_match:
@@ -369,272 +367,171 @@ class ChatService:
 
         return list(seen.values())
 
-    async def _chat_with_agentic_retrieval(
+    async def _chat_with_on_your_data(
         self,
         request: ChatRequest,
         filter_expr: Optional[str]
     ) -> ChatResponse:
         """
-        Handle chat using agentic retrieval (Foundry Agents).
+        Handle chat using Azure OpenAI "On Your Data" with vectorSemanticHybrid.
 
-        Uses a smart citation strategy:
-        1. Agent generates synthesized answer with VECTOR_SEMANTIC_HYBRID search
-        2. Extract policy references from agent's response (e.g., [Policy Name, Ref #XXXX])
-        3. Search for those specific policies to get accurate evidence
-        4. Fall back to query-based search only if no references found
+        This provides the BEST search quality:
+        - Vector similarity (text-embedding-3-large)
+        - BM25 keyword matching
+        - L2 semantic reranking (the key feature!)
 
-        This ensures citations always match the answer content.
+        The citations come directly from Azure AI Search via the On Your Data API,
+        ensuring accurate source attribution.
         """
-        logger.info(f"Using agentic retrieval for query: {request.message[:50]}...")
+        logger.info(f"Using On Your Data (vectorSemanticHybrid) for query: {request.message[:50]}...")
 
         # Expand query with synonyms for better retrieval
         expanded_query, expansion = self._expand_query(request.message)
 
         try:
-            result: AgentRetrievalResult = await self.foundry_agent_service.retrieve(
-                query=expanded_query,
-                max_results=5
+            # Add 15s timeout to prevent hanging requests
+            result: OnYourDataResult = await asyncio.wait_for(
+                self.on_your_data_service.chat(
+                    query=expanded_query,
+                    filter_expr=filter_expr,
+                    top_n_documents=50,  # Get many for reranker to choose from
+                    strictness=3
+                ),
+                timeout=15.0
             )
 
-            summary_text = result.synthesized_answer or NOT_FOUND_MESSAGE
+            answer_text = result.answer or NOT_FOUND_MESSAGE
 
-            # For agentic retrieval, check if we got a meaningful answer
-            found = summary_text and summary_text != NOT_FOUND_MESSAGE and summary_text != "No response generated."
+            # Check if we got a meaningful answer
+            found = (
+                answer_text and
+                answer_text != NOT_FOUND_MESSAGE and
+                "I don't have" not in answer_text.lower() and
+                "no information" not in answer_text.lower()
+            )
 
             if not found:
-                summary_text = NOT_FOUND_MESSAGE
                 return ChatResponse(
-                    response=summary_text,
-                    summary=summary_text,
+                    response=NOT_FOUND_MESSAGE,
+                    summary=NOT_FOUND_MESSAGE,
                     evidence=[],
-                    raw_response=result.raw_response,
+                    raw_response=str(result.raw_response),
                     sources=[],
                     chunks_used=0,
                     found=False
                 )
 
-            # Check if agent declined to answer (unclear query, off-topic, etc.)
-            # These responses should NOT include fallback evidence
-            decline_patterns = [
-                "I only answer RUSH policy questions",
-                "Could you please rephrase",
-                "I didn't understand that",
-                "What RUSH policy topic can I help",
-                "Please specify your question",
-                "couldn't find",
-                "could not find",
-                "not in RUSH policies",
-                "verify at https://rushumc.navexone.com",
-            ]
-            is_decline_response = any(
-                pattern.lower() in summary_text.lower()
-                for pattern in decline_patterns
-            )
-
-            if is_decline_response:
-                logger.info("Agent declined to answer - not adding fallback evidence")
-                return ChatResponse(
-                    response=summary_text,
-                    summary=summary_text,
-                    evidence=[],
-                    raw_response=result.raw_response,
-                    sources=[],
-                    chunks_used=0,
-                    found=False
-                )
-
-            # Check if agent returned URL citations
+            # Convert On Your Data citations to EvidenceItems
             evidence_items = []
             sources = []
 
-            if result.references:
-                # Use agent's citations if available - these are verified from the agent's search
-                evidence_items = [
+            for cit in result.citations[:5]:  # Limit to top 5 citations
+                # Extract reference number from filepath or content
+                ref_num = ""
+                source_file = cit.filepath or ""
+
+                # Try to extract ref number from filepath (e.g., "hr-001.pdf" -> "HR-001")
+                if source_file:
+                    import re
+                    ref_match = re.search(r'([a-z]{2,4}[-_]?\d{2,4})', source_file.lower())
+                    if ref_match:
+                        ref_num = ref_match.group(1).upper().replace('_', '-')
+
+                evidence_items.append(
                     EvidenceItem(
-                        snippet=_truncate_verbatim(ref.content),
-                        citation=ref.citation,
-                        title=ref.title,
-                        reference_number=ref.reference_number,
-                        section=ref.section,
-                        applies_to=ref.applies_to,
-                        source_file=ref.source_file or None,
-                        score=ref.score,
-                        reranker_score=ref.reranker_score,
-                        match_type="verified",  # Agent citations are direct search results
+                        snippet=_truncate_verbatim(cit.content),
+                        citation=f"{cit.title} ({ref_num})" if ref_num else cit.title,
+                        title=cit.title,
+                        reference_number=ref_num,
+                        section=cit.section,
+                        applies_to=cit.applies_to,
+                        source_file=source_file,
+                        score=None,
+                        reranker_score=cit.reranker_score,
+                        match_type="verified",  # Citations come directly from search
                     )
-                    for ref in result.references
-                ]
-                sources = [{
-                    "citation": ref.citation,
-                    "source_file": ref.source_file,
-                    "title": ref.title,
-                    "reference_number": ref.reference_number,
-                    "section": ref.section,
-                    "applies_to": ref.applies_to,
-                    "score": ref.score,
-                    "match_type": "verified",
-                } for ref in result.references]
-            else:
-                # Strategy: Extract policy refs from response, then search for them
-                # Only use results that actually match the cited policy (by ref number or close title match)
-                extracted_refs = self._extract_policy_refs_from_response(summary_text)
+                )
+
+                sources.append({
+                    "citation": f"{cit.title} ({ref_num})" if ref_num else cit.title,
+                    "source_file": source_file,
+                    "title": cit.title,
+                    "reference_number": ref_num,
+                    "section": cit.section,
+                    "applies_to": cit.applies_to,
+                    "reranker_score": cit.reranker_score,
+                    "match_type": "verified"
+                })
+
+            # If On Your Data didn't return citations but we have an answer,
+            # try to find supporting evidence via direct search
+            if not evidence_items and found:
+                logger.info("No citations from On Your Data, supplementing with search")
+                extracted_refs = self._extract_policy_refs_from_response(answer_text)
 
                 if extracted_refs:
-                    logger.info(f"Extracted {len(extracted_refs)} policy refs from response: {extracted_refs}")
-                    all_results = []
-                    seen_files = set()
-
-                    for ref in extracted_refs[:3]:  # Limit to 3 policies
+                    for ref in extracted_refs[:3]:
                         try:
-                            found_match = False
-
-                            # First, try to find by exact or partial reference number match
                             if ref['reference_number']:
-                                ref_results = self.search_index.search(
+                                # Wrap sync search in thread to avoid blocking
+                                ref_results = await asyncio.to_thread(
+                                    self.search_index.search,
                                     query=ref['reference_number'],
-                                    top=5,
-                                    filter_expr=filter_expr,
-                                    use_semantic_ranking=True
-                                )
-                                for r in ref_results:
-                                    # Check if reference number matches (exact or partial)
-                                    if r.reference_number and (
-                                        r.reference_number == ref['reference_number'] or
-                                        ref['reference_number'] in r.reference_number or
-                                        r.reference_number in ref['reference_number']
-                                    ):
-                                        if r.source_file and r.source_file not in seen_files:
-                                            all_results.append(r)
-                                            seen_files.add(r.source_file)
-                                            found_match = True
-                                            logger.info(f"Found exact ref match: {r.title} (Ref: {r.reference_number})")
-                                            break
-
-                            # If no ref match, try title with semantic ranking (only high confidence)
-                            if not found_match and ref['title']:
-                                ref_results = self.search_index.search(
-                                    query=ref['title'],
                                     top=3,
                                     filter_expr=filter_expr,
                                     use_semantic_ranking=True
                                 )
                                 for r in ref_results:
-                                    # Only accept if title is very similar (semantic reranker score > 2.5)
-                                    # or title contains key words from the extracted title
-                                    title_words = set(ref['title'].lower().split())
-                                    result_words = set(r.title.lower().split())
-                                    common_words = title_words & result_words
-                                    # Need at least 2 common meaningful words or high reranker score
-                                    meaningful_common = common_words - {'the', 'a', 'an', 'of', 'and', 'or', 'in', 'for', 'to'}
-                                    if (len(meaningful_common) >= 2 or
-                                        (r.reranker_score and r.reranker_score > 2.5)):
-                                        if r.source_file and r.source_file not in seen_files:
-                                            all_results.append(r)
-                                            seen_files.add(r.source_file)
-                                            found_match = True
-                                            logger.info(f"Found title match: {r.title} (score: {r.reranker_score})")
-                                            break
-
+                                    if r.reference_number and (
+                                        r.reference_number == ref['reference_number'] or
+                                        ref['reference_number'] in r.reference_number
+                                    ):
+                                        evidence_items.append(
+                                            EvidenceItem(
+                                                snippet=_truncate_verbatim(r.content or ""),
+                                                citation=r.citation,
+                                                title=r.title,
+                                                reference_number=r.reference_number,
+                                                section=r.section,
+                                                applies_to=r.applies_to,
+                                                source_file=r.source_file,
+                                                score=r.score,
+                                                reranker_score=r.reranker_score,
+                                                match_type="verified",
+                                            )
+                                        )
+                                        sources.append({
+                                            "citation": r.citation,
+                                            "source_file": r.source_file,
+                                            "title": r.title,
+                                            "reference_number": r.reference_number,
+                                            "section": r.section,
+                                            "applies_to": r.applies_to,
+                                            "score": r.score,
+                                            "match_type": "verified"
+                                        })
+                                        break
                         except Exception as e:
-                            logger.warning(f"Failed to search for ref {ref}: {e}")
+                            logger.warning(f"Supplemental search failed for ref {ref}: {e}")
 
-                    if all_results:
-                        evidence_items = build_supporting_evidence(all_results, limit=3, match_type="verified")
-                        sources = [{
-                            "citation": r.citation,
-                            "source_file": r.source_file,
-                            "title": r.title,
-                            "reference_number": r.reference_number,
-                            "section": r.section,
-                            "applies_to": r.applies_to,
-                            "date_updated": r.date_updated,
-                            "score": r.score,
-                            "document_owner": r.document_owner,
-                            "date_approved": r.date_approved,
-                            "match_type": "verified"
-                        } for r in all_results[:3]]
-                        logger.info(f"Found {len(evidence_items)} verified matching policies for extracted refs")
-                    else:
-                        logger.info(f"Extracted refs not found in index: {extracted_refs}")
-
-                # HALLUCINATION DETECTION:
-                # If agent cited policies (extracted_refs) but NONE were found in index,
-                # this is likely a hallucination. Return NOT_FOUND instead of showing fake answer.
-                if extracted_refs and not evidence_items:
-                    logger.warning(
-                        f"HALLUCINATION DETECTED: Agent cited {len(extracted_refs)} policies "
-                        f"({extracted_refs}) but NONE exist in the index. Returning NOT_FOUND."
-                    )
-                    return ChatResponse(
-                        response=NOT_FOUND_MESSAGE,
-                        summary=NOT_FOUND_MESSAGE,
-                        evidence=[],
-                        raw_response=result.raw_response,
-                        sources=[],
-                        chunks_used=0,
-                        found=False
-                    )
-
-                # Fallback: If no refs extracted at all, use query-based search
-                # This is for cases where agent didn't cite specific policies
-                if not evidence_items and not extracted_refs:
-                    logger.info("No extracted refs found, using expanded query search (related content)")
-                    try:
-                        # Use the original query + expanded terms for better relevance
-                        search_results = self.search_index.search(
-                            query=expanded_query,
-                            top=10,  # Get more candidates for reranking
-                            filter_expr=filter_expr,
-                            use_semantic_ranking=True
-                        )
-                        if search_results:
-                            # Deduplicate by source_file and take top 3
-                            seen_files = set()
-                            unique_results = []
-                            for r in search_results:
-                                if r.source_file and r.source_file not in seen_files:
-                                    unique_results.append(r)
-                                    seen_files.add(r.source_file)
-                                if len(unique_results) >= 3:
-                                    break
-
-                            # Mark as "related" since these are fallback results, not exact matches
-                            evidence_items = build_supporting_evidence(unique_results, limit=3, match_type="related")
-                            sources = [{
-                                "citation": r.citation,
-                                "source_file": r.source_file,
-                                "title": r.title,
-                                "reference_number": r.reference_number,
-                                "section": r.section,
-                                "applies_to": r.applies_to,
-                                "date_updated": r.date_updated,
-                                "score": r.score,
-                                "document_owner": r.document_owner,
-                                "date_approved": r.date_approved,
-                                "match_type": "related"
-                            } for r in unique_results]
-                            logger.info(f"Supplemented with {len(evidence_items)} related search results (fallback)")
-                    except Exception as search_err:
-                        logger.warning(f"Supplemental search failed: {search_err}")
-
-            # Extract clean quick answer for display (strip RISEN formatting)
-            clean_summary = _extract_quick_answer(summary_text)
-
-            # Update found based on actual evidence (not stale value from line 402)
-            actual_found = bool(evidence_items) and summary_text != NOT_FOUND_MESSAGE
+            # Extract clean quick answer for display
+            clean_summary = _extract_quick_answer(answer_text)
 
             return ChatResponse(
-                response=summary_text,  # Keep full response for reference
-                summary=clean_summary,  # Clean version for Quick Answer UI
+                response=answer_text,
+                summary=clean_summary,
                 evidence=evidence_items,
-                raw_response=result.raw_response,
+                raw_response=str(result.raw_response),
                 sources=sources,
                 chunks_used=len(evidence_items),
-                found=actual_found
+                found=bool(evidence_items)
             )
 
+        except asyncio.TimeoutError:
+            logger.warning("On Your Data request timed out after 15s")
+            return await self._chat_with_standard_retrieval(request, filter_expr)
         except Exception as e:
-            logger.warning(f"Agentic retrieval failed, falling back to standard: {e}")
+            logger.warning(f"On Your Data failed, falling back to standard retrieval: {e}")
             return await self._chat_with_standard_retrieval(request, filter_expr)
 
     async def _chat_with_standard_retrieval(
@@ -642,12 +539,19 @@ class ChatService:
         request: ChatRequest,
         filter_expr: Optional[str]
     ) -> ChatResponse:
-        """Handle chat using standard hybrid search retrieval."""
+        """
+        Handle chat using standard hybrid search retrieval.
+
+        This is the fallback when On Your Data is not available.
+        Returns search results with a basic "not found" message if no LLM configured.
+        """
         # Expand query with synonyms for better retrieval
         expanded_query, expansion = self._expand_query(request.message)
 
         try:
-            search_results = self.search_index.search(
+            # Wrap sync search in thread to avoid blocking
+            search_results = await asyncio.to_thread(
+                self.search_index.search,
                 query=expanded_query,
                 top=5,
                 filter_expr=filter_expr,
@@ -683,87 +587,12 @@ class ChatService:
             "date_approved": r.date_approved
         } for r in search_results]
 
-        summary_text = NOT_FOUND_MESSAGE if not search_results else ""
-        raw_response_text = summary_text
-
-        if self.foundry_client and self.foundry_client.is_configured:
-            if search_results:
-                # Use Prompty if available
-                if self.prompty:
-                    try:
-                        # Prompty execution (synchronous usually, but we can wrap it if needed)
-                        # Currently Prompty.load() returns a callable that handles the LLM call
-                        # However, since we want to use our own client or custom logic, 
-                        # we might just want the rendered messages. 
-                        # For simplicity in this "native" refactor, we'll use the prompty object directly if supported,
-                        # OR fallback to manual rendering if we need specific client control.
-                        
-                        # Azure AI Foundry "Prompty" library integrates with Azure OpenAI connections.
-                        # If properly configured in the .prompty file (using env vars), it can run standalone.
-                        
-                        # Render messages using the template
-                        # Note: Prompty libraries vary in API. Assuming we use it to render messages
-                        # and then send to our client for consistency with existing pattern.
-                        
-                        # Render prompt to messages (this is a hypothetical standard API usage)
-                        # Since standard Prompty usage is `result = prompty(context=..., question=...)`,
-                        # we can try that first if we trust the env config in the prompty file.
-                        
-                        # For now, let's use our existing client but populate it with Prompty content 
-                        # if we could extract it. But Prompty is designed to BE the runner.
-                        
-                        # Let's use the Prompty runner directly for the "Native" experience
-                        response_text = self.prompty(
-                            context=context,
-                            question=request.message
-                        )
-                        summary_text = response_text or NOT_FOUND_MESSAGE
-                        raw_response_text = response_text
-                        
-                    except Exception as e:
-                        logger.warning(f"Prompty execution failed: {e}")
-                        # Fallback to manual logic
-                        summary_text = LLM_UNAVAILABLE_MESSAGE
-                        raw_response_text = LLM_UNAVAILABLE_MESSAGE
-                else:
-                    # Legacy/Fallback logic
-                    summary_instructions = f"""You are producing the QUICK ANSWER summary for a RUSH policy question.
-Requirements:
-- Provide 2-3 sentences that directly answer the user's question.
-- Reference policy titles and reference numbers in parentheses when available (e.g., Medication Administration (MED-001)).
-- Use ONLY the policy chunks provided below.
-- If the information is not in the chunks, respond EXACTLY with: "{NOT_FOUND_MESSAGE}".
-- Do not include bullet points or quote blocks. The supporting evidence will be shown separately.
-"""
-                    user_prompt = f"""{summary_instructions}
-
-POLICY CHUNKS:
-{context}
-
-USER QUESTION: {request.message}
-"""
-                    try:
-                        result = await self.foundry_client.chat_completion(
-                            messages=[
-                                {"role": "system", "content": RISEN_PROMPT},
-                                {"role": "user", "content": user_prompt}
-                            ],
-                            temperature=0.1,
-                            max_tokens=800,
-                        )
-                        response_text = result["content"].strip()
-                        summary_text = response_text or NOT_FOUND_MESSAGE
-                        raw_response_text = result["content"]
-                    except Exception as chat_error:
-                        logger.warning(f"Chat completion failed, using fallback: {chat_error}")
-                        summary_text = LLM_UNAVAILABLE_MESSAGE
-                        raw_response_text = LLM_UNAVAILABLE_MESSAGE
-            else:
-                summary_text = NOT_FOUND_MESSAGE
-                raw_response_text = NOT_FOUND_MESSAGE
+        # Without On Your Data, we can only return search results
+        # The frontend should display these with a notice that LLM is unavailable
+        if not search_results:
+            summary_text = NOT_FOUND_MESSAGE
         else:
-            summary_text = summary_text or (LLM_UNAVAILABLE_MESSAGE if search_results else NOT_FOUND_MESSAGE)
-            raw_response_text = summary_text
+            summary_text = LLM_UNAVAILABLE_MESSAGE
 
         found = bool(search_results) and summary_text != NOT_FOUND_MESSAGE
 
@@ -775,7 +604,7 @@ USER QUESTION: {request.message}
             response=summary_text,
             summary=summary_text,
             evidence=evidence_items,
-            raw_response=raw_response_text,
+            raw_response=summary_text,
             sources=sources,
             chunks_used=len(search_results),
             found=found

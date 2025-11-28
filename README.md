@@ -1,51 +1,89 @@
 # RUSH Policy RAG Agent
 
-Complete RAG (Retrieval-Augmented Generation) system for RUSH University System for Health policy retrieval, built with Azure AI Foundry Agents and a modern Next.js frontend.
+Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University System for Health policy retrieval.
+
+**Tech Stack**: FastAPI backend + Next.js 14 frontend + Azure OpenAI "On Your Data" (vectorSemanticHybrid)
 
 ## Architecture
 
 ```
-User Browser
-    │
-    ▼
-┌─────────────────┐
-│  Next.js Frontend│ (port 3000)
-└────────┬────────┘
-         │ HTTP
-         ▼
-┌─────────────────┐
-│  FastAPI Backend │ (port 8000)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────┐
-│  Synonym Expansion                              │
-│  ├── 155 medical abbreviations                  │
-│  ├── 56 misspelling corrections                 │
-│  └── Hospital codes & Rush terms                │
-└────────┬────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────┐
-│  Azure AI Foundry Agent                          │
-│  ├── VECTOR_SEMANTIC_HYBRID Search              │
-│  │   ├── Azure AI Search (rush-policies index)  │
-│  │   └── 132 synonym rules for BM25             │
-│  └── GPT-4.1 Response Generation                │
-└─────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Azure Storage  │ (PDF Policies)
-└─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PRODUCTION ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  User Browser                                                                │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  Next.js 14 Frontend (Port 3000)                                    │    │
+│  │  ├── App Router (/src/app/)                                         │    │
+│  │  ├── API Proxy Routes → FastAPI                                     │    │
+│  │  ├── Security Headers (CSP, HSTS, X-Frame-Options)                  │    │
+│  │  └── RUSH Brand Styling                                             │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│       │                                                                      │
+│       ▼ HTTP/JSON                                                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  FastAPI Backend (Port 8000)                                        │    │
+│  │  ├── /api/chat - Policy Q&A via Azure OpenAI "On Your Data"        │    │
+│  │  ├── /api/search - Direct Azure AI Search                          │    │
+│  │  ├── /api/pdf/{filename} - PDF viewing (SAS URLs)                  │    │
+│  │  ├── /api/upload - PDF upload & indexing                           │    │
+│  │  ├── /api/admin/* - Admin endpoints                                │    │
+│  │  ├── /health - Health check                                        │    │
+│  │  ├── Rate Limiting (slowapi - 30/min)                              │    │
+│  │  ├── Async I/O (azure.storage.blob.aio)                            │    │
+│  │  └── Azure AD Authentication (optional)                            │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  Azure Services                                                      │    │
+│  │  ├── Azure OpenAI "On Your Data"                                    │    │
+│  │  │   ├── GPT-4.1 Chat Completions                                   │    │
+│  │  │   ├── vectorSemanticHybrid Search (Vector + BM25 + L2 Reranking)│    │
+│  │  │   └── semantic_configuration for best quality                    │    │
+│  │  ├── Azure AI Search (rush-policies index)                          │    │
+│  │  │   ├── 29-field schema                                           │    │
+│  │  │   ├── 132 synonym rules                                         │    │
+│  │  │   └── text-embedding-3-large (3072-dim)                         │    │
+│  │  └── Azure Blob Storage (policies-active)                           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  NO AZURE FUNCTIONS - Pure FastAPI + Next.js                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Features
 
-- **Persistent Agent**: Created once, reused by ID (no per-request overhead)
-- **VECTOR_SEMANTIC_HYBRID**: Vector + BM25 + RRF + L2 reranking for optimal recall
-- **1,800+ Document Support**: top_k=50 for semantic ranker optimization
-- **Literal Retrieval**: Zero-overlap chunking for compliance accuracy
+- **Azure OpenAI "On Your Data"**: vectorSemanticHybrid search (Vector + BM25 + L2 Reranking)
+- **Production Security**: Rate limiting, input validation, CSP, HSTS, Azure AD auth support
+- **PDF Upload & Viewing**: End-to-end pipeline with async blob storage
+- **1,800+ Document Support**: top_k=50 with semantic ranker optimization
+- **Zero-Overlap Chunking**: For literal compliance accuracy
+
+## Architecture Status: ✅ COMPLETED
+
+The stack has been simplified to **FastAPI + Next.js only** (no Azure Functions). See [`docs/SINGLE_BACKEND_SIMPLIFICATION.md`](docs/SINGLE_BACKEND_SIMPLIFICATION.md) for details.
+
+## Azure Services Required
+
+> **Important**: This application **requires** Azure services to function. It cannot run without Azure AI Search (vector store) and Azure Blob Storage (PDF storage).
+
+| Azure Service | Purpose | Required |
+|---------------|---------|----------|
+| **Azure AI Search** | Vector store (3072-dim embeddings) + semantic ranking + 132 synonym rules | ✅ **Required** |
+| **Azure OpenAI** | GPT-4.1 (chat) + text-embedding-3-large (embeddings) | ✅ **Required** |
+| **Azure Blob Storage** | PDF document storage (3 containers: source, active, archive) | ✅ **Required** |
+| **Azure Container Apps** | Host FastAPI backend + Next.js frontend | ✅ **Required** |
+| **Azure AD** | Authentication for production | Optional |
+
+**Why these are required:**
+- **Azure AI Search**: Stores document embeddings (3072-dim vectors), enables hybrid search, and provides L2 semantic reranking
+- **Azure Blob Storage**: Stores the actual PDF files; required for the PDF viewing feature and document sync
+- **Azure OpenAI**: Powers the chat (GPT-4.1) and generates embeddings (text-embedding-3-large)
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step Azure resource creation commands.
 
 ## Quick Start
 
@@ -53,9 +91,9 @@ User Browser
 
 - Python 3.9+
 - Node.js 18+
-- Azure AI Foundry project with connections configured
 - Azure AI Search service with `rush-policies` index
-- Azure Storage account with policy PDFs
+- Azure OpenAI service (GPT-4.1 + text-embedding-3-large)
+- Azure Blob Storage account with 3 containers
 
 ### 2. Environment Setup
 
@@ -66,25 +104,24 @@ cp .env.example .env
 
 Required variables:
 ```bash
-AZURE_AI_PROJECT_ENDPOINT=https://<ai-services>.services.ai.azure.com/api/projects/<project>
-FOUNDRY_AGENT_ID=asst_WQSFmyXMHpJedZM0Rwo43zk1
+# Azure AI Search
 SEARCH_ENDPOINT=https://<search>.search.windows.net
 SEARCH_API_KEY=<key>
-USE_AGENTIC_RETRIEVAL=true
+
+# Azure OpenAI
+AOAI_ENDPOINT=https://<openai>.openai.azure.com/
+AOAI_API_KEY=<key>
+AOAI_CHAT_DEPLOYMENT=gpt-4.1
+AOAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+
+# Azure Blob Storage
+STORAGE_CONNECTION_STRING=<connection_string>
+
+# Enable On Your Data (vectorSemanticHybrid)
+USE_ON_YOUR_DATA=true
 ```
 
-### 3. Create/Update Agent (One-time)
-
-```bash
-# Activate venv and create the persistent agent
-source .venv/bin/activate
-python scripts/create_foundry_agent.py
-
-# Or update existing agent
-python scripts/create_foundry_agent.py --update --query-type VECTOR_SEMANTIC_HYBRID --top-k 50
-```
-
-### 4. Start Services
+### 3. Start Services
 
 ```bash
 # Terminal 1: Backend
@@ -101,42 +138,36 @@ Open http://localhost:3000 and ask a policy question.
 ```
 rag_pt_rush/
 ├── apps/
-│   ├── backend/                    # FastAPI backend
-│   │   ├── main.py                 # API entrypoint
-│   │   ├── agent_config.json       # Persistent agent config
+│   ├── backend/                       # FastAPI backend
+│   │   ├── main.py                    # API entrypoint
 │   │   ├── app/
 │   │   │   ├── services/
-│   │   │   │   ├── foundry_agent.py   # AgentsClient SDK
-│   │   │   │   ├── chat_service.py    # Chat orchestration
-│   │   │   │   └── synonym_service.py # Query-time synonym expansion
-│   │   │   └── api/routes/         # API endpoints
-│   │   ├── azure_policy_index.py   # Search index + 132 synonym rules
+│   │   │   │   ├── on_your_data_service.py  # Azure OpenAI "On Your Data"
+│   │   │   │   ├── chat_service.py          # Chat orchestration
+│   │   │   │   ├── upload_service.py        # PDF upload & indexing
+│   │   │   │   └── synonym_service.py       # Query-time synonym expansion
+│   │   │   ├── api/routes/            # API endpoints
+│   │   │   └── core/
+│   │   │       ├── config.py          # Pydantic settings
+│   │   │       ├── rate_limit.py      # slowapi rate limiting
+│   │   │       └── auth.py            # Azure AD authentication
+│   │   ├── azure_policy_index.py      # Search index + 132 synonym rules
 │   │   ├── preprocessing/
-│   │   │   └── chunker.py          # PDF chunking (Docling + PyMuPDF)
-│   │   └── policytech_prompt.txt   # RISEN prompt
-│   └── frontend/                   # Next.js 14 app
-│       ├── src/app/                # App Router
-│       └── src/components/         # UI components
+│   │   │   └── chunker.py             # PDF chunking (Docling + PyMuPDF)
+│   │   └── policytech_prompt.txt      # RISEN prompt
+│   └── frontend/                      # Next.js 14 app
+│       ├── src/app/                   # App Router
+│       ├── src/components/            # UI components
+│       └── next.config.js             # Security headers
 ├── scripts/
-│   └── create_foundry_agent.py     # Agent management CLI
-├── semantic-search-synonyms.json   # 24 synonym groups (155 abbrevs, 56 misspellings)
-├── start_backend.sh                # Backend launcher
-├── start_frontend.sh               # Frontend launcher
-└── .env                            # Environment variables
-```
-
-## Agent Configuration
-
-Current persistent agent:
-```json
-{
-  "agent_id": "asst_WQSFmyXMHpJedZM0Rwo43zk1",
-  "agent_name": "rush-policy-agent",
-  "model": "gpt-4.1",
-  "query_type": "VECTOR_SEMANTIC_HYBRID",
-  "top_k": 50,
-  "index_name": "rush-policies"
-}
+│   └── upload_pdfs_to_blob.py         # PDF upload utility
+├── docs/
+│   ├── SINGLE_BACKEND_SIMPLIFICATION.md  # Architecture decision
+│   └── CHANGELOG.md                   # Release notes
+├── semantic-search-synonyms.json      # 24 synonym groups
+├── start_backend.sh                   # Backend launcher
+├── start_frontend.sh                  # Frontend launcher
+└── .env                               # Environment variables
 ```
 
 ### Query Flow
@@ -151,37 +182,15 @@ Synonym Expansion (SynonymService)
     ↓
 Expanded: "ED emergency department code blue cardiac arrest policy"
     ↓
-VECTOR_SEMANTIC_HYBRID Search
-├── Vector Search (embedding similarity)
+Azure OpenAI "On Your Data" (vectorSemanticHybrid)
+├── Vector Search (text-embedding-3-large)
 ├── BM25 + 132 Synonym Rules (keyword matches)
-├── RRF Fusion (combine results)
-└── L2 Reranking (top 50 → best 5)
+├── L2 Semantic Reranking (top 50 → best 5)
+└── semantic_configuration for quality
     ↓
 GPT-4.1 + RISEN Prompt
     ↓
 Styled Response with Citations
-```
-
-## Agent Management
-
-```bash
-# Create new agent
-python scripts/create_foundry_agent.py
-
-# Update existing agent
-python scripts/create_foundry_agent.py --update
-
-# List all agents
-python scripts/create_foundry_agent.py --list
-
-# Delete agent
-python scripts/create_foundry_agent.py --delete
-
-# Custom configuration
-python scripts/create_foundry_agent.py --update \
-  --query-type VECTOR_SEMANTIC_HYBRID \
-  --top-k 50 \
-  --model gpt-4.1
 ```
 
 ## Document Ingestion & Sync Workflow
@@ -524,12 +533,17 @@ When backend is running:
 ## Troubleshooting
 
 ### Backend Issues
-- **Agent not found**: Run `python scripts/create_foundry_agent.py`
-- **Connection errors**: Check `AZURE_AI_PROJECT_ENDPOINT` in `.env`
+- **Connection errors**: Check `AOAI_ENDPOINT` and `SEARCH_ENDPOINT` in `.env`
+- **Rate limit errors**: Default is 30/min - check `app/core/rate_limit.py`
+- **Auth errors**: Set `REQUIRE_AAD_AUTH=false` for local development
 
 ### Search Issues
 - **No results**: Verify index has documents (`python azure_policy_index.py stats`)
-- **Low relevance**: Check `query_type` is `VECTOR_SEMANTIC_HYBRID`
+- **Low relevance**: Ensure `USE_ON_YOUR_DATA=true` for vectorSemanticHybrid
+
+### PDF Issues
+- **Upload fails**: Check `STORAGE_CONNECTION_STRING` is valid
+- **404 on PDF view**: Verify PDF exists in `policies-active` container
 
 ## License
 
@@ -538,5 +552,5 @@ Internal use only - Rush University System for Health
 ## Support
 
 - Check CLAUDE.md for development guidance
-- Review Azure AI Foundry documentation
+- See [DEPLOYMENT.md](DEPLOYMENT.md) for Azure deployment steps
 - Contact Policy Administration at https://rushumc.navexone.com/

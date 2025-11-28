@@ -251,7 +251,7 @@ def show_statistics(results: Dict[str, Any]) -> None:
     # Azure stats
     if 'azure' in results and 'report' in results['azure']:
         report = results['azure']['report']
-        print_colored("📊 AZURE AI FOUNDRY", Colors.CYAN)
+        print_colored("📊 AZURE AI EVALUATION", Colors.CYAN)
         print(f"   Total Cases: {report['summary']['total_cases']}")
         print(f"   Pass Rate: {report['summary']['pass_rate']}")
         print(f"   Avg Groundedness: {report['average_scores']['groundedness']}/5")

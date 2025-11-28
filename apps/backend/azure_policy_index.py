@@ -60,7 +60,6 @@ from openai import AzureOpenAI
 
 # Import our chunker
 from preprocessing.chunker import PolicyChunk
-from foundry_client import FoundryRAGClient, get_foundry_client
 
 
 # Configuration from environment
@@ -352,17 +351,15 @@ class PolicySearchIndex:
         search_api_key: str = SEARCH_API_KEY,
         aoai_endpoint: str = AOAI_ENDPOINT,
         aoai_api_key: str = AOAI_API_KEY,
-        embedding_deployment: str = AOAI_EMBEDDING_DEPLOYMENT,
-        foundry_client: Optional[FoundryRAGClient] = None
+        embedding_deployment: str = AOAI_EMBEDDING_DEPLOYMENT
     ):
         """
         Initialize search index client.
 
         Credential resolution order (logged with [CREDENTIAL] prefix):
         1. search_api_key parameter (explicit API key)
-        2. Foundry client connection (if provided and configured)
-        3. SEARCH_API_KEY environment variable
-        4. DefaultAzureCredential (managed identity / az cli)
+        2. SEARCH_API_KEY environment variable
+        3. DefaultAzureCredential (managed identity / az cli)
         """
         self.index_name = index_name
         self.embedding_deployment = embedding_deployment
@@ -378,23 +375,14 @@ class PolicySearchIndex:
             credential = AzureKeyCredential(search_api_key)
             credential_source = "parameter (API key)"
 
-        # Priority 2: Foundry client resolution
-        elif foundry_client and foundry_client.use_foundry:
-            conn = foundry_client.get_search_connection()
-            if conn and hasattr(conn, 'endpoint_url'):
-                endpoint = conn.endpoint_url
-                credential = DefaultAzureCredential()
-                credential_source = "Foundry project (DefaultAzureCredential)"
-                logger.info(f"[CREDENTIAL] Search endpoint from Foundry: {endpoint}")
-
-        # Priority 3: Environment variable (API key)
-        if not credential and SEARCH_API_KEY:
+        # Priority 2: Environment variable (API key)
+        elif SEARCH_API_KEY:
             endpoint = search_endpoint or SEARCH_ENDPOINT
             credential = AzureKeyCredential(SEARCH_API_KEY)
             credential_source = "env SEARCH_API_KEY"
 
-        # Priority 4: DefaultAzureCredential fallback (managed identity / az cli)
-        if not credential:
+        # Priority 3: DefaultAzureCredential fallback (managed identity / az cli)
+        else:
             endpoint = search_endpoint or SEARCH_ENDPOINT
             credential = DefaultAzureCredential()
             credential_source = "DefaultAzureCredential (no API key found)"
@@ -420,13 +408,12 @@ class PolicySearchIndex:
             credential=self.credential
         )
 
-        # Azure OpenAI client for embeddings (Legacy/Direct)
-        # Ideally, embeddings should also come via Foundry, but for now we keep direct AOAI
-        # if not using integrated vectorization
+        # Azure OpenAI client for embeddings
         self.aoai_client = AzureOpenAI(
             azure_endpoint=aoai_endpoint,
             api_key=aoai_api_key,
-            api_version="2024-06-01"
+            api_version="2024-06-01",
+            timeout=15.0  # 15-second timeout for fast failure detection
         )
 
         # Store AOAI config for vectorizer
@@ -1105,6 +1092,35 @@ class PolicySearchIndex:
         except HttpResponseError as e:
             logger.error(f"HTTP error getting stats: {e}")
             return {"error": str(e)}
+
+    def close(self) -> None:
+        """
+        Clean up resources.
+
+        Should be called during application shutdown to release connections.
+        """
+        if self.aoai_client is not None:
+            try:
+                self.aoai_client.close()
+                logger.info("PolicySearchIndex AOAI client closed")
+            except Exception as e:
+                logger.warning(f"Error closing AOAI client: {e}")
+
+        if self.search_client is not None:
+            try:
+                if hasattr(self.search_client, 'close'):
+                    self.search_client.close()
+                logger.info("PolicySearchIndex search client closed")
+            except Exception as e:
+                logger.warning(f"Error closing search client: {e}")
+
+        if self.index_client is not None:
+            try:
+                if hasattr(self.index_client, 'close'):
+                    self.index_client.close()
+                logger.info("PolicySearchIndex index client closed")
+            except Exception as e:
+                logger.warning(f"Error closing index client: {e}")
 
 
 def format_rag_context(results: List[SearchResult]) -> str:

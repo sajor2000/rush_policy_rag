@@ -12,6 +12,43 @@
 
 ---
 
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PRODUCTION STACK (FastAPI + Next.js)                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Browser → Next.js Frontend → FastAPI Backend → Azure Services              │
+│                                                    ├── Azure AI Search       │
+│                                                    ├── Azure OpenAI          │
+│                                                    └── Azure Blob Storage    │
+│                                                                              │
+│  NO AZURE FUNCTIONS - Pure FastAPI + Next.js                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Tech Stack**: FastAPI backend + Next.js 14 frontend + Azure OpenAI "On Your Data" (vectorSemanticHybrid)
+
+**Architecture Status**: ✅ COMPLETED - See [`docs/SINGLE_BACKEND_SIMPLIFICATION.md`](docs/SINGLE_BACKEND_SIMPLIFICATION.md)
+
+---
+
+## Required Azure Resources
+
+> ⚠️ **Important**: This application **requires** the following Azure services to function:
+
+| Azure Service | Purpose | Required | Monthly Cost |
+|---------------|---------|----------|--------------|
+| **Azure AI Search** | Vector store (3072-dim) + 132 synonym rules | ✅ **Required** | ~$75 (Basic) |
+| **Azure OpenAI** | GPT-4.1 + text-embedding-3-large | ✅ **Required** | Variable (token-based) |
+| **Azure Blob Storage** | PDF storage (3 containers) | ✅ **Required** | ~$3-$48 |
+| **Azure Container Apps** | Host backend + frontend | ✅ **Required** | ~$70-$280 |
+| **Azure Container Registry** | Container images | ✅ **Required** | ~$5 (Basic) |
+| **Application Insights** | Monitoring & logging | Optional | ~$0-$46 |
+
+---
+
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
@@ -28,7 +65,9 @@
 
 ## Executive Summary
 
-The RUSH Policy RAG Agent is a full-stack application leveraging Azure AI services for intelligent policy retrieval. Monthly operational costs scale primarily with query volume and compute requirements.
+The RUSH Policy RAG Agent is a production-ready application using **FastAPI + Next.js + Azure OpenAI "On Your Data"** for intelligent policy retrieval. The architecture has been simplified to eliminate Azure Functions - all traffic flows through FastAPI.
+
+Monthly operational costs scale primarily with query volume and compute requirements.
 
 ### Cost Drivers (by impact)
 
@@ -67,6 +106,11 @@ Based on maximum traffic capacity of **500 queries/day**:
 
 The largest variable cost component, scaling directly with query volume.
 
+**Azure OpenAI "On Your Data"** (vectorSemanticHybrid search)
+- Uses Chat Completions API with integrated Azure AI Search
+- Combines Vector + BM25 + L2 Semantic Reranking for best quality
+- No additional cost beyond standard token pricing
+
 **GPT-4.1 Chat Completions**
 - Input tokens: ~$0.01 per 1,000 tokens
 - Output tokens: ~$0.03 per 1,000 tokens
@@ -94,11 +138,13 @@ The largest variable cost component, scaling directly with query volume.
 Fixed monthly cost based on tier selection.
 
 **Basic Tier** (~$75/month)
-- Vector search (HNSW algorithm)
+- Vector search (HNSW algorithm, 3072-dim embeddings)
 - BM25 keyword search
 - Synonym maps (132 healthcare rules)
 - 15 GB storage, 3 replicas max
-- **Not included**: Semantic ranking (requires Standard S1 at ~$250/mo)
+- **L2 Semantic Ranking**: Included via Azure OpenAI "On Your Data" integration
+
+> **Note**: Semantic ranking is achieved through the vectorSemanticHybrid query type in Azure OpenAI "On Your Data", which provides L2 reranking without requiring Standard S1 tier.
 
 | Tier | Base Cost | Query Overhead | **Total** | **95% CI** |
 |------|-----------|----------------|-----------|------------|
@@ -139,7 +185,12 @@ Consumption-based pricing with free tier allowance.
 
 ### D. Azure Blob Storage
 
-Minimal cost for document storage.
+Minimal cost for document storage. **Required for PDF viewing feature.**
+
+**3-Container Architecture**:
+- `policies-source` - Staging area (upload new PDFs here)
+- `policies-active` - Production (auto-synced, serves PDF viewer)
+- `policies-archive` - Deleted policies (retention)
 
 **Capacity**: ~5 GB (1,800 PDFs)
 - Hot tier: $0.018/GB/month = ~$0.10/month
@@ -200,8 +251,9 @@ Low Tier ($256/mo)                Medium Tier ($502/mo)           High Tier ($98
 |------|------|-------|
 | Initial PDF ingestion | ~$5 | Embeddings for ~10,000 chunks |
 | Search index creation | $0 | Included in Search tier |
-| AI Agent creation | $0 | Azure AI Foundry included |
+| Azure OpenAI deployment | $0 | Model deployments included |
 | Container registry setup | $0 | Basic tier (5 GB free) |
+| Blob container setup | $0 | 3 containers (source, active, archive) |
 | **Total Setup** | **~$5** | One-time only |
 
 ---
@@ -308,6 +360,7 @@ All pricing based on Azure East US region as of November 2025:
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 1.1 | Updated for simplified architecture (FastAPI + Next.js only, no Azure Functions) |
 | 2025-11-26 | 1.0 | Initial cost documentation |
 
 ---

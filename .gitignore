@@ -54,7 +54,12 @@ logs/
 
 # Document Registry data (local manifest with audit trail)
 apps/backend/data/
+data/
 document_manifest.json
+
+# Local working directories
+.vincent/
+RAG_READY/
 
 # Test outputs
 pipeline_results.json

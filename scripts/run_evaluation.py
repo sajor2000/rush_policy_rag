@@ -2,7 +2,7 @@
 """
 RAG Evaluation Runner for RUSH PolicyTech Agent.
 
-Runs batch evaluations using both Azure AI Foundry and RAGAS evaluators,
+Runs batch evaluations using both Azure AI and RAGAS evaluators,
 generates reports, and exports results for human review.
 
 Usage:
@@ -111,8 +111,8 @@ async def run_azure_evaluation(
     test_cases: List[Dict[str, Any]],
     rag_responses: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Run Azure AI Foundry evaluation."""
-    logger.info("Running Azure AI Foundry evaluation...")
+    """Run Azure AI evaluation."""
+    logger.info("Running Azure AI evaluation...")
     
     evaluator = AzureRAGEvaluator()
     
@@ -238,7 +238,7 @@ def print_summary(results: Dict[str, Any]) -> None:
     
     if "azure" in results:
         azure = results["azure"]["report"]
-        print("\n📊 AZURE AI FOUNDRY EVALUATION")
+        print("\n📊 AZURE AI EVALUATION")
         print(f"   Pass Rate: {azure['summary']['pass_rate']}")
         print(f"   Total Cases: {azure['summary']['total_cases']}")
         print(f"   Avg Groundedness: {azure['average_scores']['groundedness']}/5")

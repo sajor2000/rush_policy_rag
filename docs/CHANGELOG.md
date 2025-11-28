@@ -7,6 +7,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Tech Stack Finalization**: Confirmed production-ready FastAPI + Next.js architecture
+  - Backend: FastAPI with rate limiting (slowapi), async I/O, Azure AD auth support
+  - Frontend: Next.js 14 with security headers (CSP, HSTS, X-Frame-Options)
+  - All agent calls via Azure OpenAI "On Your Data" (vectorSemanticHybrid)
+  - PDF upload and viewing fully functional
+- **Production Security Audit**: Comprehensive security review completed
+  - Input validation with OData injection prevention
+  - File upload security (magic bytes, size limits, extension whitelist)
+  - CORS with explicit origins (not wildcards)
+  - Fail-fast config mode for production (`FAIL_ON_MISSING_CONFIG=true`)
+- **Azure OpenAI "On Your Data" Service**: Implemented full vectorSemanticHybrid search via Chat Completions API
+  - New `app/services/on_your_data_service.py` with proper `semantic_configuration` support
+  - Fixes azure-ai-agents SDK limitation (missing `semantic_configuration_name` parameter)
+  - Enables Vector + BM25 + L2 Semantic Reranking (best search quality)
+  - Priority: On Your Data > Foundry Agent > Standard retrieval
+- **Request Logging Middleware**: Added structured logging with correlation IDs
+  - New `app/core/logging_middleware.py` with request ID propagation
+  - JSON format support for App Insights compatibility (`LOG_FORMAT=json`)
+  - Latency tracking for all API endpoints
+- **Performance Baseline Script**: Enhanced `scripts/measure_backend_performance.py`
+  - Captures P50/P95 latency metrics for health, search, and chat endpoints
+  - JSON output to `docs/baselines/` for before/after comparisons
+- **Single Backend Simplification Plan**: Documented FastAPI-only roadmap in `docs/SINGLE_BACKEND_SIMPLIFICATION.md` and linked it from README/DEPLOYMENT so all contributors follow the new architecture direction.
 - **PyMuPDF Checkbox Extraction**: Added PyMuPDF-first extraction strategy for "Applies To" checkboxes
   - `_extract_applies_to_from_raw_pdf()` method in chunker.py (lines 687-750)
   - Fallback chain: PyMuPDF → Docling → Regex
@@ -22,6 +45,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `debug_pdf_structure.py` - PyMuPDF text extraction debugging
   - `test_checkbox_extraction.py` - A/B testing extraction methods
 - **Backend .gitignore**: Created dedicated .gitignore for apps/backend/
+- **PDF Upload Feature**: End-user PDF upload with automatic processing and indexing
+  - New `app/services/upload_service.py` - Upload handling with background job processing
+  - New `app/api/routes/upload.py` - REST API endpoints (`POST /api/upload`, `GET /api/upload/status/{job_id}`)
+  - New `PDFUpload.tsx` component - Drag & drop UI with progress tracking
+  - Full pipeline: Upload → Blob Storage → Docling/PyMuPDF chunking → Embedding → Azure AI Search indexing
+  - Jobs tracked in-memory with 24h TTL, status polling for progress updates
 
 ### Changed
 - **Documentation**: Updated README.md and CLAUDE.md
@@ -29,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Added full pipeline ingestion documentation
   - Added test strategy section
   - Updated tech stack to include PyMuPDF
+- **Deployment Guide**: Added FastAPI-only callout plus reference to the simplification plan so Azure rollouts avoid the deprecated Function proxy.
 - **Deployment**: Updated to full Azure deployment (Rush Azure tenant)
   - Added `infrastructure/azure-container-app-frontend.bicep` for frontend
   - Updated backend Bicep with Azure Container Apps CORS configuration
@@ -40,6 +70,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **License**: Changed from MIT to internal use only (Rush University System for Health)
 
 ### Removed
+- **`/serverless/agent-proxy/`**: Deleted deprecated Azure Function proxy (2025-11-28)
+  - All traffic now flows through FastAPI backend
+  - Single-backend simplification complete
+  - See `docs/SINGLE_BACKEND_SIMPLIFICATION.md` for migration details
 - Duplicate `env.example` file (kept `.env.example`)
 - Empty `test_pdfs/` directory
 - Unused `apps/frontend/.replit` config file

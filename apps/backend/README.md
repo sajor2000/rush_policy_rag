@@ -57,7 +57,7 @@ pip install docling docling-core
 ```bash
 # Azure AI Foundry (required for agents)
 export AZURE_AI_PROJECT_ENDPOINT="https://<ai-services>.services.ai.azure.com/api/projects/<project>"
-export FOUNDRY_AGENT_ID="asst_WQSFmyXMHpJedZM0Rwo43zk1"
+export FOUNDRY_AGENT_ID="asst_gtXECcCrc3sKu9tlBfVtqSr3"
 
 # Azure AI Search (required for vector store)
 export SEARCH_ENDPOINT="https://policychataisearch.search.windows.net"

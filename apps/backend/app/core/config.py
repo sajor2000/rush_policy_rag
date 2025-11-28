@@ -5,10 +5,12 @@ Features:
 - Type validation and coercion at startup
 - Environment variable loading with .env support
 - Startup warnings for missing critical settings
+- Fail-fast mode for production (FAIL_ON_MISSING_CONFIG=true)
 - Backward-compatible property names
 """
 
 import os
+import sys
 import logging
 from pathlib import Path
 from typing import Optional, List
@@ -24,6 +26,11 @@ load_dotenv(env_path, override=True)
 logger = logging.getLogger(__name__)
 
 
+class ConfigurationError(Exception):
+    """Raised when critical configuration is missing in production mode."""
+    pass
+
+
 class Settings(BaseSettings):
     """Application settings with startup validation."""
 
@@ -31,7 +38,7 @@ class Settings(BaseSettings):
     SEARCH_ENDPOINT: str = ""
     SEARCH_API_KEY: Optional[str] = None
 
-    # Azure OpenAI (fallback when Foundry not configured)
+    # Azure OpenAI (for On Your Data vectorSemanticHybrid search)
     AOAI_ENDPOINT: Optional[str] = None
     AOAI_API_KEY: Optional[str] = None
     AOAI_CHAT_DEPLOYMENT: str = "gpt-4.1"
@@ -39,24 +46,47 @@ class Settings(BaseSettings):
     # Admin
     ADMIN_API_KEY: Optional[str] = None
 
+    # Azure AD / Authentication
+    AZURE_AD_TENANT_ID: Optional[str] = None
+    AZURE_AD_CLIENT_ID: Optional[str] = None
+    AZURE_AD_TOKEN_AUDIENCE: Optional[str] = None
+    AZURE_AD_ALLOWED_CLIENT_IDS: str = ""
+    REQUIRE_AAD_AUTH: bool = False
+
     # CORS - stored as comma-separated string, parsed to list via property
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5000,http://127.0.0.1:3000,http://127.0.0.1:5000"
 
     # Server
     BACKEND_PORT: int = 8000
 
+    # Production mode - fail fast on missing critical config
+    # Set to true in production to catch misconfigurations at startup
+    FAIL_ON_MISSING_CONFIG: bool = False
+
     # Features
-    USE_AGENTIC_RETRIEVAL: bool = False
+    USE_ON_YOUR_DATA: bool = False  # Enable Azure OpenAI "On Your Data" for vectorSemanticHybrid
 
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
-    @field_validator('USE_AGENTIC_RETRIEVAL', mode='before')
+    @property
+    def ALLOWED_AAD_CLIENT_IDS(self) -> List[str]:
+        """Parse AZURE_AD_ALLOWED_CLIENT_IDS into a list."""
+        return [client.strip() for client in self.AZURE_AD_ALLOWED_CLIENT_IDS.split(",") if client.strip()]
+
+    @field_validator('USE_ON_YOUR_DATA', mode='before')
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean from string (handles 'true', 'false', '1', '0')."""
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes")
+        return bool(v)
+
+    @field_validator('REQUIRE_AAD_AUTH', 'FAIL_ON_MISSING_CONFIG', mode='before')
+    @classmethod
+    def parse_require_auth(cls, v):
         if isinstance(v, str):
             return v.lower() in ("true", "1", "yes")
         return bool(v)
@@ -85,11 +115,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode='after')
     def validate_required_services(self):
-        """Log warnings for missing critical configuration at startup."""
+        """
+        Validate configuration at startup.
+
+        Behavior depends on FAIL_ON_MISSING_CONFIG:
+        - False (default): Log warnings for missing config
+        - True: Raise ConfigurationError for missing critical config
+        """
+        critical_errors = []
         warnings = []
 
+        # Critical: SEARCH_ENDPOINT is required for core functionality
         if not self.SEARCH_ENDPOINT:
-            warnings.append("SEARCH_ENDPOINT not set - search functionality will fail")
+            critical_errors.append("SEARCH_ENDPOINT not set - search functionality will fail")
 
         if not self.SEARCH_API_KEY:
             warnings.append("SEARCH_API_KEY not set - will attempt DefaultAzureCredential")
@@ -97,8 +135,36 @@ class Settings(BaseSettings):
         if not self.AOAI_ENDPOINT:
             warnings.append("AOAI_ENDPOINT not set - Azure OpenAI fallback unavailable")
 
+        # Critical: AAD config required when auth is enabled
+        if self.REQUIRE_AAD_AUTH:
+            missing_auth = []
+            if not self.AZURE_AD_TENANT_ID:
+                missing_auth.append("AZURE_AD_TENANT_ID")
+            if not self.AZURE_AD_CLIENT_ID:
+                missing_auth.append("AZURE_AD_CLIENT_ID")
+            if missing_auth:
+                critical_errors.append(
+                    "REQUIRE_AAD_AUTH enabled but missing: " + ", ".join(missing_auth)
+                )
+
+        # Critical: Admin API key should be set in production
+        if self.FAIL_ON_MISSING_CONFIG and not self.ADMIN_API_KEY:
+            critical_errors.append("ADMIN_API_KEY not set - admin endpoints are unprotected")
+
+        # Log all warnings
         for w in warnings:
             logger.warning(f"[CONFIG] {w}")
+
+        # Handle critical errors based on mode
+        if critical_errors:
+            if self.FAIL_ON_MISSING_CONFIG:
+                error_msg = "Critical configuration errors:\n  - " + "\n  - ".join(critical_errors)
+                logger.error(f"[CONFIG] {error_msg}")
+                raise ConfigurationError(error_msg)
+            else:
+                # Just warn in development mode
+                for e in critical_errors:
+                    logger.warning(f"[CONFIG] {e}")
 
         return self
 
