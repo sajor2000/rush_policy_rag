@@ -420,6 +420,10 @@ class PolicySearchIndex:
         self.aoai_endpoint = aoai_endpoint
         self.aoai_api_key = aoai_api_key
 
+    def get_search_client(self) -> SearchClient:
+        """Return the SearchClient instance for direct operations."""
+        return self.search_client
+
     def create_synonym_map(self) -> None:
         """
         Create or update the synonym map for domain-specific terminology.
@@ -648,6 +652,49 @@ class PolicySearchIndex:
             SearchableField(
                 name="related_policies",
                 type=SearchFieldDataType.String
+            ),
+
+            # Version control fields (for monthly update tracking v1 → v2 transitions)
+            SimpleField(
+                name="version_number",
+                type=SearchFieldDataType.String,
+                filterable=True,
+                facetable=True
+            ),
+            SimpleField(
+                name="version_date",
+                type=SearchFieldDataType.DateTimeOffset,
+                filterable=True,
+                sortable=True
+            ),
+            SimpleField(
+                name="effective_date",
+                type=SearchFieldDataType.DateTimeOffset,
+                filterable=True,
+                sortable=True
+            ),
+            SimpleField(
+                name="expiration_date",
+                type=SearchFieldDataType.DateTimeOffset,
+                filterable=True,
+                sortable=True
+            ),
+            SimpleField(
+                name="policy_status",
+                type=SearchFieldDataType.String,
+                filterable=True,
+                facetable=True  # ACTIVE, SUPERSEDED, RETIRED, DRAFT
+            ),
+            SimpleField(
+                name="superseded_by",
+                type=SearchFieldDataType.String,
+                filterable=True
+            ),
+            SimpleField(
+                name="version_sequence",
+                type=SearchFieldDataType.Int32,
+                filterable=True,
+                sortable=True
             ),
         ]
 

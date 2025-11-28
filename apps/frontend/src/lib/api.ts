@@ -38,14 +38,39 @@ export interface ChatApiResponse {
 
 // Constants
 const MAX_MESSAGE_LENGTH = 2000;
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 60000; // Increased from 30s for RAG operations
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+
+// Rate limit tracking
+let rateLimitResetTime: number | null = null;
+
+/**
+ * Check if we're currently rate limited.
+ */
+export function isRateLimited(): boolean {
+  return rateLimitResetTime !== null && Date.now() < rateLimitResetTime;
+}
+
+/**
+ * Get time until rate limit resets in seconds.
+ */
+export function getRateLimitResetSeconds(): number {
+  if (!rateLimitResetTime) return 0;
+  const remaining = Math.ceil((rateLimitResetTime - Date.now()) / 1000);
+  return Math.max(0, remaining);
+}
 
 /**
  * Send a chat message with timeout, retry, and validation.
  */
 export async function sendMessage(message: string): Promise<ChatApiResponse> {
+  // Check if rate limited before sending
+  if (isRateLimited()) {
+    const waitTime = getRateLimitResetSeconds();
+    throw new Error(`Rate limited. Please wait ${waitTime} seconds before trying again.`);
+  }
+
   // Client-side validation
   if (!message || !message.trim()) {
     throw new Error("Message cannot be empty");
@@ -93,7 +118,41 @@ export async function sendMessage(message: string): Promise<ChatApiResponse> {
           (typeof data.message === 'string' ? data.message : null) ||
           `Request failed (${response.status})`;
 
-        // Retry on 5xx errors
+        // Handle 429 Rate Limit with Retry-After header
+        if (response.status === 429) {
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '60', 10);
+          rateLimitResetTime = Date.now() + (retryAfter * 1000);
+
+          if (attempt < MAX_RETRIES) {
+            lastError = new Error(`Rate limited. Waiting ${retryAfter}s before retry...`);
+            await sleep(retryAfter * 1000);
+            continue;
+          }
+          throw new Error(`Rate limited. Please wait ${retryAfter} seconds before trying again.`);
+        }
+
+        // Handle 503 Service Unavailable (circuit breaker open)
+        if (response.status === 503) {
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '10', 10);
+          if (attempt < MAX_RETRIES) {
+            lastError = new Error(errorMessage);
+            await sleep(retryAfter * 1000);
+            continue;
+          }
+          throw new Error("Service temporarily unavailable. Please try again in a few moments.");
+        }
+
+        // Handle 504 Gateway Timeout
+        if (response.status === 504) {
+          if (attempt < MAX_RETRIES) {
+            lastError = new Error("Request timed out. Retrying...");
+            await sleep(RETRY_DELAY_MS * attempt);
+            continue;
+          }
+          throw new Error("Request timed out. Please try again.");
+        }
+
+        // Retry on other 5xx errors
         if (response.status >= 500 && attempt < MAX_RETRIES) {
           lastError = new Error(errorMessage);
           await sleep(RETRY_DELAY_MS * attempt);

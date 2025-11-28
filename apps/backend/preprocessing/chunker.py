@@ -132,6 +132,15 @@ class PolicyChunk:
     regulatory_citations: Optional[str] = field(default=None)
     related_policies: Optional[str] = field(default=None)
 
+    # Version control fields (for monthly update tracking)
+    version_number: str = field(default="1.0")           # Policy version (e.g., "1.0", "2.0")
+    version_date: Optional[str] = field(default=None)    # ISO datetime when version was created
+    effective_date: Optional[str] = field(default=None)  # When policy takes effect
+    expiration_date: Optional[str] = field(default=None) # When policy expires (if any)
+    policy_status: str = field(default="ACTIVE")         # ACTIVE, SUPERSEDED, RETIRED, DRAFT
+    superseded_by: Optional[str] = field(default=None)   # Version that replaced this (e.g., "2.0")
+    version_sequence: int = field(default=1)             # Numeric sequence for sorting
+
     def __post_init__(self):
         if not self.content_hash:
             self.content_hash = hashlib.md5(self.text.encode()).hexdigest()[:12]
@@ -200,6 +209,14 @@ class PolicyChunk:
             "subcategory": self.subcategory,
             "regulatory_citations": self.regulatory_citations,
             "related_policies": self.related_policies,
+            # Version control fields
+            "version_number": self.version_number,
+            "version_date": self.version_date,
+            "effective_date": self.effective_date,
+            "expiration_date": self.expiration_date,
+            "policy_status": self.policy_status,
+            "superseded_by": self.superseded_by,
+            "version_sequence": self.version_sequence,
         }
 
     def to_dict(self) -> dict:
@@ -238,6 +255,14 @@ class PolicyChunk:
             "subcategory": self.subcategory,
             "regulatory_citations": self.regulatory_citations,
             "related_policies": self.related_policies,
+            # Version control fields (for monthly update tracking)
+            "version_number": self.version_number,
+            "version_date": self.version_date,
+            "effective_date": self.effective_date,
+            "expiration_date": self.expiration_date,
+            "policy_status": self.policy_status,
+            "superseded_by": self.superseded_by,
+            "version_sequence": self.version_sequence,
         }
 
 

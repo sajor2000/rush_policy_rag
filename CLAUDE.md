@@ -424,6 +424,54 @@ Azure Blob Storage (policytechrush)
 
 **Key Principle**: Only upload to `policies-source`. The sync system handles everything else automatically using SHA-256 content hashing to detect changes.
 
+## Monthly Policy Update Procedures
+
+The system supports versioned policy updates with full audit trail. See [docs/MONTHLY_UPDATE_PROCEDURES.md](docs/MONTHLY_UPDATE_PROCEDURES.md) for detailed procedures.
+
+### Quick Reference
+
+**New Policies (v1.0)**
+```bash
+# 1. Upload new PDF to staging
+az storage blob upload --container policies-source --file NewPolicy.pdf
+
+# 2. Run sync (creates v1.0 chunks)
+cd apps/backend && python policy_sync.py sync
+```
+
+**Updated Policies (v1 → v2 transitions)**
+```bash
+# 1. Upload updated PDF to staging (same filename)
+az storage blob upload --container policies-source --file ExistingPolicy.pdf --overwrite
+
+# 2. Run sync (old chunks marked SUPERSEDED, new chunks created as v2.0)
+cd apps/backend && python policy_sync.py sync
+```
+
+**Retiring Policies**
+```bash
+# Remove from staging - sync will archive and mark chunks as RETIRED
+az storage blob delete --container policies-source --name RetiredPolicy.pdf
+cd apps/backend && python policy_sync.py sync
+```
+
+### Version Control Fields (36-field schema)
+| Field | Type | Purpose |
+|-------|------|---------|
+| `version_number` | String | Version (e.g., "1.0", "2.0") |
+| `version_sequence` | Int32 | Numeric for sorting |
+| `policy_status` | String | ACTIVE, SUPERSEDED, RETIRED, DRAFT |
+| `effective_date` | DateTime | When version took effect |
+| `expiration_date` | DateTime | When superseded/retired |
+| `superseded_by` | String | Version that replaced this |
+
+### Status Lifecycle
+```
+DRAFT → ACTIVE → SUPERSEDED → RETIRED
+              ↓
+        (always searchable with policy_status filter)
+```
+
 ## Design Guidelines
 
 See `/apps/frontend/design_guidelines.md` for complete RUSH brand design system including:

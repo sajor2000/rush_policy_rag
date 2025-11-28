@@ -34,6 +34,9 @@ requests>=2.31.0
 # Rate limiting
 slowapi>=0.1.9
 
+# Circuit breaker pattern for resilience
+pybreaker>=1.0.0
+
 # RAG Evaluation
 azure-ai-evaluation>=1.0.0b5
 promptflow>=1.14.0

@@ -13,9 +13,19 @@ from typing import Optional, List
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration for Azure OpenAI calls
+RETRY_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError)
 
 
 @dataclass
@@ -70,12 +80,13 @@ class OnYourDataService:
         self.embedding_deployment = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
 
         # Initialize Azure OpenAI client with timeout
+        # 45-second timeout allows for: embedding (1-2s) + search (1-3s) + generation (5-10s) + network jitter
         if self.endpoint and self.api_key:
             self.client = AzureOpenAI(
                 azure_endpoint=self.endpoint,
                 api_key=self.api_key,
                 api_version=self.api_version,
-                timeout=15.0  # 15-second timeout for fast failure detection
+                timeout=45.0  # Increased from 15s for RAG operations
             )
             logger.info(f"Initialized AzureOpenAI client: {self.endpoint}")
             logger.info(f"Search index: {self.index_name}, semantic config: {self.semantic_config}")
@@ -108,6 +119,12 @@ If the information is not in the provided documents, say so."""
             self.search_key is not None
         )
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(RETRY_EXCEPTIONS),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
     async def chat(
         self,
         query: str,
@@ -125,6 +142,10 @@ If the information is not in the provided documents, say so."""
         - Vector similarity search (text-embedding-3-large)
         - BM25 keyword matching
         - L2 semantic reranking (the key feature missing in Foundry Agents)
+
+        Retry behavior:
+        - Retries up to 3 times on rate limit (429), timeout, or connection errors
+        - Uses exponential backoff (2s, 4s, 8s) between retries
 
         Args:
             query: User's question
@@ -258,8 +279,20 @@ If the information is not in the provided documents, say so."""
                 raw_response=response.model_dump() if hasattr(response, 'model_dump') else str(response)
             )
 
+        except RateLimitError as e:
+            logger.warning(
+                f"Azure OpenAI rate limited: {e}. "
+                f"Retry-After: {getattr(e, 'response', {}).headers.get('Retry-After', 'N/A') if hasattr(e, 'response') else 'N/A'}"
+            )
+            raise  # Let tenacity retry handle it
+        except APITimeoutError as e:
+            logger.warning(f"Azure OpenAI timeout: {e}")
+            raise  # Let tenacity retry handle it
+        except APIConnectionError as e:
+            logger.warning(f"Azure OpenAI connection error: {e}")
+            raise  # Let tenacity retry handle it
         except Exception as e:
-            logger.error(f"OnYourData chat failed: {e}")
+            logger.error(f"OnYourData chat failed (non-retryable): {e}")
             raise
 
     async def retrieve(

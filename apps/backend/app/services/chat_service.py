@@ -389,7 +389,8 @@ class ChatService:
         expanded_query, expansion = self._expand_query(request.message)
 
         try:
-            # Add 15s timeout to prevent hanging requests
+            # 45s timeout allows for: embedding (1-2s) + search (1-3s) + generation (5-10s)
+            # + retry backoff (up to 14s for 3 retries with exponential backoff)
             result: OnYourDataResult = await asyncio.wait_for(
                 self.on_your_data_service.chat(
                     query=expanded_query,
@@ -397,7 +398,7 @@ class ChatService:
                     top_n_documents=50,  # Get many for reranker to choose from
                     strictness=3
                 ),
-                timeout=15.0
+                timeout=45.0
             )
 
             answer_text = result.answer or NOT_FOUND_MESSAGE
@@ -528,7 +529,7 @@ class ChatService:
             )
 
         except asyncio.TimeoutError:
-            logger.warning("On Your Data request timed out after 15s")
+            logger.warning("On Your Data request timed out after 45s")
             return await self._chat_with_standard_retrieval(request, filter_expr)
         except Exception as e:
             logger.warning(f"On Your Data failed, falling back to standard retrieval: {e}")
@@ -549,13 +550,26 @@ class ChatService:
         expanded_query, expansion = self._expand_query(request.message)
 
         try:
-            # Wrap sync search in thread to avoid blocking
-            search_results = await asyncio.to_thread(
-                self.search_index.search,
-                query=expanded_query,
-                top=5,
-                filter_expr=filter_expr,
-                use_semantic_ranking=True
+            # Wrap sync search in thread with 30s timeout to prevent hanging connections
+            search_results = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.search_index.search,
+                    query=expanded_query,
+                    top=5,
+                    filter_expr=filter_expr,
+                    use_semantic_ranking=True
+                ),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.error("Fallback search timed out after 30s")
+            return ChatResponse(
+                response="I'm sorry, the search is taking longer than expected. Please try again in a moment.",
+                summary="Search timeout",
+                evidence=[],
+                sources=[],
+                chunks_used=0,
+                found=False
             )
         except Exception as e:
             logger.error(f"Search failed: {e}")

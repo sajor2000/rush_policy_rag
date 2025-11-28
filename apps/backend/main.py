@@ -17,6 +17,7 @@ from app.core.logging_middleware import (
     configure_structured_logging
 )
 from app.core.rate_limit import limiter  # Shared rate limiter with load balancer support
+from app.core.circuit_breaker import get_all_circuit_status
 from app.dependencies import lifespan
 from app.api.routes import chat, admin, pdf
 
@@ -103,10 +104,19 @@ async def health_check():
     except Exception as e:
         on_your_data_status = {"configured": False, "error": str(e), "enabled": settings.USE_ON_YOUR_DATA}
 
+    # Check circuit breakers
+    circuit_breakers = get_all_circuit_status()
+    # Mark as degraded if any circuit breaker is open
+    for cb_name, cb_status in circuit_breakers.items():
+        if cb_status.get("state") == "open":
+            health_status = "degraded"
+            errors.append(f"circuit_breaker_{cb_name}: open")
+
     response_body = {
         "status": health_status,
         "search_index": stats,
         "on_your_data": on_your_data_status,
+        "circuit_breakers": circuit_breakers,
         "version": "3.0.0",
     }
 

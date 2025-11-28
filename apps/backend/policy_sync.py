@@ -62,13 +62,18 @@ TARGET_CONTAINER = os.environ.get("CONTAINER_NAME", "policies-active")
 
 @dataclass
 class DocumentState:
-    """Tracks the state of a document for sync purposes."""
+    """Tracks the state of a document for sync purposes with version control."""
     filename: str
     content_hash: str
     chunk_ids: List[str] = field(default_factory=list)
     processed_date: str = ""
     reference_number: str = ""
     title: str = ""
+    # Version control fields for monthly updates (v1 → v2 transitions)
+    version_number: str = "1.0"
+    version_sequence: int = 1
+    effective_date: str = ""
+    policy_status: str = "ACTIVE"  # ACTIVE, SUPERSEDED, RETIRED, DRAFT
 
     def to_metadata(self) -> Dict[str, str]:
         """Convert to blob metadata format (all values must be strings)."""
@@ -86,6 +91,11 @@ class DocumentState:
             "processed_date": self.processed_date,
             "reference_number": self.reference_number,
             "title": self.title,
+            # Version control metadata
+            "version_number": self.version_number,
+            "version_sequence": str(self.version_sequence),
+            "effective_date": self.effective_date,
+            "policy_status": self.policy_status,
         }
 
     @classmethod
@@ -104,6 +114,12 @@ class DocumentState:
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse chunk_ids for {filename}: {e}")
 
+        # Parse version_sequence safely
+        try:
+            version_sequence = int(metadata.get("version_sequence", "1"))
+        except (ValueError, TypeError):
+            version_sequence = 1
+
         return cls(
             filename=filename,
             content_hash=metadata.get("content_hash", ""),
@@ -111,12 +127,33 @@ class DocumentState:
             processed_date=metadata.get("processed_date", ""),
             reference_number=metadata.get("reference_number", ""),
             title=metadata.get("title", ""),
+            # Version control fields
+            version_number=metadata.get("version_number", "1.0"),
+            version_sequence=version_sequence,
+            effective_date=metadata.get("effective_date", ""),
+            policy_status=metadata.get("policy_status", "ACTIVE"),
+        )
+
+    def increment_version(self) -> "DocumentState":
+        """Create a new DocumentState with incremented version for v1 → v2 transitions."""
+        new_sequence = self.version_sequence + 1
+        return DocumentState(
+            filename=self.filename,
+            content_hash=self.content_hash,
+            chunk_ids=[],  # Will be populated after processing
+            processed_date=datetime.now().isoformat(),
+            reference_number=self.reference_number,
+            title=self.title,
+            version_number=f"{new_sequence}.0",
+            version_sequence=new_sequence,
+            effective_date=datetime.now().isoformat(),
+            policy_status="ACTIVE",
         )
 
 
 @dataclass
 class SyncReport:
-    """Report of sync operation results."""
+    """Report of sync operation results with version tracking."""
     started_at: str
     completed_at: str = ""
     source_container: str = ""
@@ -128,16 +165,27 @@ class SyncReport:
     documents_deleted: int = 0
     chunks_created: int = 0
     chunks_deleted: int = 0
+    chunks_superseded: int = 0  # Chunks marked as SUPERSEDED (not deleted)
+    version_transitions: List[Dict] = field(default_factory=list)  # v1→v2 tracking
     errors: List[Dict] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return asdict(self)
 
+    def add_version_transition(self, filename: str, old_version: str, new_version: str):
+        """Track a version transition for the audit log."""
+        self.version_transitions.append({
+            "filename": filename,
+            "old_version": old_version,
+            "new_version": new_version,
+            "timestamp": datetime.now().isoformat(),
+        })
+
     def log_summary(self):
         """Log human-readable summary."""
         summary = f"""
 {'=' * 60}
-SYNC REPORT
+SYNC REPORT (with Version Tracking)
 {'=' * 60}
 Started: {self.started_at}
 Completed: {self.completed_at}
@@ -146,15 +194,23 @@ Target: {self.target_container}
 {'-' * 60}
 Documents scanned: {self.documents_scanned}
   New: {self.documents_new}
-  Changed: {self.documents_changed}
+  Changed (version upgraded): {self.documents_changed}
   Unchanged: {self.documents_unchanged}
-  Deleted: {self.documents_deleted}
+  Deleted/Retired: {self.documents_deleted}
 {'-' * 60}
 Chunks created: {self.chunks_created}
+Chunks superseded: {self.chunks_superseded}
 Chunks deleted: {self.chunks_deleted}"""
 
+        if self.version_transitions:
+            summary += f"\n{'-' * 60}\nVersion Transitions ({len(self.version_transitions)}):"
+            for vt in self.version_transitions[:10]:
+                summary += f"\n  {vt['filename']}: v{vt['old_version']} → v{vt['new_version']}"
+            if len(self.version_transitions) > 10:
+                summary += f"\n  ... and {len(self.version_transitions) - 10} more"
+
         if self.errors:
-            summary += f"\nErrors: {len(self.errors)}"
+            summary += f"\n{'-' * 60}\nErrors: {len(self.errors)}"
             for err in self.errors[:5]:
                 summary += f"\n  - {err['file']}: {err['error']}"
 
@@ -283,25 +339,53 @@ class PolicySyncManager:
         source_container: str,
         target_container: str,
         filename: str,
-        is_update: bool = False
-    ) -> Tuple[List[str], int]:
+        is_update: bool = False,
+        archive_old_version: bool = True
+    ) -> Tuple[List[str], int, Optional[str]]:
         """
-        Process a single document: chunk, embed, upload, and copy.
+        Process a single document with version control: chunk, embed, upload, and copy.
+
+        For version transitions (v1 → v2):
+        - Old chunks are marked as SUPERSEDED (not deleted) for audit trail
+        - New chunks get incremented version number
+        - Both versions remain searchable with policy_status filter
 
         Args:
             source_container: Container with the source PDF
             target_container: Container to copy processed PDF
             filename: Name of the PDF file
-            is_update: If True, delete existing chunks first
+            is_update: If True, this is a version transition (v1 → v2)
+            archive_old_version: If True, mark old chunks as SUPERSEDED instead of deleting
 
         Returns:
-            Tuple of (chunk_ids, deleted_count)
+            Tuple of (chunk_ids, superseded_count, version_transition_info)
         """
-        deleted_count = 0
+        superseded_count = 0
+        version_info = None
+        old_version = "1.0"
+        new_version = "1.0"
 
-        # If updating, delete old chunks first
-        if is_update:
-            deleted_count = self.search_index.delete_by_source_file(filename)
+        # Get existing document state for version tracking
+        old_state = self.get_document_state(target_container, filename)
+
+        if is_update and old_state:
+            old_version = old_state.version_number
+            new_sequence = old_state.version_sequence + 1
+            new_version = f"{new_sequence}.0"
+            version_info = f"{old_version}→{new_version}"
+
+            if archive_old_version:
+                # Mark old chunks as SUPERSEDED instead of deleting
+                superseded_count = self.supersede_old_chunks(
+                    source_file=filename,
+                    superseded_by=new_version
+                )
+                logger.info(f"Superseded {superseded_count} chunks for {filename} (v{old_version} → v{new_version})")
+            else:
+                # Legacy behavior: delete old chunks
+                superseded_count = self.search_index.delete_by_source_file(filename)
+        else:
+            new_version = "1.0"
 
         # Download PDF from source
         source_client = self.blob_service.get_container_client(source_container)
@@ -318,9 +402,16 @@ class PolicySyncManager:
             # Chunk the document
             chunks = self.chunker.process_pdf(tmp_path)
 
-            # Update source_file to use original filename
+            # Update source_file and version info for all chunks
+            current_time = datetime.now().isoformat()
             for chunk in chunks:
                 chunk.source_file = filename
+                # Apply version control fields
+                chunk.version_number = new_version
+                chunk.version_sequence = int(new_version.split('.')[0])
+                chunk.version_date = current_time
+                chunk.effective_date = current_time
+                chunk.policy_status = "ACTIVE"
 
             # Upload chunks to search index
             if chunks:
@@ -332,14 +423,18 @@ class PolicySyncManager:
             ref_num = chunks[0].reference_number if chunks else ""
             title = chunks[0].policy_title if chunks else ""
 
-            # Create document state
+            # Create document state with version info
             state = DocumentState(
                 filename=filename,
                 content_hash=content_hash,
                 chunk_ids=chunk_ids,
-                processed_date=datetime.now().isoformat(),
+                processed_date=current_time,
                 reference_number=ref_num,
                 title=title,
+                version_number=new_version,
+                version_sequence=int(new_version.split('.')[0]),
+                effective_date=current_time,
+                policy_status="ACTIVE",
             )
 
             # Copy to target container with metadata
@@ -351,11 +446,129 @@ class PolicySyncManager:
                 metadata=state.to_metadata()
             )
 
-            return chunk_ids, deleted_count
+            return chunk_ids, superseded_count, version_info
 
         finally:
             # Clean up temp file
             os.unlink(tmp_path)
+
+    def supersede_old_chunks(self, source_file: str, superseded_by: str) -> int:
+        """
+        Mark old chunks as SUPERSEDED instead of deleting them.
+
+        This preserves the audit trail for version transitions (v1 → v2).
+        Old chunks remain in the index but are filtered out of normal queries.
+
+        Args:
+            source_file: The source file whose chunks should be superseded
+            superseded_by: The new version number that supersedes these chunks
+
+        Returns:
+            Number of chunks marked as SUPERSEDED
+        """
+        # Find all chunks for this source file with ACTIVE status
+        try:
+            search_client = self.search_index.get_search_client()
+
+            # Search for all chunks from this source file
+            results = search_client.search(
+                search_text="*",
+                filter=f"source_file eq '{source_file}' and policy_status eq 'ACTIVE'",
+                select=["id", "version_number"],
+                top=1000  # Should be more than enough for any single document
+            )
+
+            chunks_to_update = []
+            for result in results:
+                chunks_to_update.append({
+                    "id": result["id"],
+                    "policy_status": "SUPERSEDED",
+                    "superseded_by": superseded_by,
+                    "expiration_date": datetime.now().isoformat(),
+                })
+
+            if chunks_to_update:
+                # Merge update (only update specified fields)
+                search_client.merge_documents(documents=chunks_to_update)
+                logger.info(f"Marked {len(chunks_to_update)} chunks as SUPERSEDED for {source_file}")
+
+            return len(chunks_to_update)
+
+        except Exception as e:
+            logger.error(f"Failed to supersede chunks for {source_file}: {e}")
+            # Fall back to deletion if update fails
+            return self.search_index.delete_by_source_file(source_file)
+
+    def retire_policy(self, container: str, filename: str, archive_container: str = "policies-archive") -> int:
+        """
+        Retire a policy: mark chunks as RETIRED and move PDF to archive.
+
+        Unlike delete, this preserves the document for audit purposes.
+
+        Args:
+            container: Current container of the policy
+            filename: Name of the PDF file
+            archive_container: Container for archived policies
+
+        Returns:
+            Number of chunks marked as RETIRED
+        """
+        retired_count = 0
+        state = self.get_document_state(container, filename)
+
+        try:
+            search_client = self.search_index.get_search_client()
+
+            # Mark all chunks as RETIRED
+            results = search_client.search(
+                search_text="*",
+                filter=f"source_file eq '{filename}'",
+                select=["id"],
+                top=1000
+            )
+
+            chunks_to_retire = []
+            for result in results:
+                chunks_to_retire.append({
+                    "id": result["id"],
+                    "policy_status": "RETIRED",
+                    "expiration_date": datetime.now().isoformat(),
+                })
+
+            if chunks_to_retire:
+                search_client.merge_documents(documents=chunks_to_retire)
+                retired_count = len(chunks_to_retire)
+                logger.info(f"Retired {retired_count} chunks for {filename}")
+
+            # Move PDF to archive container
+            source_client = self.blob_service.get_container_client(container)
+            archive_client = self.blob_service.get_container_client(archive_container)
+
+            # Ensure archive container exists
+            try:
+                archive_client.create_container()
+            except Exception:
+                pass  # Container likely already exists
+
+            # Copy to archive
+            source_blob = source_client.get_blob_client(filename)
+            archive_blob = archive_client.get_blob_client(filename)
+
+            blob_data = source_blob.download_blob().readall()
+            if state:
+                state.policy_status = "RETIRED"
+                archive_blob.upload_blob(blob_data, overwrite=True, metadata=state.to_metadata())
+            else:
+                archive_blob.upload_blob(blob_data, overwrite=True)
+
+            # Delete from active container
+            source_blob.delete_blob()
+            logger.info(f"Moved {filename} to archive container")
+
+        except Exception as e:
+            logger.error(f"Failed to retire policy {filename}: {e}")
+
+        return retired_count
 
     def delete_document(self, container: str, filename: str) -> int:
         """
@@ -430,43 +643,52 @@ class PolicySyncManager:
             report.completed_at = datetime.now().isoformat()
             return report
 
-        # Process new documents
+        # Process new documents (v1.0)
         if new_files:
-            print(f"\nProcessing {len(new_files)} new documents...")
+            print(f"\nProcessing {len(new_files)} NEW documents (v1.0)...")
             for filename in new_files:
                 try:
-                    chunk_ids, _ = self.process_document(
+                    chunk_ids, _, version_info = self.process_document(
                         source_container, target_container, filename, is_update=False
                     )
                     report.chunks_created += len(chunk_ids)
-                    print(f"  ✓ {filename} ({len(chunk_ids)} chunks)")
+                    print(f"  ✓ {filename} ({len(chunk_ids)} chunks, v1.0)")
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
 
-        # Process changed documents
+        # Process changed documents (version transitions: v1 → v2)
         if changed_files:
-            print(f"\nProcessing {len(changed_files)} changed documents...")
+            print(f"\nProcessing {len(changed_files)} CHANGED documents (version upgrade)...")
             for filename in changed_files:
                 try:
-                    chunk_ids, deleted = self.process_document(
+                    chunk_ids, superseded, version_info = self.process_document(
                         source_container, target_container, filename, is_update=True
                     )
                     report.chunks_created += len(chunk_ids)
-                    report.chunks_deleted += deleted
-                    print(f"  ✓ {filename} ({len(chunk_ids)} new, {deleted} deleted)")
+                    report.chunks_superseded += superseded
+
+                    # Track version transition for audit log
+                    if version_info:
+                        old_v, new_v = version_info.split('→')
+                        report.add_version_transition(filename, old_v, new_v)
+                        print(f"  ✓ {filename} (v{old_v} → v{new_v}: {len(chunk_ids)} new, {superseded} superseded)")
+                    else:
+                        print(f"  ✓ {filename} ({len(chunk_ids)} new, {superseded} superseded)")
+
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
 
-        # Handle deleted documents
+        # Handle deleted/retired documents
         if deleted_files:
-            print(f"\nRemoving {len(deleted_files)} deleted documents...")
+            print(f"\nRETIRING {len(deleted_files)} deleted documents...")
             for filename in deleted_files:
                 try:
-                    deleted = self.delete_document(target_container, filename)
-                    report.chunks_deleted += deleted
-                    print(f"  ✓ {filename} ({deleted} chunks removed)")
+                    # Use retire instead of delete to preserve audit trail
+                    retired = self.retire_policy(target_container, filename)
+                    report.chunks_deleted += retired
+                    print(f"  ✓ {filename} ({retired} chunks retired, moved to archive)")
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
