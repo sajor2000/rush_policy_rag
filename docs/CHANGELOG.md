@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Backend: FastAPI with rate limiting (slowapi), async I/O, Azure AD auth support
   - Frontend: Next.js 14 with security headers (CSP, HSTS, X-Frame-Options)
   - All agent calls via Azure OpenAI "On Your Data" (vectorSemanticHybrid)
-  - PDF upload and viewing fully functional
+  - PDF viewing fully functional
 - **Production Security Audit**: Comprehensive security review completed
   - Input validation with OData injection prevention
   - File upload security (magic bytes, size limits, extension whitelist)
@@ -45,12 +45,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `debug_pdf_structure.py` - PyMuPDF text extraction debugging
   - `test_checkbox_extraction.py` - A/B testing extraction methods
 - **Backend .gitignore**: Created dedicated .gitignore for apps/backend/
-- **PDF Upload Feature**: End-user PDF upload with automatic processing and indexing
-  - New `app/services/upload_service.py` - Upload handling with background job processing
-  - New `app/api/routes/upload.py` - REST API endpoints (`POST /api/upload`, `GET /api/upload/status/{job_id}`)
-  - New `PDFUpload.tsx` component - Drag & drop UI with progress tracking
-  - Full pipeline: Upload → Blob Storage → Docling/PyMuPDF chunking → Embedding → Azure AI Search indexing
-  - Jobs tracked in-memory with 24h TTL, status polling for progress updates
 
 ### Changed
 - **Documentation**: Updated README.md and CLAUDE.md
@@ -70,6 +64,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **License**: Changed from MIT to internal use only (Rush University System for Health)
 
 ### Removed
+- **PDF Upload UI Feature**: Removed end-user upload from web interface (2025-11-28)
+  - Documents will be updated monthly via CLI scripts or Azure Portal
+  - Deleted: `PDFUpload.tsx`, `/api/upload` routes, `upload_service.py`
+  - CLI scripts remain available for admin use
 - **`/serverless/agent-proxy/`**: Deleted deprecated Azure Function proxy (2025-11-28)
   - All traffic now flows through FastAPI backend
   - Single-backend simplification complete

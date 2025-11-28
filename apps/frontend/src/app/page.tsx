@@ -5,7 +5,6 @@ import RushLogo from "@/components/RushLogo";
 import HeroSection from "@/components/HeroSection";
 import PromptingTips from "@/components/PromptingTips";
 import ChatInterface from "@/components/ChatInterface";
-import PDFUpload from "@/components/PDFUpload";
 
 export default function Home() {
   const chatRef = useRef<HTMLDivElement>(null);
@@ -26,13 +25,6 @@ export default function Home() {
         <HeroSection onGetStarted={scrollToChat} />
         
         <PromptingTips />
-
-        {/* PDF Upload Section */}
-        <section className="py-6 border-t border-border bg-muted/30">
-          <div className="container max-w-4xl mx-auto px-4">
-            <PDFUpload />
-          </div>
-        </section>
 
         <div ref={chatRef} className="flex-1 flex flex-col min-h-[600px] border-t border-border">
           <ChatInterface />

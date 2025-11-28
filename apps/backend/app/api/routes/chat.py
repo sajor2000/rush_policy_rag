@@ -21,8 +21,8 @@ router = APIRouter()
 @router.post("/search", response_model=SearchResponse)
 @limiter.limit("30/minute")
 async def search_policies(
-    http_request: Request,
-    request: SearchRequest,
+    request: Request,
+    body: SearchRequest,
     search_index: PolicySearchIndex = Depends(get_search_index),
     _: Optional[dict] = Depends(get_current_user_claims)
 ):
@@ -33,8 +33,8 @@ async def search_policies(
         raise HTTPException(status_code=503, detail="Search index not initialized")
 
     try:
-        validated_query = validate_query(request.query, max_length=500)
-        filter_expr = build_applies_to_filter(request.filter_applies_to)
+        validated_query = validate_query(body.query, max_length=500)
+        filter_expr = build_applies_to_filter(body.filter_applies_to)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -42,7 +42,7 @@ async def search_policies(
     results = await asyncio.to_thread(
         search_index.search,
         query=validated_query,
-        top=request.top,
+        top=body.top,
         filter_expr=filter_expr
     )
 
@@ -66,8 +66,8 @@ async def search_policies(
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat(
-    http_request: Request,
-    request: ChatRequest,
+    request: Request,
+    body: ChatRequest,
     search_index: PolicySearchIndex = Depends(get_search_index),
     on_your_data_service: Optional[OnYourDataService] = Depends(get_on_your_data_service_dep),
     _: Optional[dict] = Depends(get_current_user_claims)
@@ -81,8 +81,8 @@ async def chat(
     - L2 Semantic Reranking
     """
     try:
-        validated_message = validate_query(request.message, max_length=2000)
-        request.message = validated_message
+        validated_message = validate_query(body.message, max_length=2000)
+        body.message = validated_message
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -92,7 +92,7 @@ async def chat(
     )
 
     try:
-        return await service.process_chat(request)
+        return await service.process_chat(body)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -18,7 +18,7 @@ from app.core.logging_middleware import (
 )
 from app.core.rate_limit import limiter  # Shared rate limiter with load balancer support
 from app.dependencies import lifespan
-from app.api.routes import chat, admin, pdf, upload
+from app.api.routes import chat, admin, pdf
 
 # Optional instrumentation - gracefully handle missing dependencies
 try:
@@ -65,7 +65,6 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(pdf.router, prefix="/api/pdf", tags=["PDF"])
-app.include_router(upload.router, prefix="/api/upload", tags=["Upload"])
 
 @app.get("/health")
 async def health_check():
