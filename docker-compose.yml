@@ -20,17 +20,13 @@ services:
       - AOAI_CHAT_DEPLOYMENT=${AOAI_CHAT_DEPLOYMENT:-gpt-4.1}
       - AOAI_EMBEDDING_DEPLOYMENT=${AOAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-large}
 
-      # Azure AI Foundry
-      - AZURE_AI_PROJECT_ENDPOINT=${AZURE_AI_PROJECT_ENDPOINT}
-
       # Azure Storage
       - STORAGE_CONNECTION_STRING=${STORAGE_CONNECTION_STRING}
       - CONTAINER_NAME=${CONTAINER_NAME:-policies-active}
 
-      # Agentic Retrieval
+      # Feature Flags
       - USE_AGENTIC_RETRIEVAL=${USE_AGENTIC_RETRIEVAL:-false}
-      - KNOWLEDGE_AGENT_NAME=${KNOWLEDGE_AGENT_NAME:-rush-policy-agent}
-      - KNOWLEDGE_SOURCE_NAME=${KNOWLEDGE_SOURCE_NAME:-rush-policies}
+      - USE_ON_YOUR_DATA=${USE_ON_YOUR_DATA:-true}
 
       # Observability
       - APPLICATIONINSIGHTS_CONNECTION_STRING=${APPLICATIONINSIGHTS_CONNECTION_STRING}
@@ -80,28 +76,7 @@ services:
       - rush-network
     restart: unless-stopped
 
-  # Redis Cache (optional - for session management)
-  redis:
-    image: redis:7-alpine
-    container_name: rush-policy-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    networks:
-      - rush-network
-    restart: unless-stopped
-
 networks:
   rush-network:
     driver: bridge
 
-volumes:
-  redis-data:
-    driver: local
