@@ -2,6 +2,14 @@
 FastAPI backend server for RUSH Policy RAG Agent
 """
 
+# Inject system certificate store for corporate proxy support (e.g., Netskope)
+# Must be done BEFORE any SSL connections are made
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass  # truststore not installed, SSL uses default cert handling
+
 import asyncio
 import logging
 import os

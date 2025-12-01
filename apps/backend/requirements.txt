@@ -30,6 +30,9 @@ tenacity>=8.2.0
 
 # HTTP
 requests>=2.31.0
+# Use system certificate store (fixes Netskope/corporate proxy SSL issues on Windows/Mac)
+# truststore works at SSL level with all libraries (httpx, requests, Azure SDK)
+truststore>=0.9.0
 
 # Rate limiting
 slowapi>=0.1.9
