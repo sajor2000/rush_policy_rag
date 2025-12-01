@@ -37,17 +37,14 @@ echo ""
 # Load environment-specific variables
 if [ "$ENVIRONMENT" = "production" ]; then
     RESOURCE_GROUP="${AZURE_RESOURCE_GROUP_PROD}"
-    USE_AGENTIC_RETRIEVAL=true
     MIN_REPLICAS=2
     MAX_REPLICAS=10
 elif [ "$ENVIRONMENT" = "staging" ]; then
     RESOURCE_GROUP="${AZURE_RESOURCE_GROUP_STAGING}"
-    USE_AGENTIC_RETRIEVAL=false
     MIN_REPLICAS=1
     MAX_REPLICAS=3
 else
     RESOURCE_GROUP="${AZURE_RESOURCE_GROUP_DEV}"
-    USE_AGENTIC_RETRIEVAL=false
     MIN_REPLICAS=1
     MAX_REPLICAS=2
 fi
@@ -84,10 +81,8 @@ az deployment group create \
         searchApiKey="$SEARCH_API_KEY" \
         aoaiEndpoint="$AOAI_ENDPOINT" \
         aoaiApiKey="$AOAI_API" \
-        azureAiProjectEndpoint="$AZURE_AI_PROJECT_ENDPOINT" \
         storageConnectionString="$STORAGE_CONNECTION_STRING" \
         appInsightsConnectionString="$APPLICATIONINSIGHTS_CONNECTION_STRING" \
-        useAgenticRetrieval="$USE_AGENTIC_RETRIEVAL" \
         minReplicas="$MIN_REPLICAS" \
         maxReplicas="$MAX_REPLICAS" \
     --query properties.outputs.fqdn.value \

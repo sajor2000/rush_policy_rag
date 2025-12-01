@@ -1,5 +1,25 @@
 # Deployment Guide - RUSH Policy RAG Agent
 
+> **IMPORTANT FOR DEPLOYMENT TEAM**
+>
+> ## Architecture: FastAPI + Next.js ONLY
+>
+> ```
+> ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+> │   Browser   │────▶│  Next.js    │────▶│   FastAPI   │
+> │             │     │  Frontend   │     │   Backend   │
+> └─────────────┘     │  (3000)     │     │   (8000)    │
+>                     └─────────────┘     └─────────────┘
+> ```
+>
+> **NO AZURE FUNCTIONS** | **NO REDIS** | **NO SERVERLESS**
+>
+> Deploy only:
+> - `apps/backend/` → Azure Container Apps (FastAPI)
+> - `apps/frontend/` → Azure Container Apps (Next.js)
+
+---
+
 ## Quick Reference for Deployment Team
 
 | What | URL After Deployment |

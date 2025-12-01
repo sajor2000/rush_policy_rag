@@ -28,9 +28,6 @@ param aoaiEndpoint string
 @description('Azure OpenAI API key')
 param aoaiApiKey string
 
-@description('Azure AI Project endpoint')
-param azureAiProjectEndpoint string
-
 @secure()
 @description('Storage connection string')
 param storageConnectionString string
@@ -38,9 +35,6 @@ param storageConnectionString string
 @description('Application Insights connection string')
 @secure()
 param appInsightsConnectionString string
-
-@description('Enable agentic retrieval')
-param useAgenticRetrieval bool = false
 
 @description('Custom frontend domain (optional, e.g., policy.rush.edu)')
 param customFrontendDomain string = ''
@@ -164,10 +158,6 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: 'text-embedding-3-large'
             }
             {
-              name: 'AZURE_AI_PROJECT_ENDPOINT'
-              value: azureAiProjectEndpoint
-            }
-            {
               name: 'STORAGE_CONNECTION_STRING'
               secretRef: 'storage-connection-string'
             }
@@ -176,16 +166,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: 'policies-active'
             }
             {
-              name: 'USE_AGENTIC_RETRIEVAL'
-              value: string(useAgenticRetrieval)
-            }
-            {
-              name: 'KNOWLEDGE_AGENT_NAME'
-              value: 'rush-policy-agent'
-            }
-            {
-              name: 'KNOWLEDGE_SOURCE_NAME'
-              value: 'rush-policies'
+              name: 'USE_ON_YOUR_DATA'
+              value: 'true'
             }
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
