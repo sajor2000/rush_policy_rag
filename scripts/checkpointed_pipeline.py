@@ -23,6 +23,8 @@ Usage:
     python scripts/checkpointed_pipeline.py --dry-run
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import argparse
 import json
 import os

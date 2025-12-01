@@ -13,6 +13,8 @@ Usage:
     python scripts/mark_v1_baseline.py --apply  # Apply changes
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import os
 import sys
 import logging

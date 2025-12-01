@@ -4,6 +4,8 @@ Debug PDF structure to understand checkbox layout.
 Uses PyMuPDF (fitz) for low-level text extraction.
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import os
 import sys
 import tempfile

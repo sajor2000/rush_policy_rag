@@ -23,6 +23,8 @@ Requirements:
     - azure-storage-blob package installed
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import os
 import sys
 from pathlib import Path

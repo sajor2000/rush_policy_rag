@@ -39,6 +39,8 @@ Usage:
     python scripts/run_agent_evaluation.py --category adversarial
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import asyncio
 import argparse
 import json

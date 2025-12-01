@@ -16,6 +16,8 @@ Usage:
     python scripts/full_pipeline_ingest.py --dry-run          # Preview without processing
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import argparse
 import json
 import os

@@ -9,6 +9,8 @@ B) Docling with do_cell_matching=False
 Run: python scripts/test_checkbox_extraction.py
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import os
 import sys
 import tempfile

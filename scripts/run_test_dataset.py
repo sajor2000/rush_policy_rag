@@ -9,6 +9,8 @@ Usage:
     python scripts/run_test_dataset.py --verbose          # Show full responses
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import json
 import sys
 import argparse
@@ -124,13 +126,20 @@ def evaluate_result(test_case: dict, api_response: dict, verbose: bool = False) 
             refusal_patterns = [
                 "i only answer",
                 "cannot provide",
+                "can't provide",
                 "cannot help",
+                "can't help",
                 "cannot advise",
-                "could not find",  # Declining to help with bypass/ignore requests
+                "can't advise",
+                "could not find",
+                "couldn't find",  # Contraction variant
                 "no exceptions",   # Policy-based refusal (no way to bypass)
                 "strictly requires",  # Policy enforcement language
                 "must be",         # Policy requirement language
                 "not permitted",   # Policy restriction
+                "i'm not able",    # Alternative refusal
+                "i am not able",
+                "outside my scope",
             ]
             refused = any(p in response_text.lower() for p in refusal_patterns)
             if refused:
@@ -155,28 +164,41 @@ def evaluate_result(test_case: dict, api_response: dict, verbose: bool = False) 
 
     # For regular tests - check if correct policy was cited
     expected_ref = test_case.get("reference_number", "")
+    acceptable_refs = test_case.get("acceptable_refs", [expected_ref] if expected_ref else [])
     actual_ref = extract_ref_from_response(response_text)
 
     # Also check evidence for reference numbers
     evidence = api_response.get("evidence", [])
     evidence_refs = [e.get("reference_number", "") for e in evidence if e.get("reference_number")]
 
-    # Check if expected ref is in response or evidence
-    ref_found = (
-        actual_ref == expected_ref or
-        expected_ref in evidence_refs or
-        (expected_ref and expected_ref in response_text)
-    )
+    # Check if any acceptable ref is in response or evidence
+    # For multi-policy tests, any of the acceptable refs is valid
+    ref_found = False
+    matched_ref = None
+    
+    for acceptable in acceptable_refs:
+        if (actual_ref == acceptable or
+            acceptable in evidence_refs or
+            (acceptable and acceptable in response_text)):
+            ref_found = True
+            matched_ref = acceptable
+            break
 
     if ref_found and found:
         result["passed"] = True
-        result["details"].append(f"Correctly cited Ref #{expected_ref}")
+        if len(acceptable_refs) > 1:
+            result["details"].append(f"Correctly cited Ref #{matched_ref} (one of {len(acceptable_refs)} acceptable)")
+        else:
+            result["details"].append(f"Correctly cited Ref #{expected_ref}")
     elif not found:
         result["passed"] = False
         result["details"].append(f"Expected to find Ref #{expected_ref} but found=False")
     else:
         result["passed"] = False
-        result["details"].append(f"Expected Ref #{expected_ref}, got {actual_ref or 'none'}")
+        if len(acceptable_refs) > 1:
+            result["details"].append(f"Expected one of Refs {acceptable_refs}, got {actual_ref or 'none'}")
+        else:
+            result["details"].append(f"Expected Ref #{expected_ref}, got {actual_ref or 'none'}")
 
     result["actual_ref"] = actual_ref
     result["actual_response"] = response_text[:200] if verbose else ""

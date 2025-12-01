@@ -16,6 +16,15 @@ Usage:
     python scripts/setup_azure_infrastructure.py --storage    # Storage only
 """
 
+# Corporate proxy SSL fix - must be before other imports
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+try:
+    import ssl_fix
+except ImportError:
+    pass
+
 import os
 import sys
 import argparse

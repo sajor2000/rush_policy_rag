@@ -22,6 +22,8 @@ Usage:
     python scripts/run_evaluation.py --output-csv results.csv
 """
 
+import ssl_fix  # Corporate proxy SSL fix - must be first import!
+
 import asyncio
 import argparse
 import json
