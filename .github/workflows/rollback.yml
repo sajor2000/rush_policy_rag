@@ -32,19 +32,19 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ inputs.environment == 'production' && secrets.AZURE_CREDENTIALS_PROD || secrets.AZURE_CREDENTIALS_STAGING }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Rollback Backend
         uses: azure/container-apps-deploy-action@v1
         with:
           containerAppName: rush-policy-backend-${{ inputs.environment }}
-          resourceGroup: ${{ inputs.environment == 'production' && secrets.AZURE_RESOURCE_GROUP_PROD || secrets.AZURE_RESOURCE_GROUP_STAGING }}
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
           imageToDeploy: ghcr.io/${{ github.repository }}/backend:${{ inputs.image_tag }}
 
       - name: Health check after rollback
         run: |
           echo "Waiting for backend to be healthy after rollback..."
-          URL="${{ inputs.environment == 'production' && 'https://rush-policy.azurewebsites.net' || 'https://staging-rush-policy.azurewebsites.net' }}"
+          URL="https://rush-policy-backend-${{ inputs.environment }}.azurecontainerapps.io"
           for i in {1..30}; do
             if curl -f $URL/health; then
               echo "Backend is healthy after rollback"

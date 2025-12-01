@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Copy, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { Evidence, Source } from "@/lib/api";
@@ -132,13 +132,27 @@ export default function ChatMessage({
 }: ChatMessageProps) {
   const isUser = role === "user";
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopyCitation = async (idx: number, citation: string) => {
     if (!citation) return;
     try {
       await navigator.clipboard.writeText(citation);
       setCopiedIndex(idx);
-      setTimeout(() => setCopiedIndex(null), 1600);
+      // Clear any existing timeout
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+      copiedTimeoutRef.current = setTimeout(() => setCopiedIndex(null), 1600);
     } catch (error) {
       console.error("Failed to copy citation", error);
     }

@@ -22,6 +22,10 @@ COPY --from=deps /app/node_modules ./node_modules
 # Copy application code
 COPY . .
 
+# Accept BACKEND_URL as build arg and set as environment variable
+ARG BACKEND_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${BACKEND_URL}
+
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NODE_ENV production
