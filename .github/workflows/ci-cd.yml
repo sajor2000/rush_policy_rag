@@ -35,8 +35,8 @@ jobs:
         working-directory: apps/backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-asyncio httpx
+          # Use lightweight test requirements (excludes heavy ML deps like docling/torch)
+          pip install -r requirements-test.txt
 
       - name: Run tests
         working-directory: apps/backend
