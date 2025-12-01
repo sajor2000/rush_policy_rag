@@ -86,6 +86,11 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: backendUrl
             }
             {
+              // Critical: This is the client-side API URL used by Next.js
+              name: 'NEXT_PUBLIC_API_URL'
+              value: backendUrl
+            }
+            {
               name: 'NODE_ENV'
               value: environment == 'production' ? 'production' : 'development'
             }

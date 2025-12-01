@@ -53,7 +53,8 @@ resource containerAppEnvironment 'Microsoft.App/managedEnvironments@2023-05-01' 
     appLogsConfiguration: {
       destination: 'azure-monitor'
     }
-    daprAIInstrumentationKey: appInsightsConnectionString
+    // Note: For Application Insights integration, configure APPLICATIONINSIGHTS_CONNECTION_STRING
+    // on each container app instead of at the environment level
   }
 }
 
@@ -104,13 +105,12 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           }
         ]
         corsPolicy: {
+          // Static CORS origins - update these after deployment with actual URLs
+          // The frontend URL will be: https://rush-policy-frontend-{environment}.{region}.azurecontainerapps.io
           allowedOrigins: union(
-            environment == 'production' ? [
-              'https://rush-policy-frontend.${containerAppEnvironment.properties.defaultDomain}'
-              'https://rush-policy-frontend-production.azurecontainerapps.io'
-            ] : [
-              'https://rush-policy-frontend-staging.${containerAppEnvironment.properties.defaultDomain}'
-              'https://rush-policy-frontend-staging.azurecontainerapps.io'
+            [
+              'https://rush-policy-frontend-${environment}.azurecontainerapps.io'
+              'https://rush-policy-frontend.azurecontainerapps.io'
             ],
             !empty(customFrontendDomain) ? ['https://${customFrontendDomain}'] : []
           )
@@ -140,6 +140,14 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'SEARCH_API_KEY'
               secretRef: 'search-api-key'
+            }
+            {
+              name: 'SEARCH_INDEX_NAME'
+              value: 'rush-policies'
+            }
+            {
+              name: 'SEARCH_SEMANTIC_CONFIG'
+              value: 'default-semantic'
             }
             {
               name: 'AOAI_ENDPOINT'
@@ -176,6 +184,10 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'BACKEND_PORT'
               value: '8000'
+            }
+            {
+              name: 'LOG_FORMAT'
+              value: 'json'
             }
           ]
           probes: [
