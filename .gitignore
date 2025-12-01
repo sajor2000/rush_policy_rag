@@ -37,6 +37,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# TypeScript build artifacts
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
 # OS
 .DS_Store
 Thumbs.db
@@ -71,3 +75,53 @@ semantic-search-synonyms.json
 
 # Docker overrides
 docker-compose.override.yml
+
+# Security - never commit these
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials.json
+**/secrets/**
+**/.secrets/**
+
+# Vercel
+.vercel
+
+# Turbo
+.turbo
+
+# Editor directories
+.history/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# macOS extended attributes
+.AppleDouble
+.LSOverride
+
+# Windows system files
+Desktop.ini
+$RECYCLE.BIN/
+
+# Package manager debug logs
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Storybook
+storybook-static/
+
+# Playwright
+playwright-report/
+test-results/
