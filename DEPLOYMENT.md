@@ -1,25 +1,355 @@
-# Deployment Guide
+# Deployment Guide - RUSH Policy RAG Agent
 
-> **Quick Reference for RUSH Tech Team**
->
-> **Prerequisites**: Azure CLI installed, logged in (`az login`), access to Rush Azure tenant
->
-> **Deploy Backend**: `az acr build` → `az containerapp create`
->
-> **Deploy Frontend**: `az acr build` → `az containerapp create`
->
-> **Verify**: `curl https://<backend>/health` should return `{"status": "healthy"}`
+## Quick Reference for Deployment Team
 
-> ⚠️ **Important**: This application **requires** Azure services to function:
-> - **Azure AI Search** - Vector store for document embeddings (3072-dim) and semantic ranking
-> - **Azure Blob Storage** - PDF document storage (required for PDF viewing feature)
-> - **Azure OpenAI** - Chat (GPT-4.1) and embeddings (text-embedding-3-large)
->
-> The app cannot run without these services configured.
+| What | URL After Deployment |
+|------|---------------------|
+| **Frontend** | `https://rush-policy-frontend.azurecontainerapps.io` |
+| **Backend API** | `https://rush-policy-backend.azurecontainerapps.io` |
+| **Health Check** | `https://rush-policy-backend.azurecontainerapps.io/health` |
+| **API Docs** | `https://rush-policy-backend.azurecontainerapps.io/docs` |
 
 ---
 
-## Architecture Overview
+## Architecture Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                        RUSH POLICY RAG - PRODUCTION ARCHITECTURE                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│                              ┌─────────────────────┐                                  │
+│                              │   User's Browser    │                                  │
+│                              │  (policy.rush.edu)  │                                  │
+│                              └──────────┬──────────┘                                  │
+│                                         │                                             │
+│                                         ▼                                             │
+│  ┌───────────────────────────────────────────────────────────────────────────────┐   │
+│  │                         AZURE CONTAINER APPS                                   │   │
+│  │                                                                                │   │
+│  │  ┌────────────────────────────┐      ┌────────────────────────────────────┐   │   │
+│  │  │      FRONTEND              │      │           BACKEND                  │   │   │
+│  │  │  rush-policy-frontend      │      │    rush-policy-backend             │   │   │
+│  │  │  ────────────────────      │      │    ──────────────────              │   │   │
+│  │  │  • Next.js 14              │ HTTP │    • FastAPI (Python 3.12)         │   │   │
+│  │  │  • RUSH Brand UI           │─────▶│    • Rate Limiting (30/min)        │   │   │
+│  │  │  • Port 3000               │      │    • Port 8000                     │   │   │
+│  │  │                            │      │                                    │   │   │
+│  │  │  Image Size: ~150MB        │      │    Image Size: ~800MB              │   │   │
+│  │  └────────────────────────────┘      └──────────────┬─────────────────────┘   │   │
+│  │                                                      │                         │   │
+│  └──────────────────────────────────────────────────────┼─────────────────────────┘   │
+│                                                         │                             │
+│                          ┌──────────────────────────────┴──────────────────────────┐  │
+│                          │                                                          │  │
+│                          ▼                              ▼                           ▼  │
+│  ┌─────────────────────────────┐  ┌─────────────────────────────┐  ┌─────────────────┐ │
+│  │   AZURE AI SEARCH           │  │   AZURE OPENAI              │  │ AZURE BLOB      │ │
+│  │   ─────────────────         │  │   ────────────              │  │ STORAGE         │ │
+│  │   Index: rush-policies      │  │   GPT-4.1 (Chat)            │  │ ────────────    │ │
+│  │   • 3072-dim vectors        │  │   text-embedding-3-large    │  │ policies-active │ │
+│  │   • Semantic ranker         │  │   (Embeddings)              │  │ (PDF files)     │ │
+│  │   • 132 synonym rules       │  │                             │  │                 │ │
+│  └─────────────────────────────┘  └─────────────────────────────┘  └─────────────────┘ │
+│                                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+DATA FLOW:
+──────────
+1. User asks: "What is the chaperone policy?"
+2. Frontend → Backend (POST /api/chat)
+3. Backend → Azure OpenAI "On Your Data" (vectorSemanticHybrid search)
+4. Azure OpenAI → Azure AI Search (vector + keyword + reranking)
+5. Response with citations → User
+```
+
+---
+
+## What Gets Deployed
+
+| Component | Technology | Azure Service | Port |
+|-----------|------------|---------------|------|
+| **Frontend** | Next.js 14 (React) | Azure Container Apps | 3000 |
+| **Backend** | FastAPI (Python 3.12) | Azure Container Apps | 8000 |
+| **Vector Store** | Azure AI Search | Azure AI Search | N/A |
+| **LLM** | GPT-4.1 | Azure OpenAI | N/A |
+| **Embeddings** | text-embedding-3-large | Azure OpenAI | N/A |
+| **PDF Storage** | Blob Storage | Azure Storage | N/A |
+
+---
+
+## Step-by-Step Deployment
+
+### Prerequisites Checklist
+
+- [ ] Azure CLI installed (`az --version`)
+- [ ] Logged into Azure (`az login`)
+- [ ] Access to Rush Azure subscription
+- [ ] Git repo cloned locally
+
+---
+
+### STEP 1: Create Azure Resources (One-Time Setup)
+
+Run these commands to create all required Azure services:
+
+```bash
+# Set your variables
+RESOURCE_GROUP="rg-policytech-prod"
+LOCATION="eastus"
+ACR_NAME="policytechacr"           # Container Registry
+SEARCH_NAME="policychataisearch"   # AI Search
+OPENAI_NAME="policytech-openai"    # OpenAI
+STORAGE_NAME="policytechrush"      # Blob Storage
+
+# 1. Create Resource Group
+az group create --name $RESOURCE_GROUP --location $LOCATION
+
+# 2. Create Container Registry (stores Docker images)
+az acr create \
+  --name $ACR_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --sku Basic \
+  --admin-enabled true
+
+# 3. Create Azure AI Search
+az search service create \
+  --name $SEARCH_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --sku basic
+
+# 4. Create Azure OpenAI
+az cognitiveservices account create \
+  --name $OPENAI_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --kind OpenAI \
+  --sku S0 \
+  --location $LOCATION
+
+# 5. Deploy OpenAI Models
+az cognitiveservices account deployment create \
+  --name $OPENAI_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --deployment-name gpt-4.1 \
+  --model-name gpt-4 \
+  --model-version "1106-Preview" \
+  --model-format OpenAI \
+  --sku-capacity 10 \
+  --sku-name Standard
+
+az cognitiveservices account deployment create \
+  --name $OPENAI_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --deployment-name text-embedding-3-large \
+  --model-name text-embedding-3-large \
+  --model-format OpenAI \
+  --sku-capacity 10 \
+  --sku-name Standard
+
+# 6. Create Storage Account + Containers
+az storage account create \
+  --name $STORAGE_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --sku Standard_LRS
+
+az storage container create --name policies-source --account-name $STORAGE_NAME
+az storage container create --name policies-active --account-name $STORAGE_NAME
+az storage container create --name policies-archive --account-name $STORAGE_NAME
+
+# 7. Create Container Apps Environment
+az containerapp env create \
+  --name policytech-env \
+  --resource-group $RESOURCE_GROUP \
+  --location $LOCATION
+```
+
+---
+
+### STEP 2: Get API Keys
+
+After creating resources, retrieve your API keys:
+
+```bash
+# Get Search API Key
+az search admin-key show \
+  --service-name $SEARCH_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query primaryKey -o tsv
+
+# Get OpenAI API Key
+az cognitiveservices account keys list \
+  --name $OPENAI_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query key1 -o tsv
+
+# Get Storage Connection String
+az storage account show-connection-string \
+  --name $STORAGE_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query connectionString -o tsv
+
+# Get ACR Password
+az acr credential show \
+  --name $ACR_NAME \
+  --query passwords[0].value -o tsv
+```
+
+**Save these values** - you'll need them in Step 4.
+
+---
+
+### STEP 3: Build Container Images
+
+```bash
+# Navigate to project root
+cd /path/to/rag_pt_rush
+
+# Build Backend image
+cd apps/backend
+az acr build --registry $ACR_NAME --image policytech-backend:latest .
+
+# Build Frontend image
+cd ../frontend
+az acr build --registry $ACR_NAME --image policytech-frontend:latest .
+```
+
+---
+
+### STEP 4: Deploy Backend
+
+```bash
+# Create secrets (replace <VALUES> with real keys from Step 2)
+az containerapp secret set \
+  --name rush-policy-backend \
+  --resource-group $RESOURCE_GROUP \
+  --secrets \
+    search-api-key="<SEARCH_API_KEY>" \
+    aoai-api-key="<OPENAI_API_KEY>" \
+    storage-conn="<STORAGE_CONNECTION_STRING>" \
+    admin-key="<YOUR_ADMIN_KEY>"
+
+# Deploy Backend
+az containerapp create \
+  --name rush-policy-backend \
+  --resource-group $RESOURCE_GROUP \
+  --environment policytech-env \
+  --image $ACR_NAME.azurecr.io/policytech-backend:latest \
+  --registry-server $ACR_NAME.azurecr.io \
+  --registry-username $ACR_NAME \
+  --registry-password "<ACR_PASSWORD>" \
+  --target-port 8000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 3 \
+  --env-vars \
+    SEARCH_ENDPOINT="https://$SEARCH_NAME.search.windows.net" \
+    SEARCH_API_KEY="secretref:search-api-key" \
+    SEARCH_INDEX_NAME="rush-policies" \
+    AOAI_ENDPOINT="https://$OPENAI_NAME.openai.azure.com/" \
+    AOAI_API="secretref:aoai-api-key" \
+    AOAI_CHAT_DEPLOYMENT="gpt-4.1" \
+    AOAI_EMBEDDING_DEPLOYMENT="text-embedding-3-large" \
+    STORAGE_CONNECTION_STRING="secretref:storage-conn" \
+    CONTAINER_NAME="policies-active" \
+    ADMIN_API_KEY="secretref:admin-key" \
+    USE_ON_YOUR_DATA="true" \
+    BACKEND_PORT="8000"
+```
+
+---
+
+### STEP 5: Deploy Frontend
+
+```bash
+# Get Backend URL first
+BACKEND_URL=$(az containerapp show \
+  --name rush-policy-backend \
+  --resource-group $RESOURCE_GROUP \
+  --query properties.configuration.ingress.fqdn -o tsv)
+
+# Deploy Frontend
+az containerapp create \
+  --name rush-policy-frontend \
+  --resource-group $RESOURCE_GROUP \
+  --environment policytech-env \
+  --image $ACR_NAME.azurecr.io/policytech-frontend:latest \
+  --registry-server $ACR_NAME.azurecr.io \
+  --registry-username $ACR_NAME \
+  --registry-password "<ACR_PASSWORD>" \
+  --target-port 3000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 5 \
+  --env-vars \
+    NEXT_PUBLIC_API_URL="https://$BACKEND_URL" \
+    NODE_ENV="production"
+```
+
+---
+
+### STEP 6: Verify Deployment
+
+```bash
+# Get your URLs
+echo "Frontend: https://$(az containerapp show --name rush-policy-frontend --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn -o tsv)"
+echo "Backend:  https://$(az containerapp show --name rush-policy-backend --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn -o tsv)"
+
+# Test health endpoint
+curl https://rush-policy-backend.azurecontainerapps.io/health
+# Expected: {"status": "healthy", ...}
+
+# Test chat endpoint
+curl -X POST https://rush-policy-backend.azurecontainerapps.io/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is the chaperone policy?"}'
+```
+
+---
+
+### STEP 7: Add Custom Domain (Optional)
+
+```bash
+# Add custom domain (e.g., policy.rush.edu)
+az containerapp hostname add \
+  --name rush-policy-frontend \
+  --resource-group $RESOURCE_GROUP \
+  --hostname policy.rush.edu
+
+# Bind SSL certificate
+az containerapp hostname bind \
+  --name rush-policy-frontend \
+  --resource-group $RESOURCE_GROUP \
+  --hostname policy.rush.edu \
+  --certificate <CERTIFICATE_NAME>
+```
+
+---
+
+## Deployment Verification Checklist
+
+After deployment, verify:
+
+### Backend ✅
+- [ ] Health check returns 200: `curl https://<backend>/health`
+- [ ] API docs accessible: `https://<backend>/docs`
+- [ ] Chat endpoint works: `POST /api/chat`
+- [ ] PDF endpoint works: `GET /api/pdf/<filename>.pdf`
+
+### Frontend ✅
+- [ ] App loads at frontend URL
+- [ ] Chat interface displays correctly
+- [ ] User can send messages and get responses
+- [ ] Policy citations display with links
+- [ ] PDF viewer opens documents
+
+### Integration ✅
+- [ ] No CORS errors in browser console
+- [ ] Response times under 5 seconds
+- [ ] Mobile responsive layout works
+
+---
+
+## Architecture Deep Dive
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐

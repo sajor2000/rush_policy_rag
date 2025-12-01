@@ -2,7 +2,35 @@
 
 Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University System for Health policy retrieval.
 
-**Tech Stack**: FastAPI backend + Next.js 14 frontend + Azure OpenAI "On Your Data" (vectorSemanticHybrid)
+| | |
+|---|---|
+| **Tech Stack** | FastAPI (Python 3.12) + Next.js 14 + Azure OpenAI |
+| **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
+| **Deployment** | Azure Container Apps |
+
+---
+
+## 🚀 Quick Start for Deployment Team
+
+**See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete step-by-step deployment guide.**
+
+| After Deployment | URL |
+|------------------|-----|
+| Frontend | `https://rush-policy-frontend.azurecontainerapps.io` |
+| Backend API | `https://rush-policy-backend.azurecontainerapps.io` |
+| Health Check | `https://rush-policy-backend.azurecontainerapps.io/health` |
+
+### One-Command Deploy (if resources exist)
+
+```bash
+# Backend
+cd apps/backend && az acr build --registry policytechacr --image policytech-backend:latest .
+
+# Frontend
+cd apps/frontend && az acr build --registry policytechacr --image policytech-frontend:latest .
+```
+
+---
 
 ## Architecture
 
