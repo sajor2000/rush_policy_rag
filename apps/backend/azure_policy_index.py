@@ -1119,6 +1119,86 @@ class PolicySearchIndex:
             logger.warning(f"HTTP error retrieving chunk {chunk_id}: {e}")
             return None
 
+    def get_metadata_by_source_file(self, source_file: str) -> Optional[Dict]:
+        """
+        Retrieve metadata for a document by its source_file.
+
+        Returns the first chunk's metadata (applies_to, reference_number, etc.)
+        for the given source file.
+
+        Args:
+            source_file: The source PDF filename (e.g., "hr-001.pdf")
+
+        Returns:
+            Dict with metadata fields or None if not found
+        """
+        if not source_file:
+            return None
+
+        try:
+            # Search for documents with this source_file
+            results = self.search_client.search(
+                search_text="*",
+                filter=f"source_file eq '{source_file}'",
+                select=[
+                    "applies_to",
+                    "reference_number",
+                    "section",
+                    "date_updated",
+                    "document_owner",
+                    "date_approved",
+                    "title",
+                    # Entity booleans for building applies_to string
+                    "applies_to_rumc",
+                    "applies_to_rumg",
+                    "applies_to_rmg",
+                    "applies_to_roph",
+                    "applies_to_rcmc",
+                    "applies_to_rch",
+                    "applies_to_roppg",
+                    "applies_to_rcmg",
+                    "applies_to_ru",
+                ],
+                top=1
+            )
+
+            for result in results:
+                # Build applies_to string from boolean fields if not present
+                applies_to = result.get("applies_to", "")
+                if not applies_to:
+                    # Build from boolean fields
+                    entities = []
+                    if result.get("applies_to_rumc"): entities.append("RUMC")
+                    if result.get("applies_to_rumg"): entities.append("RUMG")
+                    if result.get("applies_to_rmg"): entities.append("RMG")
+                    if result.get("applies_to_roph"): entities.append("ROPH")
+                    if result.get("applies_to_rcmc"): entities.append("RCMC")
+                    if result.get("applies_to_rch"): entities.append("RCH")
+                    if result.get("applies_to_roppg"): entities.append("ROPPG")
+                    if result.get("applies_to_rcmg"): entities.append("RCMG")
+                    if result.get("applies_to_ru"): entities.append("RU")
+                    applies_to = ", ".join(entities) if entities else ""
+
+                return {
+                    "applies_to": applies_to,
+                    "reference_number": result.get("reference_number", ""),
+                    "section": result.get("section", ""),
+                    "date_updated": result.get("date_updated", ""),
+                    "document_owner": result.get("document_owner", ""),
+                    "date_approved": result.get("date_approved", ""),
+                    "title": result.get("title", ""),
+                }
+
+            logger.debug(f"No documents found for source_file: {source_file}")
+            return None
+
+        except HttpResponseError as e:
+            logger.warning(f"HTTP error getting metadata for {source_file}: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error getting metadata for {source_file}: {e}")
+            return None
+
     def get_stats(self) -> Dict[str, Any]:
         """Get index statistics."""
         try:

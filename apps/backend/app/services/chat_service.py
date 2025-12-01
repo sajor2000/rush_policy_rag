@@ -187,6 +187,87 @@ def _extract_quick_answer(response_text: str) -> str:
     return quick_answer.strip()
 
 
+def _format_answer_with_citations(
+    answer_text: str,
+    evidence_items: List['EvidenceItem']
+) -> str:
+    """
+    Enhance the quick answer with formatted bold citations and reference markers.
+
+    Adds:
+    - **Bold policy names** for cited policies
+    - [N] superscript-style citation numbers linking to evidence
+    - Cleaner, more precise language
+
+    Example output:
+    "According to **Verbal and Telephone Orders** (Ref #486) [1], verbal orders may be..."
+    """
+    import re
+
+    if not answer_text or not evidence_items:
+        return answer_text
+
+    # Build a map of policy titles to their citation info
+    policy_map = {}
+    for idx, e in enumerate(evidence_items):
+        if e.title:
+            # Normalize title for matching
+            normalized = e.title.lower().strip()
+            # Remove common suffixes like "Former", "Policy", etc.
+            normalized = re.sub(r'\s+(former|policy|procedure)$', '', normalized, flags=re.IGNORECASE)
+            policy_map[normalized] = {
+                'title': e.title,
+                'ref': e.reference_number,
+                'idx': idx + 1  # 1-based citation number
+            }
+
+    result = answer_text
+
+    # Find and replace policy title mentions with bold + citation
+    for normalized, info in policy_map.items():
+        title = info['title']
+        ref = info['ref']
+        idx = info['idx']
+
+        # Pattern to match the policy title (case-insensitive, with variations)
+        # Also match partial titles like "Verbal Orders" for "Verbal and Telephone Orders"
+        title_words = title.split()
+        if len(title_words) > 2:
+            # Try matching first 2-3 significant words
+            short_pattern = r'\b' + r'\s+(?:and\s+)?'.join(re.escape(w) for w in title_words[:3]) + r'[^.]*?(?=\s*[,.\)]|$)'
+        else:
+            short_pattern = r'\b' + re.escape(title) + r'\b'
+
+        # Check if title is mentioned in the text
+        match = re.search(short_pattern, result, re.IGNORECASE)
+        if match:
+            matched_text = match.group(0)
+            # Format: **Policy Name** (Ref #XXX) [N]
+            if ref:
+                replacement = f"**{matched_text}** (Ref #{ref}) [{idx}]"
+            else:
+                replacement = f"**{matched_text}** [{idx}]"
+            result = result[:match.start()] + replacement + result[match.end():]
+
+    # If no matches found, append citation summary at the end
+    if result == answer_text and evidence_items:
+        # Add a citation summary
+        citations = []
+        for idx, e in enumerate(evidence_items[:3]):  # Max 3 citations
+            if e.reference_number:
+                citations.append(f"**{e.title}** (Ref #{e.reference_number}) [{idx + 1}]")
+            else:
+                citations.append(f"**{e.title}** [{idx + 1}]")
+
+        if citations:
+            # Ensure the answer ends with a period before adding sources
+            if result and result[-1] not in '.!?':
+                result += '.'
+            result += f" Sources: {', '.join(citations)}."
+
+    return result
+
+
 def build_supporting_evidence(
     results: List[SearchResult],
     limit: int = 3,
@@ -423,29 +504,55 @@ class ChatService:
                 )
 
             # Convert On Your Data citations to EvidenceItems
+            # Enrich citations with metadata from Azure AI Search
             evidence_items = []
             sources = []
 
             for cit in result.citations[:5]:  # Limit to top 5 citations
-                # Extract reference number from filepath or content
-                ref_num = ""
                 source_file = cit.filepath or ""
 
-                # Try to extract ref number from filepath (e.g., "hr-001.pdf" -> "HR-001")
+                # Look up full metadata from Azure AI Search by source_file
+                metadata = None
                 if source_file:
-                    import re
-                    ref_match = re.search(r'([a-z]{2,4}[-_]?\d{2,4})', source_file.lower())
-                    if ref_match:
-                        ref_num = ref_match.group(1).upper().replace('_', '-')
+                    try:
+                        metadata = await asyncio.to_thread(
+                            self.search_index.get_metadata_by_source_file,
+                            source_file
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to get metadata for {source_file}: {e}")
+
+                # Use metadata from lookup, falling back to citation data
+                ref_num = ""
+                applies_to = ""
+                section = ""
+                date_updated = ""
+                title = cit.title
+
+                if metadata:
+                    ref_num = metadata.get("reference_number", "")
+                    applies_to = metadata.get("applies_to", "")
+                    section = metadata.get("section", "") or cit.section
+                    date_updated = metadata.get("date_updated", "")
+                    title = metadata.get("title", "") or cit.title
+                    logger.debug(f"Enriched citation {source_file}: applies_to={applies_to}")
+                else:
+                    # Fallback: Try to extract ref number from filepath (e.g., "hr-001.pdf" -> "HR-001")
+                    if source_file:
+                        import re
+                        ref_match = re.search(r'([a-z]{2,4}[-_]?\d{2,4})', source_file.lower())
+                        if ref_match:
+                            ref_num = ref_match.group(1).upper().replace('_', '-')
 
                 evidence_items.append(
                     EvidenceItem(
                         snippet=_truncate_verbatim(cit.content),
-                        citation=f"{cit.title} ({ref_num})" if ref_num else cit.title,
-                        title=cit.title,
+                        citation=f"{title} ({ref_num})" if ref_num else title,
+                        title=title,
                         reference_number=ref_num,
-                        section=cit.section,
-                        applies_to=cit.applies_to,
+                        section=section,
+                        applies_to=applies_to,
+                        date_updated=date_updated,
                         source_file=source_file,
                         score=None,
                         reranker_score=cit.reranker_score,
@@ -454,12 +561,13 @@ class ChatService:
                 )
 
                 sources.append({
-                    "citation": f"{cit.title} ({ref_num})" if ref_num else cit.title,
+                    "citation": f"{title} ({ref_num})" if ref_num else title,
                     "source_file": source_file,
-                    "title": cit.title,
+                    "title": title,
                     "reference_number": ref_num,
-                    "section": cit.section,
-                    "applies_to": cit.applies_to,
+                    "section": section,
+                    "applies_to": applies_to,
+                    "date_updated": date_updated,
                     "reranker_score": cit.reranker_score,
                     "match_type": "verified"
                 })
@@ -518,9 +626,12 @@ class ChatService:
             # Extract clean quick answer for display
             clean_summary = _extract_quick_answer(answer_text)
 
+            # Format the summary with bold citations and reference markers
+            formatted_summary = _format_answer_with_citations(clean_summary, evidence_items)
+
             return ChatResponse(
                 response=answer_text,
-                summary=clean_summary,
+                summary=formatted_summary,
                 evidence=evidence_items,
                 raw_response=str(result.raw_response),
                 sources=sources,

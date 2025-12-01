@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Copy, FileText, CheckCircle2, AlertCircle } from "lucide-react";
+import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen } from "lucide-react";
 import { Evidence, Source } from "@/lib/api";
 
 // All RUSH entity codes for checkbox display (matching PDF headers)
@@ -97,6 +97,112 @@ function formatReferenceNumber(ref?: string): string {
   return "N/A";
 }
 
+/** Generate a stable ID for evidence card based on title and ref */
+function generateEvidenceId(title: string, refNum: string, idx: number): string {
+  const base = (title || "policy").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
+  return `evidence-${base}-${refNum || idx}`;
+}
+
+/**
+ * Parse quick answer text and render with formatted citations
+ * Converts patterns like:
+ * - **Policy Name** (Ref #XXX) → bold link to evidence
+ * - [1] → superscript citation link
+ */
+interface FormattedQuickAnswerProps {
+  text: string;
+  evidence?: Evidence[];
+  onCitationClick?: (idx: number) => void;
+}
+
+function FormattedQuickAnswer({ text, evidence, onCitationClick }: FormattedQuickAnswerProps) {
+  if (!text) return null;
+
+  // Parse the text for bold markers and citation references
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let keyIdx = 0;
+
+  // Pattern to match **bold text** or [N] citations
+  const pattern = /(\*\*([^*]+)\*\*|\[(\d+)\])/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(remaining)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(
+        <span key={keyIdx++}>{remaining.slice(lastIndex, match.index)}</span>
+      );
+    }
+
+    if (match[2]) {
+      // Bold text (**text**)
+      parts.push(
+        <strong key={keyIdx++} className="font-semibold text-rush-legacy">
+          {match[2]}
+        </strong>
+      );
+    } else if (match[3]) {
+      // Citation reference [N]
+      const citIdx = parseInt(match[3], 10) - 1;
+      const hasEvidence = evidence && citIdx >= 0 && citIdx < evidence.length;
+      parts.push(
+        <button
+          key={keyIdx++}
+          onClick={() => hasEvidence && onCitationClick?.(citIdx)}
+          className={cn(
+            "inline-flex items-center justify-center",
+            "text-[10px] font-bold min-w-[16px] h-4 px-1",
+            "rounded-sm align-super -translate-y-0.5",
+            hasEvidence
+              ? "bg-rush-legacy text-white hover:bg-rush-legacy/80 cursor-pointer"
+              : "bg-gray-300 text-gray-600 cursor-default"
+          )}
+          title={hasEvidence ? `Jump to source ${match[3]}` : `Citation ${match[3]}`}
+          disabled={!hasEvidence}
+        >
+          {match[3]}
+        </button>
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add any remaining text
+  if (lastIndex < remaining.length) {
+    parts.push(<span key={keyIdx++}>{remaining.slice(lastIndex)}</span>);
+  }
+
+  return <>{parts}</>;
+}
+
+/** Build a formatted citation summary for the quick answer */
+function buildCitationSummary(evidence?: Evidence[]): string {
+  if (!evidence || evidence.length === 0) return "";
+
+  const uniquePolicies = new Map<string, Evidence>();
+  for (const e of evidence) {
+    const key = e.reference_number || e.title;
+    if (key && !uniquePolicies.has(key)) {
+      uniquePolicies.set(key, e);
+    }
+  }
+
+  const citations = Array.from(uniquePolicies.values())
+    .slice(0, 3)
+    .map((e, idx) => {
+      const ref = formatReferenceNumber(e.reference_number);
+      if (ref !== "N/A") {
+        return `**${e.title}** (Ref #${ref}) [${idx + 1}]`;
+      }
+      return `**${e.title}** [${idx + 1}]`;
+    });
+
+  return citations.join(", ");
+}
+
 /** Compact checkbox-style entity display */
 function AppliesTo({ appliesTo }: { appliesTo?: string }) {
   const activeEntities = parseAppliesTo(appliesTo);
@@ -132,7 +238,9 @@ export default function ChatMessage({
 }: ChatMessageProps) {
   const isUser = role === "user";
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [highlightedEvidence, setHighlightedEvidence] = useState<number | null>(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const evidenceRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -141,6 +249,17 @@ export default function ChatMessage({
         clearTimeout(copiedTimeoutRef.current);
       }
     };
+  }, []);
+
+  // Scroll to and highlight an evidence card
+  const scrollToEvidence = useCallback((idx: number) => {
+    const element = evidenceRefs.current.get(idx);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedEvidence(idx);
+      // Clear highlight after animation
+      setTimeout(() => setHighlightedEvidence(null), 2000);
+    }
   }, []);
 
   const handleCopyCitation = async (idx: number, citation: string) => {
@@ -213,14 +332,58 @@ export default function ChatMessage({
           </div>
         ) : (
           <div className="space-y-3">
-            {/* Quick Answer Section */}
+            {/* Quick Answer Section - Enhanced with citations */}
             <div className="rounded-lg bg-white border border-rush-legacy/20 shadow-sm p-3">
-              <p className="text-[10px] uppercase tracking-widest font-semibold text-rush-legacy mb-1">
-                Quick Answer
-              </p>
-              <p className="text-sm leading-snug text-foreground">
-                {quickAnswer}
-              </p>
+              <div className="flex items-center gap-2 mb-2">
+                <BookOpen className="h-4 w-4 text-rush-legacy" />
+                <p className="text-[10px] uppercase tracking-widest font-semibold text-rush-legacy">
+                  Quick Answer
+                </p>
+              </div>
+              <div className="text-sm leading-relaxed text-foreground">
+                <FormattedQuickAnswer
+                  text={quickAnswer}
+                  evidence={evidence}
+                  onCitationClick={scrollToEvidence}
+                />
+              </div>
+
+              {/* Citation Sources Summary */}
+              {evidence && evidence.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-rush-legacy/10">
+                  <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">
+                    Sources cited:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from(
+                      new Map(
+                        evidence.map((e, idx) => [e.reference_number || e.title, { ...e, idx }])
+                      ).values()
+                    ).slice(0, 4).map((item) => {
+                      const ref = formatReferenceNumber(item.reference_number);
+                      return (
+                        <button
+                          key={item.idx}
+                          onClick={() => scrollToEvidence(item.idx)}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] bg-rush-sage/30 hover:bg-rush-sage/50 border border-rush-legacy/15 rounded transition-colors group"
+                        >
+                          <span className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-bold bg-rush-legacy text-white rounded-sm">
+                            {item.idx + 1}
+                          </span>
+                          <span className="font-medium text-rush-legacy group-hover:underline max-w-[150px] truncate">
+                            {item.title}
+                          </span>
+                          {ref !== "N/A" && (
+                            <span className="text-gray-500 text-[10px]">
+                              #{ref}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Supporting Evidence Section - Compact PDF Style */}
@@ -254,14 +417,19 @@ export default function ChatMessage({
                 {evidence.map((item, idx) => (
                   <div
                     key={`${item.citation}-${idx}`}
+                    ref={(el) => {
+                      if (el) evidenceRefs.current.set(idx, el);
+                    }}
+                    id={generateEvidenceId(item.title, item.reference_number || "", idx)}
                     className={cn(
-                      "border bg-white overflow-hidden",
+                      "border bg-white overflow-hidden transition-all duration-300",
                       item.match_type === "related"
                         ? "border-amber-300/50"
-                        : "border-rush-legacy/30"
+                        : "border-rush-legacy/30",
+                      highlightedEvidence === idx && "ring-2 ring-rush-legacy ring-offset-2 shadow-lg"
                     )}
                   >
-                    {/* Compact Header */}
+                    {/* Compact Header with Citation Number */}
                     <div className={cn(
                       "border-b px-3 py-2",
                       item.match_type === "related"
@@ -271,6 +439,10 @@ export default function ChatMessage({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {/* Citation number badge */}
+                            <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold bg-rush-legacy text-white rounded">
+                              {idx + 1}
+                            </span>
                             {/* Match type badge */}
                             {item.match_type === "verified" ? (
                               <span className="inline-flex items-center gap-0.5 text-[9px] text-rush-legacy bg-rush-sage/50 px-1.5 py-0.5 rounded font-medium">
@@ -287,8 +459,8 @@ export default function ChatMessage({
                               {item.title || "Policy"}
                             </span>
                             {item.reference_number && formatReferenceNumber(item.reference_number) !== "N/A" && (
-                              <span className="text-xs text-gray-600">
-                                Ref: {formatReferenceNumber(item.reference_number)}
+                              <span className="text-xs font-medium text-rush-legacy bg-rush-sage/30 px-1.5 py-0.5 rounded">
+                                Ref #{formatReferenceNumber(item.reference_number)}
                               </span>
                             )}
                           </div>
