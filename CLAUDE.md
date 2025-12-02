@@ -18,6 +18,7 @@ This application **requires** the following Azure services to function:
 |---------------|---------|----------|
 | **Azure AI Search** | Vector store (3072-dim embeddings) + semantic ranking + 132 synonym rules | ✅ **Required** |
 | **Azure OpenAI** | GPT-4.1 (chat) + text-embedding-3-large (embeddings) | ✅ **Required** |
+| **Azure AI Foundry (Cohere)** | Cohere Rerank 3.5 cross-encoder deployment | ✅ **Required** |
 | **Azure Blob Storage** | PDF document storage (3 containers: source, active, archive) | ✅ **Required** |
 | **Azure Container Apps** | Host FastAPI backend + Next.js frontend | ✅ **Required** |
 | **Azure AD** | Authentication for production | Optional |
@@ -293,7 +294,7 @@ The chunker (`preprocessing/chunker.py`) uses a dual-library approach:
 
 ### Service Configuration
 
-The chat service uses Azure OpenAI "On Your Data" with vectorSemanticHybrid search:
+The chat service uses Azure OpenAI "On Your Data" with vectorSemanticHybrid search plus Cohere Rerank 3.5 for cross-encoder reranking:
 
 | Setting | Value | Description |
 |---------|-------|-------------|
@@ -302,6 +303,9 @@ The chat service uses Azure OpenAI "On Your Data" with vectorSemanticHybrid sear
 | Top K | 50 | Documents to semantic reranker |
 | Index | rush-policies | Azure AI Search index |
 | Semantic Config | my-semantic-config | For L2 reranking |
+| Cohere Rerank | cohere-rerank-v3-5 | Azure AI Foundry deployment used after retrieval |
+| Cohere Top N | 10 | Documents retained post-rerank (configurable) |
+| Cohere Min Score | 0.15 | Threshold for healthcare policy precision |
 
 ### SDK Dependencies
 
@@ -402,6 +406,13 @@ CONTAINER_NAME=policies-active            # Production
 
 # Feature Flags
 USE_ON_YOUR_DATA=true                     # Enable vectorSemanticHybrid
+# Cohere Rerank 3.5 (cross-encoder)
+USE_COHERE_RERANK=true                   # Enable Cohere rerank pipeline
+COHERE_RERANK_ENDPOINT=https://<cohere>.models.ai.azure.com
+COHERE_RERANK_API_KEY=<api-key>
+COHERE_RERANK_MODEL=cohere-rerank-v3-5
+COHERE_RERANK_TOP_N=10                   # Docs kept after rerank
+COHERE_RERANK_MIN_SCORE=0.15             # Healthcare-calibrated threshold
 
 # Security (production)
 REQUIRE_AAD_AUTH=false                    # Set true in production

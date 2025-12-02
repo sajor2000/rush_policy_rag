@@ -104,6 +104,12 @@ STORAGE_CONNECTION_STRING=<connection_string>
 
 # Enable On Your Data (vectorSemanticHybrid)
 USE_ON_YOUR_DATA=true
+
+# Cohere Rerank 3.5 (cross-encoder reranking)
+USE_COHERE_RERANK=true
+COHERE_RERANK_ENDPOINT=https://<cohere-endpoint>.models.ai.azure.com
+COHERE_RERANK_API_KEY=<key>
+COHERE_RERANK_MODEL=cohere-rerank-v3-5
 ```
 
 ### Start Services
@@ -157,6 +163,7 @@ rag_pt_rush/
 |---------------|---------|----------|
 | **Azure AI Search** | Vector store + semantic ranking | Yes |
 | **Azure OpenAI** | GPT-4.1 + embeddings | Yes |
+| **Azure AI Foundry (Cohere)** | Cohere Rerank 3.5 deployment | Yes |
 | **Azure Blob Storage** | PDF document storage | Yes |
 | **Azure Container Apps** | Host frontend + backend | Yes |
 | **Azure Container Registry** | Store container images | Yes |
@@ -166,6 +173,7 @@ rag_pt_rush/
 ## Key Features
 
 - **Azure OpenAI "On Your Data"**: vectorSemanticHybrid search (Vector + BM25 + L2 Reranking)
+- **Cohere Rerank 3.5**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval
 - **Production Security**: Rate limiting, input validation, CSP headers
 - **PDF Upload & Viewing**: End-to-end pipeline with async blob storage
 - **1,800+ Document Support**: top_k=50 with semantic ranker optimization
