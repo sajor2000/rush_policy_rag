@@ -75,6 +75,8 @@ escape_value() {
 # Parse .env file
 declare -a ENV_VARS_ARRAY
 declare -a SECRET_VARS_ARRAY
+ENV_VARS_ARRAY=()
+SECRET_VARS_ARRAY=()
 
 while IFS= read -r line || [[ -n "$line" ]]; do
   # Skip empty lines and comments
@@ -119,15 +121,24 @@ done < "$ENV_FILE"
 
 # Output results
 # Use printf to join array elements with spaces, preserving quoted values
+ENV_COUNT=0
+SECRET_COUNT=0
+if [[ ${ENV_VARS_ARRAY+x} ]]; then
+  ENV_COUNT=${#ENV_VARS_ARRAY[@]}
+fi
+if [[ ${SECRET_VARS_ARRAY+x} ]]; then
+  SECRET_COUNT=${#SECRET_VARS_ARRAY[@]}
+fi
+
 if [[ "$OUTPUT_FORMAT" == "container-apps" ]]; then
   # For Container Apps: output env-vars and secrets separately
-  if [[ ${#ENV_VARS_ARRAY[@]} -gt 0 ]]; then
+  if [[ $ENV_COUNT -gt 0 ]]; then
     echo "# Environment variables (non-sensitive)"
     printf -v ENV_VARS_STR '%s ' "${ENV_VARS_ARRAY[@]}"
     echo "ENV_VARS=\"${ENV_VARS_STR%% }\""
   fi
   
-  if [[ ${#SECRET_VARS_ARRAY[@]} -gt 0 ]]; then
+  if [[ $SECRET_COUNT -gt 0 ]]; then
     echo ""
     echo "# Secrets (sensitive variables)"
     printf -v SECRET_VARS_STR '%s ' "${SECRET_VARS_ARRAY[@]}"
@@ -135,8 +146,14 @@ if [[ "$OUTPUT_FORMAT" == "container-apps" ]]; then
   fi
 else
   # For Web App for Containers: all vars go to --settings
-  if [[ ${#ENV_VARS_ARRAY[@]} -gt 0 || ${#SECRET_VARS_ARRAY[@]} -gt 0 ]]; then
-    ALL_VARS=("${ENV_VARS_ARRAY[@]}" "${SECRET_VARS_ARRAY[@]}")
+  if [[ $ENV_COUNT -gt 0 || $SECRET_COUNT -gt 0 ]]; then
+    ALL_VARS=()
+    if [[ $ENV_COUNT -gt 0 ]]; then
+      ALL_VARS+=("${ENV_VARS_ARRAY[@]}")
+    fi
+    if [[ $SECRET_COUNT -gt 0 ]]; then
+      ALL_VARS+=("${SECRET_VARS_ARRAY[@]}")
+    fi
     echo "# App settings (all variables)"
     printf -v APP_SETTINGS_STR '%s ' "${ALL_VARS[@]}"
     echo "APP_SETTINGS=\"${APP_SETTINGS_STR%% }\""
