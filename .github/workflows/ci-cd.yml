@@ -1,5 +1,31 @@
 name: RUSH Policy RAG - CI/CD Pipeline
 
+# =============================================================================
+# REQUIRED GITHUB SECRETS FOR DEPLOYMENT
+# =============================================================================
+# Configure these in Settings → Secrets and Variables → Actions:
+#
+# AZURE_CREDENTIALS        - Azure Service Principal JSON
+# AZURE_RESOURCE_GROUP     - Resource group name (e.g., rush-policy-rg)
+# BACKEND_URL              - Backend URL (e.g., https://rush-policy-backend.azurecontainerapps.io)
+#
+# NOTE: Environment variables (AOAI, Search, Storage, Cohere) must be configured
+# in Azure Container Apps via Bicep template (infrastructure/azure-container-app.bicep).
+# Run the Bicep deployment FIRST to create Container Apps with required env vars:
+#
+#   az deployment group create \
+#     --resource-group $AZURE_RESOURCE_GROUP \
+#     --template-file infrastructure/azure-container-app.bicep \
+#     --parameters @parameters.json
+#
+# Required Bicep parameters:
+#   - searchEndpoint, searchApiKey (Azure AI Search)
+#   - aoaiEndpoint, aoaiApiKey (Azure OpenAI)
+#   - storageConnectionString (Azure Blob Storage)
+#   - cohereRerankerEndpoint, cohereRerankerApiKey (Cohere Rerank)
+#   - containerImage (from GHCR after first build)
+# =============================================================================
+
 on:
   push:
     branches: [main, develop]

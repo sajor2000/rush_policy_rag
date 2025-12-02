@@ -326,7 +326,7 @@ export default function ChatMessage({
                 target="_blank"
                 rel="noreferrer"
               >
-                {POLICYTECH_URL.replace(/^https?:\/\//, "")}
+                {POLICYTECH_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}
               </a>{" "}
               or contact Policy Administration.
             </p>

@@ -39,6 +39,27 @@ param appInsightsConnectionString string
 @description('Custom frontend domain (optional, e.g., policy.rush.edu)')
 param customFrontendDomain string = ''
 
+// Cohere Rerank parameters (required for healthcare RAG)
+@secure()
+@description('Cohere Rerank endpoint URL')
+param cohereRerankerEndpoint string = ''
+
+@secure()
+@description('Cohere Rerank API key')
+param cohereRerankerApiKey string = ''
+
+@description('Enable Cohere Rerank cross-encoder')
+param useCohereRerank bool = true
+
+@description('Cohere Rerank model name')
+param cohereRerankerModel string = 'cohere-rerank-v3-5'
+
+@description('Number of documents to retain after reranking')
+param cohereRerankerTopN int = 10
+
+@description('Minimum relevance score threshold')
+param cohereRerankerMinScore string = '0.15'
+
 @description('Minimum number of replicas')
 param minReplicas int = environment == 'production' ? 2 : 1
 
@@ -86,6 +107,14 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'registry-password'
           value: registryPassword
         }
+        {
+          name: 'cohere-endpoint'
+          value: cohereRerankerEndpoint
+        }
+        {
+          name: 'cohere-api-key'
+          value: cohereRerankerApiKey
+        }
       ]
       registries: [
         {
@@ -105,12 +134,14 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           }
         ]
         corsPolicy: {
-          // Static CORS origins - update these after deployment with actual URLs
-          // The frontend URL will be: https://rush-policy-frontend-{environment}.{region}.azurecontainerapps.io
+          // CORS origins for frontend container app
+          // Azure Container Apps FQDN format: {app-name}.{region}.azurecontainerapps.io
           allowedOrigins: union(
             [
-              'https://rush-policy-frontend-${environment}.azurecontainerapps.io'
-              'https://rush-policy-frontend.azurecontainerapps.io'
+              'https://rush-policy-frontend-${environment}.${location}.azurecontainerapps.io'
+              'https://rush-policy-frontend.${location}.azurecontainerapps.io'
+              // Development/testing origins
+              'http://localhost:3000'
             ],
             !empty(customFrontendDomain) ? ['https://${customFrontendDomain}'] : []
           )
@@ -154,7 +185,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: aoaiEndpoint
             }
             {
-              name: 'AOAI_API'
+              name: 'AOAI_API_KEY'
               secretRef: 'aoai-api-key'
             }
             {
@@ -188,6 +219,30 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'LOG_FORMAT'
               value: 'json'
+            }
+            {
+              name: 'USE_COHERE_RERANK'
+              value: string(useCohereRerank)
+            }
+            {
+              name: 'COHERE_RERANK_ENDPOINT'
+              secretRef: 'cohere-endpoint'
+            }
+            {
+              name: 'COHERE_RERANK_API_KEY'
+              secretRef: 'cohere-api-key'
+            }
+            {
+              name: 'COHERE_RERANK_MODEL'
+              value: cohereRerankerModel
+            }
+            {
+              name: 'COHERE_RERANK_TOP_N'
+              value: string(cohereRerankerTopN)
+            }
+            {
+              name: 'COHERE_RERANK_MIN_SCORE'
+              value: cohereRerankerMinScore
             }
           ]
           probes: [
