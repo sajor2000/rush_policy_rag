@@ -19,6 +19,7 @@ This guide provides **exact commands** to deploy the RUSH Policy RAG Agent to Az
                               │           ┌───────────────────────┐
                               │           │  Azure AI Search      │
                               │           │  Azure OpenAI         │
+                              │           │  Cohere Rerank 3.5    │
                               │           │  Azure Blob Storage   │
                               │           └───────────────────────┘
                               │
@@ -31,6 +32,10 @@ This guide provides **exact commands** to deploy the RUSH Policy RAG Agent to Az
 2. `rush-policy-frontend` (Next.js Node.js)
 
 **NO Azure Functions. NO Redis. NO Serverless.**
+
+**AI Services:**
+- Azure OpenAI (GPT-4.1 + embeddings)
+- Cohere Rerank 3.5 (cross-encoder reranking via Azure AI Foundry)
 
 ---
 
@@ -209,6 +214,61 @@ echo "OpenAI Endpoint: $AOAI_ENDPOINT"
 
 ---
 
+## Step 5.5: Deploy Cohere Rerank 3.5 (Azure AI Foundry)
+
+Cohere Rerank 3.5 provides cross-encoder reranking for negation-aware search. This significantly improves retrieval quality (77.8% → 100% pass rate in testing).
+
+**Why Cohere?**
+- Cross-encoders understand negation ("NOT authorized" contradicts "Can accept verbal orders?")
+- Bi-encoders (like Azure's L2 reranker) only see vocabulary overlap
+- Critical for healthcare policy accuracy
+
+### 5.5.1 Deploy via Azure AI Foundry Portal
+
+1. Go to [Azure AI Foundry](https://ai.azure.com/)
+2. Create or select a project
+3. Navigate to **Model catalog** → Search "Cohere Rerank"
+4. Select **Cohere Rerank 3.5** → Click **Deploy**
+5. Choose **Serverless API** deployment type
+6. Select your subscription and resource group
+7. Accept the terms and click **Deploy**
+
+### 5.5.2 Get Cohere API Credentials
+
+After deployment completes:
+
+```bash
+# The endpoint URL from Azure AI Foundry deployment page
+# Format: https://Cohere-rerank-v3-5-xxxxx.eastus2.models.ai.azure.com
+export COHERE_RERANK_ENDPOINT="<your-cohere-endpoint-from-portal>"
+
+# The API key from Azure AI Foundry deployment page (under "Keys")
+export COHERE_RERANK_API_KEY="<your-cohere-api-key>"
+
+echo "Cohere Endpoint: $COHERE_RERANK_ENDPOINT"
+```
+
+**Save these values** - you'll need them in Step 8.
+
+### 5.5.3 Verify Cohere Deployment
+
+```bash
+# Test the Cohere endpoint (should return a reranked response)
+curl -X POST "${COHERE_RERANK_ENDPOINT}/v1/rerank" \
+  -H "Authorization: Bearer $COHERE_RERANK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "cohere-rerank-v3-5",
+    "query": "test query",
+    "documents": ["test document"],
+    "top_n": 1
+  }'
+```
+
+**Expected output:** JSON with `results` array containing reranked documents.
+
+---
+
 ## Step 6: Create Azure Blob Storage
 
 ```bash
@@ -303,6 +363,12 @@ az containerapp create \
     STORAGE_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
     CONTAINER_NAME="policies-active" \
     USE_ON_YOUR_DATA="true" \
+    USE_COHERE_RERANK="true" \
+    COHERE_RERANK_ENDPOINT="$COHERE_RERANK_ENDPOINT" \
+    COHERE_RERANK_API_KEY="$COHERE_RERANK_API_KEY" \
+    COHERE_RERANK_MODEL="cohere-rerank-v3-5" \
+    COHERE_RERANK_TOP_N="10" \
+    COHERE_RERANK_MIN_SCORE="0.15" \
     BACKEND_PORT="8000" \
     LOG_FORMAT="json"
 ```
@@ -559,6 +625,19 @@ az containerapp update \
 | `BACKEND_PORT` | Server port | `8000` |
 | `LOG_FORMAT` | Logging format | `json` |
 
+### Backend - Cohere Rerank (Required for best quality)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `USE_COHERE_RERANK` | Enable Cohere cross-encoder | `true` |
+| `COHERE_RERANK_ENDPOINT` | Azure AI Foundry endpoint | `https://Cohere-rerank-v3-5-xxx.eastus2.models.ai.azure.com` |
+| `COHERE_RERANK_API_KEY` | Cohere API key | `abc123...` |
+| `COHERE_RERANK_MODEL` | Model name | `cohere-rerank-v3-5` |
+| `COHERE_RERANK_TOP_N` | Docs after rerank | `10` |
+| `COHERE_RERANK_MIN_SCORE` | Relevance threshold | `0.15` |
+
+> **Note:** Cohere Rerank improves pass rate from 77.8% to 100% by understanding negation in queries like "Can MA accept verbal orders?" (answer: NOT authorized).
+
 ### Frontend (Required)
 
 | Variable | Description | Example |
@@ -588,17 +667,20 @@ az containerapp update \
 │                                                       │                       │
 └───────────────────────────────────────────────────────┼───────────────────────┘
                                                         │
-                    ┌───────────────────────────────────┼───────────────────┐
-                    │                                   │                    │
-                    ▼                                   ▼                    ▼
-        ┌───────────────────┐           ┌───────────────────┐    ┌───────────────┐
-        │  Azure AI Search  │           │  Azure OpenAI     │    │ Azure Blob    │
-        │  ───────────────  │           │  ───────────────  │    │ Storage       │
-        │  Index:           │           │  Models:          │    │ ───────────── │
-        │  rush-policies    │           │  • gpt-4.1        │    │ policies-     │
-        │  Vectors: 3072-dim│           │  • text-embedding │    │ active/       │
-        │  Semantic ranker  │           │    -3-large       │    │               │
-        └───────────────────┘           └───────────────────┘    └───────────────┘
+          ┌─────────────────────────────────────────────┼─────────────────────────────┐
+          │                    │                        │                    │        │
+          ▼                    ▼                        ▼                    ▼        │
+┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐ ┌───────────────┐  │
+│  Azure AI Search  │ │  Azure OpenAI     │ │  Cohere Rerank    │ │ Azure Blob    │  │
+│  ───────────────  │ │  ───────────────  │ │  ───────────────  │ │ Storage       │  │
+│  Index:           │ │  Models:          │ │  Model:           │ │ ───────────── │  │
+│  rush-policies    │ │  • gpt-4.1        │ │  rerank-v3-5      │ │ policies-     │  │
+│  Vectors: 3072-dim│ │  • text-embedding │ │  (cross-encoder)  │ │ active/       │  │
+│  Semantic ranker  │ │    -3-large       │ │  Azure AI Foundry │ │               │  │
+└───────────────────┘ └───────────────────┘ └───────────────────┘ └───────────────┘  │
+                                                                                      │
+          ◄───────────────────── RAG PIPELINE FLOW ──────────────────────────────────►
+          1. Query → AI Search   2. Rerank with Cohere   3. Generate with GPT-4.1
 ```
 
 ---

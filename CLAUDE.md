@@ -111,6 +111,15 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step Azure resource creation comm
 │           │                                                                  │
 │           ▼                                                                  │
 │  ┌─────────────────────────────────────────────────────────┐                │
+│  │  Cohere Rerank 3.5 (CohereRerankService)                │                │
+│  │  ├── Cross-encoder reranking (negation-aware)           │                │
+│  │  ├── Azure AI Foundry serverless deployment             │                │
+│  │  ├── Top N: 10 docs retained after rerank               │                │
+│  │  └── Min Score: 0.15 (healthcare-calibrated)            │                │
+│  └────────┬────────────────────────────────────────────────┘                │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐                │
 │  │  Response with Citations                                │                │
 │  │  ├── Quick Answer                                       │                │
 │  │  ├── Policy Reference (title, ref#, section, date)     │                │
@@ -196,11 +205,27 @@ python -m pytest tests/test_synonym_service.py -v
 
 ### Testing & Evaluation (from root)
 ```bash
-# Run full RAG test suite (27 test cases, 88.9% pass rate)
+# Run full RAG test suite (36 test cases, 100% pass rate with Cohere Rerank)
 python scripts/run_test_dataset.py
+
+# Run ENHANCED evaluation (60 tests: Cohere, hallucination, RISEN compliance)
+python scripts/run_enhanced_evaluation.py
+
+# Run only Cohere negation tests
+python scripts/run_enhanced_evaluation.py --category cohere_negation
+
+# Run only critical safety tests
+python scripts/run_enhanced_evaluation.py --criticality critical
+
+# Run hallucination prevention tests
+python scripts/run_enhanced_evaluation.py --category halluc
+
+# Run RISEN rule compliance tests
+python scripts/run_enhanced_evaluation.py --category risen_
 
 # View test results summary
 cat test_results.json | jq '.summary'
+cat enhanced_evaluation_results.json | jq '.report.summary'
 
 # Debug PDF checkbox extraction
 python scripts/debug_pdf_structure.py
@@ -208,6 +233,22 @@ python scripts/debug_pdf_structure.py
 # A/B test checkbox extraction methods
 python scripts/test_checkbox_extraction.py
 ```
+
+### Test Dataset Categories
+
+| Category | Tests | Purpose |
+|----------|-------|---------|
+| `cohere_negation` | 8 | Cross-encoder negation understanding |
+| `cohere_contradiction` | 4 | Premise contradiction detection |
+| `hallucination_fabrication` | 5 | Prevent inventing non-existent policies |
+| `hallucination_extrapolation` | 3 | Prevent speculation beyond source text |
+| `risen_role` | 4 | RAG-only, no opinions, RUSH-only |
+| `risen_citation` | 3 | Mandatory citation compliance |
+| `risen_refusal` | 3 | Safety bypass refusal |
+| `risen_adversarial` | 5 | Jailbreak/prompt injection resistance |
+| `risen_unclear` | 4 | Gibberish/typo handling |
+| `safety_critical` | 4 | Life-safety accuracy (phone numbers, thresholds) |
+| `verbatim_accuracy` | 4 | Exact numbers/timeframes |
 
 ## Project Structure
 
@@ -220,6 +261,7 @@ rag_pt_rush/
 │   │   │   ├── services/
 │   │   │   │   ├── on_your_data_service.py  # Azure OpenAI "On Your Data"
 │   │   │   │   ├── chat_service.py          # Chat orchestration
+│   │   │   │   ├── cohere_rerank_service.py # Cohere Rerank 3.5 cross-encoder
 │   │   │   │   ├── upload_service.py        # PDF upload & indexing
 │   │   │   │   └── synonym_service.py       # Query-time synonym expansion
 │   │   │   ├── api/routes/                # API endpoints

@@ -52,14 +52,19 @@ az containerapp create --name rush-policy-frontend ...
 │                 │     │  Port 3000      │     │  Port 8000      │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                                                        │
-                          ┌────────────────────────────┼────────────────┐
-                          │                            │                │
-                          ▼                            ▼                ▼
-              ┌───────────────────┐    ┌───────────────────┐   ┌────────────┐
-              │  Azure AI Search  │    │  Azure OpenAI     │   │ Azure Blob │
-              │  rush-policies    │    │  GPT-4.1          │   │ Storage    │
-              │  3072-dim vectors │    │  embeddings       │   │ PDFs       │
-              └───────────────────┘    └───────────────────┘   └────────────┘
+                  ┌────────────────────────────────────┼─────────────────────────┐
+                  │                │                   │                │        │
+                  ▼                ▼                   ▼                ▼        │
+      ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐ │
+      │ Azure AI      │  │ Azure OpenAI  │  │ Cohere Rerank │  │ Azure Blob    │ │
+      │ Search        │  │ ───────────── │  │ ───────────── │  │ Storage       │ │
+      │ ───────────── │  │ GPT-4.1       │  │ rerank-v3-5   │  │ ───────────── │ │
+      │ rush-policies │  │ embeddings    │  │ cross-encoder │  │ PDFs          │ │
+      │ 3072-dim      │  │ (3-large)     │  │ AI Foundry    │  │               │ │
+      └───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘ │
+                                                                                  │
+      ◄──────────────────────── RAG PIPELINE ────────────────────────────────────►
+      1. Hybrid Search (Vector + BM25)  2. Cohere Rerank  3. GPT-4.1 Generation
 ```
 
 **Two containers only:**
@@ -67,6 +72,10 @@ az containerapp create --name rush-policy-frontend ...
 - `rush-policy-frontend` (Next.js Node.js)
 
 **NO Azure Functions. NO Redis. NO Serverless.**
+
+**AI Services:**
+- Azure OpenAI (GPT-4.1 chat + embeddings)
+- Cohere Rerank 3.5 (cross-encoder for negation-aware retrieval)
 
 ---
 
@@ -138,6 +147,7 @@ rag_pt_rush/
 │   │   │   ├── services/
 │   │   │   │   ├── on_your_data_service.py  # Azure OpenAI "On Your Data"
 │   │   │   │   ├── chat_service.py          # Chat orchestration
+│   │   │   │   ├── cohere_rerank_service.py # Cohere Rerank 3.5
 │   │   │   │   └── synonym_service.py       # Query expansion
 │   │   │   └── api/routes/            # API endpoints
 │   │   ├── azure_policy_index.py      # Search index management

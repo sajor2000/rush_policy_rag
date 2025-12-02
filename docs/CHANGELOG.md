@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Cohere Rerank 3.5 Integration**: Added cross-encoder reranking via Azure AI Foundry
+  - New `app/services/cohere_rerank_service.py` with async HTTP client
+  - Integrated into chat pipeline after Azure AI Search retrieval
+  - Configurable via env vars: `USE_COHERE_RERANK`, `COHERE_RERANK_ENDPOINT`, `COHERE_RERANK_API_KEY`
+  - Healthcare-calibrated threshold: 0.15 min score, top_n=10
+  - **Performance impact**: Pass rate improved from 77.8% to 100% (36/36 tests)
+  - Key improvement: Cross-encoder understands negation ("NOT authorized" contradicts "Can accept orders?")
+  - Full documentation added to DEPLOYMENT.md (Step 5.5), README.md, CLAUDE.md
 - **Tech Stack Finalization**: Confirmed production-ready FastAPI + Next.js architecture
   - Backend: FastAPI with rate limiting (slowapi), async I/O, Azure AD auth support
   - Frontend: Next.js 14 with security headers (CSP, HSTS, X-Frame-Options)

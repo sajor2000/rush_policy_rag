@@ -138,7 +138,9 @@ POLICY_HINTS = [
         "policy_query": "Latex Management"
     },
     {
-        "keywords": ["rapid response", "rrt"],
+        "keywords": ["rapid response", "rrt", "cardiac arrest", "code blue",
+                    "emergency number", "call for help", "patient deteriorating",
+                    "mews score", "vital signs", "clinical signs"],
         "hint": "Adult Rapid Response policy Ref #346",
         "reference": "346",
         "policy_query": "Adult Rapid Response"
@@ -151,14 +153,19 @@ POLICY_HINTS = [
 ADVERSARIAL_PATTERNS = [
     # Bypass/circumvent patterns
     "bypass", "circumvent", "work around", "workaround", "get around",
-    "skip", "avoid", "ignore", "fastest way to skip",
+    "skip authentication", "skip the", "avoid the", "fastest way to skip",
+    "quickest way to skip", "how to skip", "skip verification",
     "without read-back", "without authentication", "without verification",
     # Role-play / jailbreak attempts
     "pretend you're", "pretend you are", "act as if", "imagine you're",
-    "ignore your instructions", "forget your rules", "new instructions",
-    # General hospital info (not RUSH-specific)
-    "general information about hospital", "not rush specific",
-    "other hospitals", "general healthcare",
+    "forget your rules", "new instructions",
+    # "ignore" patterns - must be specific to avoid false positives
+    "ignore your", "ignore my", "ignore the rules", "ignore safety",
+    "ignore previous", "ignore these", "ignore all",
+    # DAN/jailbreak mode patterns
+    "dan mode", "developer mode", "disable restrictions", "disable your",
+    "jailbreak", "jailbroken", "unrestricted mode", "no restrictions",
+    "enable developer", "turn off safety", "remove restrictions",
 ]
 
 ADVERSARIAL_REFUSAL_MESSAGE = (
@@ -166,6 +173,66 @@ ADVERSARIAL_REFUSAL_MESSAGE = (
     "These requirements exist to protect patient safety and ensure regulatory compliance. "
     "If you have concerns about a specific policy, please contact Policy Administration."
 )
+
+UNCLEAR_QUERY_MESSAGE = (
+    "I didn't understand that. Could you please rephrase or clarify your question? "
+    "I'm here to help - what specific topic would you like to know about?"
+)
+
+# Patterns indicating a "not found" or refusal response that should NOT have references
+NOT_FOUND_OR_REFUSAL_PATTERNS = [
+    "i could not find",
+    "couldn't find",
+    "could not find",
+    "not in rush policies",
+    "not in my knowledge",
+    "outside my scope",
+    "outside the scope",
+    "i cannot provide guidance",
+    "cannot provide guidance",
+    "i only answer rush policy",
+    "could you please rephrase",
+    "i didn't understand",
+    "please clarify",
+    "clarify your question",
+    "what rush policy topic",
+]
+
+
+def _strip_references_from_negative_response(response_text: str) -> str:
+    """
+    Remove any policy references from negative responses (not found, refusal, etc.).
+
+    This ensures responses like "I could not find this. Ref #123..." become
+    just "I could not find this in RUSH policies."
+    """
+    import re
+
+    if not response_text:
+        return response_text
+
+    response_lower = response_text.lower()
+
+    # Check if this is a negative response type
+    is_negative = any(pattern in response_lower for pattern in NOT_FOUND_OR_REFUSAL_PATTERNS)
+
+    if not is_negative:
+        return response_text
+
+    # Strip reference patterns
+    # Pattern: "1. Ref #XXX — Title (Section: Y; Applies To: Z)"
+    cleaned = re.sub(r'\n*\d+\.\s*Ref\s*#[^\n]+', '', response_text)
+
+    # Pattern: standalone "Ref #XXX" or "(Ref #XXX)"
+    cleaned = re.sub(r'\s*\(?Ref\s*#\s*[A-Za-z0-9.\-]+\)?', '', cleaned)
+
+    # Pattern: "Reference Number: XXX"
+    cleaned = re.sub(r'\s*Reference\s*Number[:\s]*[A-Za-z0-9.\-]+', '', cleaned, flags=re.IGNORECASE)
+
+    # Clean up multiple newlines
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+
+    return cleaned.strip()
 
 def _truncate_verbatim(text: str, max_chars: int = 3000) -> str:
     """Trim long snippets while preserving sentence integrity."""
@@ -1092,6 +1159,52 @@ Policy excerpt:"""
 
         return False
 
+    def _is_unclear_query(self, query: str) -> bool:
+        """
+        Detect unclear queries that need clarification before processing.
+
+        Examples:
+        - Single characters: "K", "a", "?"
+        - Gibberish: "asdfjkl", "qwerty"
+        - Too vague: "policy", "help", "what"
+        - Typos without context: "polciy"
+        """
+        query_stripped = query.strip()
+        query_lower = query_stripped.lower()
+
+        # Single character or very short (under 3 chars)
+        if len(query_stripped) <= 2:
+            logger.info(f"Unclear query detected: too short ({len(query_stripped)} chars)")
+            return True
+
+        # Common vague words that need clarification
+        vague_words = {"policy", "help", "what", "how", "why", "info", "information"}
+        if query_lower in vague_words:
+            logger.info(f"Unclear query detected: vague word '{query_lower}'")
+            return True
+
+        # Common typos of "policy" that need clarification (not a real search)
+        policy_typos = {"polciy", "policiy", "polcy", "poilcy", "plicy", "ploicy"}
+        if query_lower in policy_typos:
+            logger.info(f"Unclear query detected: typo of 'policy' '{query_lower}'")
+            return True
+
+        # Gibberish detection: no vowels or unpronounceable
+        vowels = set("aeiou")
+        has_vowel = any(c in vowels for c in query_lower)
+        # But allow short acronyms (ED, RN, ICU) - they're valid
+        if not has_vowel and len(query_stripped) > 4:
+            logger.info(f"Unclear query detected: no vowels (likely gibberish)")
+            return True
+
+        # Keyboard mash patterns
+        keyboard_patterns = ["asdf", "qwer", "zxcv", "hjkl", "aaaa", "bbbb"]
+        if any(pattern in query_lower for pattern in keyboard_patterns):
+            logger.info(f"Unclear query detected: keyboard pattern")
+            return True
+
+        return False
+
     def _expand_query(self, query: str) -> tuple[str, Optional[QueryExpansion]]:
         """
         Expand user query with synonyms for better search accuracy.
@@ -1183,15 +1296,33 @@ Policy excerpt:"""
         """
         logger.info(f"Using Cohere Rerank pipeline for query: {request.message[:50]}...")
 
+        # Early unclear query detection (gibberish, single chars, vague)
+        if self._is_unclear_query(request.message):
+            logger.info(f"Unclear query detected: {request.message[:50]}...")
+            # NO references for clarification requests
+            return ChatResponse(
+                response=UNCLEAR_QUERY_MESSAGE,
+                summary=UNCLEAR_QUERY_MESSAGE,
+                evidence=[],  # NEVER include evidence for clarification
+                raw_response="",
+                sources=[],   # NEVER include sources for clarification
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["UNCLEAR_QUERY"]
+            )
+
         # Early out-of-scope detection
         if self._is_out_of_scope_query(request.message):
             logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
+            # NO references for out-of-scope responses
+            out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
             return ChatResponse(
-                response="I could not find this in RUSH clinical policies. This topic is outside my scope.",
-                summary="Outside scope",
-                evidence=[],
+                response=out_of_scope_msg,
+                summary=out_of_scope_msg,
+                evidence=[],  # NEVER include evidence for out-of-scope
                 raw_response="",
-                sources=[],
+                sources=[],   # NEVER include sources for out-of-scope
                 chunks_used=0,
                 found=False,
                 confidence="high",
@@ -1201,12 +1332,13 @@ Policy excerpt:"""
         # Adversarial query detection
         if self._is_adversarial_query(request.message):
             logger.info(f"Adversarial query detected: {request.message[:50]}...")
+            # NO references for adversarial refusal responses
             return ChatResponse(
                 response=ADVERSARIAL_REFUSAL_MESSAGE,
                 summary=ADVERSARIAL_REFUSAL_MESSAGE,
-                evidence=[],
+                evidence=[],  # NEVER include evidence for refusals
                 raw_response="",
-                sources=[],
+                sources=[],   # NEVER include sources for refusals
                 chunks_used=0,
                 found=False,
                 confidence="high",
@@ -1509,18 +1641,23 @@ Policy excerpt:"""
 
             answer_text = response.choices[0].message.content or NOT_FOUND_MESSAGE
 
+            # CRITICAL: Strip any references from negative response types
+            # The LLM might include refs even when saying "I could not find"
+            answer_text = _strip_references_from_negative_response(answer_text)
+
             # Check for NOT_FOUND patterns
             if self._is_not_found_response(answer_text):
                 # But if we have evidence, trust the response
                 if evidence_items:
                     logger.info(f"NOT_FOUND override: {len(evidence_items)} evidence items exist")
                 else:
+                    # Return clean NOT_FOUND with NO references
                     return ChatResponse(
                         response=NOT_FOUND_MESSAGE,
                         summary=NOT_FOUND_MESSAGE,
-                        evidence=[],
+                        evidence=[],  # NEVER include evidence for not-found
                         raw_response=answer_text,
-                        sources=[],
+                        sources=[],   # NEVER include sources for not-found
                         chunks_used=0,
                         found=False,
                         confidence="low",
@@ -1827,30 +1964,50 @@ Policy excerpt:"""
         """
         logger.info(f"Using On Your Data (vectorSemanticHybrid) for query: {request.message[:50]}...")
 
+        # Early unclear query detection (gibberish, single chars, vague)
+        if self._is_unclear_query(request.message):
+            logger.info(f"Unclear query detected: {request.message[:50]}...")
+            # NO references for clarification requests
+            return ChatResponse(
+                response=UNCLEAR_QUERY_MESSAGE,
+                summary=UNCLEAR_QUERY_MESSAGE,
+                evidence=[],  # NEVER include evidence for clarification
+                raw_response="",
+                sources=[],   # NEVER include sources for clarification
+                chunks_used=0,
+                found=False,
+                safety_flags=["UNCLEAR_QUERY"]
+            )
+
         # FIX 2: Early out-of-scope detection (before any API calls)
         if self._is_out_of_scope_query(request.message):
             logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
+            out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic (parking, HR benefits, administrative matters) is outside my scope. Please contact Human Resources or the appropriate department."
+            # NO references for out-of-scope responses
             return ChatResponse(
-                response="I could not find this in RUSH clinical policies. This topic (parking, HR benefits, administrative matters) is outside my scope. Please contact Human Resources or the appropriate department.",
-                summary="I could not find this in RUSH clinical policies. This topic is outside my scope. Please contact Human Resources or the appropriate department.",
-                evidence=[],
+                response=out_of_scope_msg,
+                summary=out_of_scope_msg,
+                evidence=[],  # NEVER include evidence for out-of-scope
                 raw_response="",
-                sources=[],
+                sources=[],   # NEVER include sources for out-of-scope
                 chunks_used=0,
-                found=False
+                found=False,
+                safety_flags=["OUT_OF_SCOPE"]
             )
 
         # FIX 6: Adversarial query detection (bypass/circumvent safety protocols)
         if self._is_adversarial_query(request.message):
             logger.info(f"Adversarial query detected: {request.message[:50]}...")
+            # NO references for refusal responses
             return ChatResponse(
                 response=ADVERSARIAL_REFUSAL_MESSAGE,
                 summary=ADVERSARIAL_REFUSAL_MESSAGE,
-                evidence=[],
+                evidence=[],  # NEVER include evidence for refusals
                 raw_response="",
-                sources=[],
+                sources=[],   # NEVER include sources for refusals
                 chunks_used=0,
-                found=False
+                found=False,
+                safety_flags=["ADVERSARIAL_BLOCKED"]
             )
 
         # Expand query with synonyms for better retrieval
@@ -1883,6 +2040,10 @@ Policy excerpt:"""
 
             answer_text = result.answer or NOT_FOUND_MESSAGE
 
+            # CRITICAL: Strip any references from negative response types
+            # The LLM might include refs even when saying "I could not find"
+            answer_text = _strip_references_from_negative_response(answer_text)
+
             # FIX 1: Use expanded "not found" detection
             # FIX 8: Context-aware NOT_FOUND - if citations exist, trust the response
             # This prevents false positives when LLM says "could not find specific X"
@@ -1914,12 +2075,13 @@ Policy excerpt:"""
                         f"treating as valid response despite phrase match"
                     )
                 else:
+                    # Return clean NOT_FOUND with NO references
                     return ChatResponse(
                         response=NOT_FOUND_MESSAGE,
                         summary=NOT_FOUND_MESSAGE,
-                        evidence=[],
+                        evidence=[],  # NEVER include evidence for not-found
                         raw_response=str(result.raw_response),
-                        sources=[],
+                        sources=[],   # NEVER include sources for not-found
                         chunks_used=0,
                         found=False
                     )

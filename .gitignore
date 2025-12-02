@@ -66,8 +66,11 @@ document_manifest.json
 RAG_READY/
 
 # Test outputs
+test_results*.json
+test_run_*.json
+test_phase*.json
+*_evaluation_results.json
 pipeline_results.json
-test_results.json
 coverage/
 
 # Generated data
