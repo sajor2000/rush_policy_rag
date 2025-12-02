@@ -454,7 +454,7 @@ export default function ChatMessage({
     >
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-4 py-3 shadow-sm",
+          "max-w-[85%] rounded-2xl px-4 py-3 shadow-sm overflow-hidden",
           isUser ? "bg-rush-growth text-white" : "bg-rush-sage text-foreground"
         )}
       >
@@ -479,9 +479,9 @@ export default function ChatMessage({
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-hidden">
             {/* Quick Answer Section - Enhanced with citations */}
-            <div className="rounded-lg bg-white border border-rush-legacy/20 shadow-sm p-3">
+            <div className="rounded-lg bg-white border border-rush-legacy/20 shadow-sm p-3 overflow-hidden">
               <div className="flex items-center gap-2 mb-2">
                 <BookOpen className="h-4 w-4 text-rush-legacy" />
                 <p className="text-[10px] uppercase tracking-widest font-semibold text-rush-legacy">
@@ -549,7 +549,7 @@ export default function ChatMessage({
 
             {/* Supporting Evidence Section - Compact PDF Style */}
             {evidence && evidence.length > 0 && (
-            <div className="rounded-lg border border-rush-legacy/20 bg-white/90 p-3">
+            <div className="rounded-lg border border-rush-legacy/20 bg-white/90 p-3 overflow-hidden">
               {/* Section header with match type indicator */}
               {(() => {
                 const hasRelated = evidence.some(e => e.match_type === "related");
@@ -648,8 +648,8 @@ export default function ChatMessage({
                     </div>
 
                     {/* Policy Text - Cleaned with better formatting */}
-                    <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50">
-                      <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line prose prose-sm prose-gray max-w-none">
+                    <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
+                      <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line break-words [overflow-wrap:anywhere]">
                         {cleanSnippet(item.snippet)}
                       </div>
                       {isSnippetTruncated(item.snippet) && (
