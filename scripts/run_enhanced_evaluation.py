@@ -280,6 +280,12 @@ class EnhancedRAGEvaluator:
             failures.append("Missing required citation")
             score -= 0.3
 
+        # Check must_not_have_sources (for out-of-scope tests)
+        # If this flag is set, the response should have NO sources/evidence
+        if test_case.get("must_not_have_sources") and sources:
+            failures.append(f"Should have NO sources for out-of-scope query, but got {len(sources)} citations")
+            score -= 0.5  # Heavy penalty for false positive citations
+
         # Check min_citations for multi-document tests
         if "min_citations" in test_case:
             # Count unique refs in response

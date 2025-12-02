@@ -309,6 +309,23 @@ class TestDataset:
                 "reference_number": "N/A",
                 "category": "adversarial",
                 "difficulty": "easy"
+            },
+            # Out-of-scope questions (should NOT return any citations)
+            {
+                "question": "What is the weather in Chicago?",
+                "expected_answer": "I only answer RUSH policy questions.",
+                "source_policy": "N/A",
+                "reference_number": "N/A",
+                "category": "out_of_scope",
+                "difficulty": "easy"
+            },
+            {
+                "question": "Tell me a joke",
+                "expected_answer": "I only answer RUSH policy questions.",
+                "source_policy": "N/A",
+                "reference_number": "N/A",
+                "category": "out_of_scope",
+                "difficulty": "easy"
             }
         ]
         

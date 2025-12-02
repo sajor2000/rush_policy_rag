@@ -83,6 +83,21 @@ ALWAYS_OUT_OF_SCOPE = [
 
     # Specific non-policy topics
     "jury duty",  # No jury duty policy found in index
+
+    # General conversation - NOT policy questions (FIX: weather query bug)
+    # These trigger false positive retrieval based on keyword matches (e.g., "Chicago")
+    "what is the weather", "what's the weather", "weather in",
+    "tell me a joke", "tell me about yourself",
+    "who are you", "what are you",
+    "good morning", "good afternoon", "good evening",
+    "how are you", "how's it going",
+    "sports score", "football", "basketball", "baseball",
+    "stock price", "stock market",
+    "recipe for", "how to cook",
+    "movie recommendation", "what movie",
+    "music recommendation", "what song",
+    "travel advice", "flight to", "hotel in",
+    "news about", "current events",
 ]
 
 # Topics where policies MAY exist but context matters
@@ -233,6 +248,26 @@ def _strip_references_from_negative_response(response_text: str) -> str:
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
 
     return cleaned.strip()
+
+
+def _is_refusal_response(response_text: str) -> bool:
+    """
+    Detect if the LLM response indicates a refusal, out-of-scope, or not-found case.
+
+    These responses should have their evidence and sources arrays cleared because
+    the frontend would otherwise display citations that are misleading
+    (e.g., showing "Chicago" matches for a weather query).
+
+    Returns True if evidence/sources should be cleared.
+    """
+    if not response_text:
+        return False
+
+    response_lower = response_text.lower()
+
+    # Check for refusal/out-of-scope patterns
+    return any(pattern in response_lower for pattern in NOT_FOUND_OR_REFUSAL_PATTERNS)
+
 
 def _truncate_verbatim(text: str, max_chars: int = 3000) -> str:
     """Trim long snippets while preserving sentence integrity."""
@@ -1664,6 +1699,24 @@ Policy excerpt:"""
                         safety_flags=["LLM_NOT_FOUND"]
                     )
 
+            # CRITICAL FIX: Check for refusal/out-of-scope responses
+            # Even if evidence was retrieved (e.g., keyword matches for "Chicago"),
+            # if the LLM says "I only answer RUSH policy questions", clear all citations
+            if _is_refusal_response(answer_text):
+                logger.info(f"Refusal response detected, clearing {len(evidence_items)} false positive citations")
+                # Return refusal with NO references (even if search found keyword matches)
+                return ChatResponse(
+                    response=answer_text,
+                    summary=answer_text,
+                    evidence=[],  # NEVER include evidence for refusals
+                    raw_response=answer_text,
+                    sources=[],   # NEVER include sources for refusals
+                    chunks_used=0,
+                    found=False,
+                    confidence="high",  # High confidence in the refusal
+                    safety_flags=["LLM_REFUSAL"]
+                )
+
             # Calculate confidence from Cohere rerank scores
             confidence_score, confidence_level = self._calculate_response_confidence(
                 reranked, has_evidence=bool(evidence_items)
@@ -2085,6 +2138,23 @@ Policy excerpt:"""
                         chunks_used=0,
                         found=False
                     )
+
+            # CRITICAL FIX: Check for refusal/out-of-scope responses
+            # Even if citations exist (e.g., keyword matches for "Chicago"),
+            # if the LLM says "I only answer RUSH policy questions", clear all citations
+            if _is_refusal_response(answer_text):
+                logger.info(f"Refusal response detected, clearing {len(result.citations) if result.citations else 0} false positive citations")
+                return ChatResponse(
+                    response=answer_text,
+                    summary=answer_text,
+                    evidence=[],  # NEVER include evidence for refusals
+                    raw_response=str(result.raw_response),
+                    sources=[],   # NEVER include sources for refusals
+                    chunks_used=0,
+                    found=False,
+                    confidence="high",  # High confidence in the refusal
+                    safety_flags=["LLM_REFUSAL"]
+                )
 
             # If we reach here, we have a valid answer (not an early "not found" return)
             found = True

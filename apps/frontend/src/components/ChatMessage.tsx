@@ -105,10 +105,31 @@ function generateEvidenceId(title: string, refNum: string, idx: number): string 
 }
 
 /**
+ * Clean the quick answer text by removing redundant citation lists
+ * The LLM sometimes appends "1. Ref #XXX — Title..." which is redundant with our Sources section
+ */
+function cleanQuickAnswerText(text: string): string {
+  if (!text) return "";
+
+  // Remove numbered citation lists (e.g., "1. Ref #369 — Title (Applies To: ...)")
+  // These are redundant because we show them in the Sources section
+  let cleaned = text
+    .replace(/\n*\d+\.\s*Ref\s*#\d+\s*[—–-]\s*[^\n]+(\([^)]*\))?/gi, "")
+    .replace(/\n*Sources cited:?\s*\n*/gi, "")
+    .trim();
+
+  // Clean up multiple consecutive newlines
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+
+  return cleaned;
+}
+
+/**
  * Parse quick answer text and render with formatted citations
  * Converts patterns like:
  * - **Policy Name** (Ref #XXX) → bold link to evidence
  * - [1] → superscript citation link
+ * - Numbered lists and bullet points → proper formatting
  */
 interface FormattedQuickAnswerProps {
   text: string;
@@ -119,21 +140,85 @@ interface FormattedQuickAnswerProps {
 function FormattedQuickAnswer({ text, evidence, onCitationClick }: FormattedQuickAnswerProps) {
   if (!text) return null;
 
-  // Parse the text for bold markers and citation references
+  // Clean the text first to remove redundant citation lists
+  const cleanedText = cleanQuickAnswerText(text);
+
+  // Split into paragraphs for better formatting
+  const paragraphs = cleanedText.split(/\n\n+/).filter(p => p.trim());
+
+  return (
+    <div className="space-y-3">
+      {paragraphs.map((paragraph, pIdx) => {
+        // Check if this paragraph is a list (numbered or bulleted)
+        const lines = paragraph.split('\n').filter(l => l.trim());
+        const isNumberedList = lines.every(l => /^\d+\.\s/.test(l.trim()));
+        const isBulletList = lines.every(l => /^[•\-\*]\s/.test(l.trim()));
+
+        if (isNumberedList || isBulletList) {
+          return (
+            <ol key={pIdx} className={cn(
+              "space-y-1.5 pl-4",
+              isNumberedList ? "list-decimal" : "list-disc"
+            )}>
+              {lines.map((line, lIdx) => {
+                const cleanLine = line.trim().replace(/^(\d+\.|[•\-\*])\s*/, '');
+                return (
+                  <li key={lIdx} className="text-sm leading-relaxed">
+                    <FormattedTextSpan
+                      text={cleanLine}
+                      evidence={evidence}
+                      onCitationClick={onCitationClick}
+                    />
+                  </li>
+                );
+              })}
+            </ol>
+          );
+        }
+
+        // Regular paragraph
+        return (
+          <p key={pIdx} className="text-sm leading-relaxed">
+            <FormattedTextSpan
+              text={paragraph.replace(/\n/g, ' ')}
+              evidence={evidence}
+              onCitationClick={onCitationClick}
+            />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Format inline text with bold, citations, and policy references */
+function FormattedTextSpan({
+  text,
+  evidence,
+  onCitationClick
+}: {
+  text: string;
+  evidence?: Evidence[];
+  onCitationClick?: (idx: number) => void;
+}) {
+  // Parse the text for bold markers, citation references, and policy refs
   const parts: React.ReactNode[] = [];
-  let remaining = text;
   let keyIdx = 0;
 
-  // Pattern to match **bold text** or [N] citations
-  const pattern = /(\*\*([^*]+)\*\*|\[(\d+)\])/g;
+  // Pattern to match:
+  // - **bold text**
+  // - [N] citations
+  // - (Policy Title, Ref #XXX) inline citations
+  // - Ref #XXX standalone
+  const pattern = /(\*\*([^*]+)\*\*|\[(\d+)\]|\(([^,]+),\s*Ref\s*#(\d+)\)|Ref\s*#(\d+))/g;
   let lastIndex = 0;
   let match;
 
-  while ((match = pattern.exec(remaining)) !== null) {
+  while ((match = pattern.exec(text)) !== null) {
     // Add text before the match
     if (match.index > lastIndex) {
       parts.push(
-        <span key={keyIdx++}>{remaining.slice(lastIndex, match.index)}</span>
+        <span key={keyIdx++}>{text.slice(lastIndex, match.index)}</span>
       );
     }
 
@@ -166,14 +251,58 @@ function FormattedQuickAnswer({ text, evidence, onCitationClick }: FormattedQuic
           {match[3]}
         </button>
       );
+    } else if (match[4] && match[5]) {
+      // Inline citation (Policy Title, Ref #XXX)
+      const refNum = match[5];
+      const evidenceIdx = evidence?.findIndex(e => e.reference_number === refNum) ?? -1;
+      const hasEvidence = evidenceIdx >= 0;
+      parts.push(
+        <span key={keyIdx++} className="inline-flex items-center gap-1">
+          <span className="text-gray-500">(</span>
+          <button
+            onClick={() => hasEvidence && onCitationClick?.(evidenceIdx)}
+            className={cn(
+              "font-medium",
+              hasEvidence
+                ? "text-rush-legacy hover:underline cursor-pointer"
+                : "text-gray-700"
+            )}
+          >
+            {match[4].trim()}
+          </button>
+          <span className="text-xs bg-rush-sage/40 px-1 py-0.5 rounded text-rush-legacy font-medium">
+            #{refNum}
+          </span>
+          <span className="text-gray-500">)</span>
+        </span>
+      );
+    } else if (match[6]) {
+      // Standalone Ref #XXX
+      const refNum = match[6];
+      const evidenceIdx = evidence?.findIndex(e => e.reference_number === refNum) ?? -1;
+      const hasEvidence = evidenceIdx >= 0;
+      parts.push(
+        <button
+          key={keyIdx++}
+          onClick={() => hasEvidence && onCitationClick?.(evidenceIdx)}
+          className={cn(
+            "inline-flex items-center text-xs bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium",
+            hasEvidence
+              ? "text-rush-legacy hover:bg-rush-sage/60 cursor-pointer"
+              : "text-gray-600"
+          )}
+        >
+          Ref #{refNum}
+        </button>
+      );
     }
 
     lastIndex = match.index + match[0].length;
   }
 
   // Add any remaining text
-  if (lastIndex < remaining.length) {
-    parts.push(<span key={keyIdx++}>{remaining.slice(lastIndex)}</span>);
+  if (lastIndex < text.length) {
+    parts.push(<span key={keyIdx++}>{text.slice(lastIndex)}</span>);
   }
 
   return <>{parts}</>;
@@ -280,7 +409,25 @@ export default function ChatMessage({
 
   const quickAnswer = summary ?? content;
   const evidenceCount = evidence?.length ?? 0;
-  const hasAnswer = (found ?? true) && evidenceCount > 0;
+
+  // Detect refusal responses - should NOT show any evidence/sources
+  const isRefusalResponse = useMemo(() => {
+    const text = (quickAnswer || "").toLowerCase();
+    const refusalPatterns = [
+      "i only answer rush policy",
+      "only answer rush policy questions",
+      "i could not find",
+      "could not find this in rush",
+      "outside my scope",
+      "outside the scope",
+      "cannot provide guidance",
+      "please rephrase",
+      "clarify your question",
+    ];
+    return refusalPatterns.some(pattern => text.includes(pattern));
+  }, [quickAnswer]);
+
+  const hasAnswer = (found ?? true) && evidenceCount > 0 && !isRefusalResponse;
 
   // Build sources from evidence if sources array is empty but evidence has source_file
   const effectiveSources = useMemo(() => {
@@ -349,13 +496,14 @@ export default function ChatMessage({
                 />
               </div>
 
-              {/* Citation Sources Summary */}
+              {/* Citation Sources Summary - Card Style */}
               {evidence && evidence.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-rush-legacy/10">
-                  <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">
-                    Sources cited:
+                <div className="mt-4 pt-3 border-t border-rush-legacy/10">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold flex items-center gap-1.5">
+                    <FileText className="h-3 w-3" />
+                    Policy Sources
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="grid gap-2">
                     {Array.from(
                       new Map(
                         evidence.map((e, idx) => [e.reference_number || e.title, { ...e, idx }])
@@ -366,19 +514,31 @@ export default function ChatMessage({
                         <button
                           key={item.idx}
                           onClick={() => scrollToEvidence(item.idx)}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] bg-rush-sage/30 hover:bg-rush-sage/50 border border-rush-legacy/15 rounded transition-colors group"
+                          className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-white to-rush-sage/20 hover:to-rush-sage/40 border border-rush-legacy/20 rounded-lg transition-all duration-200 group text-left shadow-sm hover:shadow"
                         >
-                          <span className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-bold bg-rush-legacy text-white rounded-sm">
+                          {/* Citation number badge */}
+                          <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 text-xs font-bold bg-rush-legacy text-white rounded-md shadow-sm">
                             {item.idx + 1}
                           </span>
-                          <span className="font-medium text-rush-legacy group-hover:underline max-w-[150px] truncate">
-                            {item.title}
+
+                          {/* Policy info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm text-gray-900 group-hover:text-rush-legacy truncate">
+                              {item.title}
+                            </p>
+                            {ref !== "N/A" && (
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                Reference #{ref}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Chevron indicator */}
+                          <span className="flex-shrink-0 text-rush-legacy/50 group-hover:text-rush-legacy transition-colors">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
                           </span>
-                          {ref !== "N/A" && (
-                            <span className="text-gray-500 text-[10px]">
-                              #{ref}
-                            </span>
-                          )}
                         </button>
                       );
                     })}
@@ -414,7 +574,7 @@ export default function ChatMessage({
                   The cited policy is not in our database. Showing related policies that may help.
                 </p>
               )}
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {evidence.map((item, idx) => (
                   <div
                     key={`${item.citation}-${idx}`}
@@ -423,10 +583,10 @@ export default function ChatMessage({
                     }}
                     id={generateEvidenceId(item.title, item.reference_number || "", idx)}
                     className={cn(
-                      "border bg-white overflow-hidden transition-all duration-300",
+                      "border bg-white overflow-hidden transition-all duration-300 rounded-lg shadow-sm",
                       item.match_type === "related"
                         ? "border-amber-300/50"
-                        : "border-rush-legacy/30",
+                        : "border-rush-legacy/20",
                       highlightedEvidence === idx && "ring-2 ring-rush-legacy ring-offset-2 shadow-lg"
                     )}
                   >
@@ -487,14 +647,15 @@ export default function ChatMessage({
                       </div>
                     </div>
 
-                    {/* Policy Text - Cleaned */}
-                    <div className="px-3 py-2 bg-white">
-                      <div className="text-[13px] leading-relaxed text-gray-800 whitespace-pre-line">
+                    {/* Policy Text - Cleaned with better formatting */}
+                    <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50">
+                      <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line prose prose-sm prose-gray max-w-none">
                         {cleanSnippet(item.snippet)}
                       </div>
                       {isSnippetTruncated(item.snippet) && (
-                        <p className="text-xs text-gray-500 italic mt-2 border-t border-gray-100 pt-2">
-                          [Text excerpt — view full document for complete policy]
+                        <p className="text-xs text-gray-400 italic mt-3 pt-2 border-t border-gray-100 flex items-center gap-1">
+                          <span className="inline-block w-1 h-1 bg-gray-300 rounded-full"></span>
+                          Text excerpt — view full document for complete policy
                         </p>
                       )}
                     </div>
