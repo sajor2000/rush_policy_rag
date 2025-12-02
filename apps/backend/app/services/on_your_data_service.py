@@ -13,6 +13,7 @@ from typing import Optional, List
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
 from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError
 from tenacity import (
     retry,
@@ -23,6 +24,10 @@ from tenacity import (
 )
 
 logger = logging.getLogger(__name__)
+
+# SSL verification toggle for corporate proxy environments (e.g., Netskope)
+# Set DISABLE_SSL_VERIFY=true in .env for development on corporate machines
+DISABLE_SSL_VERIFY = os.environ.get("DISABLE_SSL_VERIFY", "false").lower() == "true"
 
 # Retry configuration for Azure OpenAI calls
 RETRY_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError)
@@ -79,19 +84,32 @@ class OnYourDataService:
         self.semantic_config = os.environ.get("SEARCH_SEMANTIC_CONFIG", "default-semantic")
         self.embedding_deployment = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
 
-        # Initialize Azure OpenAI client with timeout
-        # 45-second timeout allows for: embedding (1-2s) + search (1-3s) + generation (5-10s) + network jitter
+        # Initialize Azure OpenAI client with connection pooling and optimized timeouts
+        # Connection pooling reduces cold-start latency on subsequent requests
+        # Timeout breakdown: connect=10s, read=60s (allows for embedding + search + generation)
         if self.endpoint and self.api_key:
+            # Configure HTTP client with connection pooling for better performance
+            http_client = httpx.Client(
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                limits=httpx.Limits(
+                    max_keepalive_connections=5,
+                    max_connections=10,
+                    keepalive_expiry=30.0  # Keep connections alive for 30s
+                )
+            )
             self.client = AzureOpenAI(
                 azure_endpoint=self.endpoint,
                 api_key=self.api_key,
                 api_version=self.api_version,
-                timeout=45.0  # Increased from 15s for RAG operations
+                http_client=http_client,
+                timeout=60.0  # Increased from 45s to handle cold starts
             )
-            logger.info(f"Initialized AzureOpenAI client: {self.endpoint}")
+            self._http_client = http_client  # Keep reference for cleanup
+            logger.info(f"Initialized AzureOpenAI client with connection pooling: {self.endpoint}")
             logger.info(f"Search index: {self.index_name}, semantic config: {self.semantic_config}")
         else:
             self.client = None
+            self._http_client = None
             logger.warning("Azure OpenAI credentials not configured (AOAI_ENDPOINT, AOAI_API)")
 
         # Load system prompt
@@ -176,8 +194,8 @@ If the information is not in the provided documents, say so."""
                 "key": self.search_key
             },
             # ✅ FULL SEMANTIC HYBRID SEARCH - the key fix!
-            "query_type": "vector_semantic_hybrid",
-            "semantic_configuration": self.semantic_config,
+            # Set DISABLE_SEMANTIC_SEARCH=true to fall back to vector+BM25 hybrid (no semantic reranking)
+            "query_type": "vector_simple_hybrid" if os.getenv("DISABLE_SEMANTIC_SEARCH", "").lower() == "true" else "vector_semantic_hybrid",
             # Embedding configuration for vector search
             "embedding_dependency": {
                 "type": "deployment_name",
@@ -197,6 +215,11 @@ If the information is not in the provided documents, say so."""
             "in_scope": True  # Only use retrieved documents
         }
 
+        # Conditionally add semantic_configuration (only when semantic search is enabled)
+        disable_semantic = os.getenv("DISABLE_SEMANTIC_SEARCH", "").lower() == "true"
+        if not disable_semantic:
+            parameters["semantic_configuration"] = self.semantic_config
+
         # Conditionally add filter (Azure API expects string type, not None)
         if filter_expr:
             parameters["filter"] = filter_expr
@@ -206,9 +229,10 @@ If the information is not in the provided documents, say so."""
             "parameters": parameters
         }]
 
+        query_type = parameters["query_type"]
         logger.info(
             f"OnYourData query: '{query[:50]}...' "
-            f"(query_type=vector_semantic_hybrid, semantic_config={self.semantic_config}, "
+            f"(query_type={query_type}, semantic_config={'disabled' if disable_semantic else self.semantic_config}, "
             f"top_n={top_n_documents})"
         )
 
@@ -311,12 +335,50 @@ If the information is not in the provided documents, say so."""
             strictness=3
         )
 
+    async def warmup(self) -> bool:
+        """
+        Warm up the service by making a minimal request.
+        
+        This primes the connection pool and reduces cold-start latency
+        for subsequent requests. Should be called during app startup.
+        
+        Returns:
+            True if warmup succeeded, False otherwise
+        """
+        if not self.is_configured:
+            logger.warning("Cannot warm up OnYourDataService - not configured")
+            return False
+        
+        try:
+            logger.info("Warming up OnYourDataService...")
+            # Make a minimal request to prime connections
+            await self.chat(
+                query="warmup ping",
+                top_n_documents=1,
+                strictness=5,  # Maximum strictness to minimize processing
+                max_tokens=10
+            )
+            logger.info("OnYourDataService warmup completed successfully")
+            return True
+        except Exception as e:
+            logger.warning(f"OnYourDataService warmup failed (non-critical): {e}")
+            return False
+
     def close(self) -> None:
         """
         Clean up resources.
 
         Should be called during application shutdown to release connections.
         """
+        # Close HTTP client first (connection pool)
+        if self._http_client is not None:
+            try:
+                self._http_client.close()
+                logger.info("OnYourDataService HTTP client closed")
+            except Exception as e:
+                logger.warning(f"Error closing HTTP client: {e}")
+            self._http_client = None
+        
         if self.client is not None:
             try:
                 self.client.close()

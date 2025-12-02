@@ -1,14 +1,171 @@
 import logging
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
+from collections import defaultdict
 from app.models.schemas import ChatRequest, ChatResponse, EvidenceItem
 from app.core.prompts import RISEN_PROMPT, NOT_FOUND_MESSAGE, LLM_UNAVAILABLE_MESSAGE
 from app.core.security import build_applies_to_filter
 from azure_policy_index import PolicySearchIndex, format_rag_context, SearchResult
 from app.services.on_your_data_service import OnYourDataService, OnYourDataResult
+from app.services.cohere_rerank_service import CohereRerankService, RerankResult
 from app.services.synonym_service import get_synonym_service, QueryExpansion
+from app.services.citation_verifier import get_citation_verifier, CitationVerifier, VerificationResult
+from app.services.citation_formatter import get_citation_formatter
+from app.services.safety_validator import get_safety_validator, ResponseSafetyValidator
+from app.services.corrective_rag import get_corrective_rag_service, CorrectiveRAGService
+from app.services.self_reflective_rag import get_self_reflective_service, SelfReflectiveRAGService
+from app.services.query_decomposer import get_query_decomposer, QueryDecomposer
+from app.core.config import settings
+from openai import AzureOpenAI
+import httpx
+import os
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# FIX 1: Expanded "not found" detection phrases
+# ============================================================================
+NOT_FOUND_PHRASES = [
+    "i don't have",
+    "i do not have",
+    "no information",
+    "could not find",
+    "couldn't find",
+    "cannot find",
+    "can't find",
+    "unable to find",
+    "unable to locate",
+    "no policies",
+    "no policy",
+    "not covered",
+    "not addressed",
+    "outside my scope",
+    "outside the scope",
+    "not within",
+    "beyond my knowledge",
+    "i cannot answer",
+    "i can't answer",
+    "don't have access",
+    "no relevant",
+    "not in my knowledge",
+    "not available in",
+    "i'm not able to",
+    "i am not able to",
+    "no specific policy",
+    "not included in",
+    # REMOVED: "does not contain" and "doesn't contain" - too broad, triggers
+    # false positives when legitimate content discusses what products contain.
+    # E.g., "does not contain latex" was matching in latex allergy policies.
+    # The "I could not find" phrase is sufficient for actual not-found cases.
+]
+
+# ============================================================================
+# FIX 2: Out-of-scope topic keywords (DATA-DRIVEN from policy metadata analysis)
+# ============================================================================
+# ALWAYS out of scope - Verified NO policies exist for these topics
+# (Analyzed 329 policies in Azure AI Search index on 2024-12-01)
+ALWAYS_OUT_OF_SCOPE = [
+    # Facilities - No policies found
+    "parking", "parking validation", "parking permit", "parking garage",
+    "cafeteria hours", "cafeteria menu", "food court",
+    "gym access", "fitness center hours", "wellness center",
+    "wifi password", "internet access",
+
+    # HR Benefits not in clinical policy database
+    # Note: HR-B 13.00 PTO policy EXISTS but is about policy, not balance inquiries
+    "pto balance", "vacation balance", "how many days do i have",
+    "401k", "retirement contributions", "pension",
+    "benefits enrollment deadline", "open enrollment dates",
+    "salary", "pay raise", "compensation",
+
+    # Social/Personal - No policies found
+    "birthday", "potluck", "team party", "celebration",
+
+    # Specific non-policy topics
+    "jury duty",  # No jury duty policy found in index
+]
+
+# Topics where policies MAY exist but context matters
+# These will pass through to LLM for nuanced handling
+# Examples found: Dress code (Ref 704, 847), PTO (HR-B 13.00), Leave (HR-B 14.00)
+# REMOVED: dress code, vacation, time off, leave - policies exist for these!
+
+# ============================================================================
+# FIX 5: Multi-policy query indicators (Enhanced for better detection)
+# ============================================================================
+MULTI_POLICY_INDICATORS = [
+    # Explicit multi-policy indicators
+    "across", "different policies", "multiple policies", "various policies",
+    "all policies", "any policy", "which policies", "what policies",
+    "several", "compare", "both policies",
+    
+    # Implicit multi-topic indicators
+    "and also", "as well as", "in addition to",
+    "what are all the", "comprehensive", "overview",
+    
+    # Cross-cutting concern patterns (queries that span multiple policies)
+    "communication methods", "safety precautions", "documentation required",
+    "patient identification", "emergency procedures", "during emergencies",
+    "staff responsibilities", "compliance requirements", "regulatory",
+]
+
+# Policy topic keywords for detecting implicit multi-policy queries
+POLICY_TOPIC_KEYWORDS = [
+    "verbal order", "hand-off", "hand off", "handoff", "rapid response",
+    "latex", "sbar", "epic", "communication", "rrt", "code blue",
+    "patient safety", "medication", "documentation", "authentication",
+]
+
+# Domain-specific hints to bias retrieval toward canonical policies when
+# critical terminology appears in the query (e.g., "verbal orders" → Ref #486)
+POLICY_HINTS = [
+    {
+        "keywords": ["verbal order", "telephone order", "verbal orders", "telephone orders"],
+        "hint": "Verbal and Telephone Orders policy Ref #486",
+        "reference": "486",
+        "policy_query": "Verbal and Telephone Orders"
+    },
+    {
+        "keywords": ["hand off", "handoff", "sbar", "change of shift"],
+        "hint": "Communication Of Patient Status - Hand Off Communication Ref #1206",
+        "reference": "1206",
+        "policy_query": "Communication Of Patient Status - Hand Off Communication"
+    },
+    {
+        "keywords": ["latex"],
+        "hint": "Latex Management policy Ref #228",
+        "reference": "228",
+        "policy_query": "Latex Management"
+    },
+    {
+        "keywords": ["rapid response", "rrt"],
+        "hint": "Adult Rapid Response policy Ref #346",
+        "reference": "346",
+        "policy_query": "Adult Rapid Response"
+    }
+]
+
+# ============================================================================
+# FIX 6: Adversarial query detection (bypass/circumvent safety protocols)
+# ============================================================================
+ADVERSARIAL_PATTERNS = [
+    # Bypass/circumvent patterns
+    "bypass", "circumvent", "work around", "workaround", "get around",
+    "skip", "avoid", "ignore", "fastest way to skip",
+    "without read-back", "without authentication", "without verification",
+    # Role-play / jailbreak attempts
+    "pretend you're", "pretend you are", "act as if", "imagine you're",
+    "ignore your instructions", "forget your rules", "new instructions",
+    # General hospital info (not RUSH-specific)
+    "general information about hospital", "not rush specific",
+    "other hospitals", "general healthcare",
+]
+
+ADVERSARIAL_REFUSAL_MESSAGE = (
+    "I cannot provide guidance on bypassing, circumventing, or ignoring RUSH safety protocols. "
+    "These requirements exist to protect patient safety and ensure regulatory compliance. "
+    "If you have concerns about a specific policy, please contact Policy Administration."
+)
 
 def _truncate_verbatim(text: str, max_chars: int = 3000) -> str:
     """Trim long snippets while preserving sentence integrity."""
@@ -23,6 +180,134 @@ def _truncate_verbatim(text: str, max_chars: int = 3000) -> str:
     if " " in truncated:
         truncated = truncated.rsplit(" ", 1)[0]
     return truncated.rstrip() + "…"
+
+
+def _apply_mmr_diversification(
+    citations: List,
+    lambda_param: float = 0.7,
+    max_results: int = 10
+) -> List:
+    """
+    Apply Maximal Marginal Relevance (MMR) to diversify citations.
+    
+    This ensures multi-policy queries return citations from different policies
+    rather than multiple chunks from the same policy.
+    
+    MMR formula: score = lambda * relevance - (1 - lambda) * similarity
+    
+    Args:
+        citations: List of citation objects with filepath and reranker_score attributes
+        lambda_param: Balance between relevance (1.0) and diversity (0.0). Default 0.7
+        max_results: Maximum number of results to return
+    
+    Returns:
+        Diversified list of citations
+    """
+    if not citations or len(citations) <= 1:
+        return citations
+    
+    selected = []
+    remaining = list(citations)
+    seen_policies = set()  # Track source files to ensure diversity
+    
+    while remaining and len(selected) < max_results:
+        if not selected:
+            # First pick: highest relevance
+            selected.append(remaining.pop(0))
+            if hasattr(selected[0], 'filepath') and selected[0].filepath:
+                seen_policies.add(selected[0].filepath)
+            continue
+        
+        best_score = -float('inf')
+        best_idx = 0
+        
+        for i, candidate in enumerate(remaining):
+            # Get relevance score
+            relevance = getattr(candidate, 'reranker_score', None) or 0.0
+            
+            # Calculate similarity penalty (1.0 if same policy, 0.0 if different)
+            candidate_policy = getattr(candidate, 'filepath', '') or ''
+            similarity = 1.0 if candidate_policy in seen_policies else 0.0
+            
+            # MMR score
+            mmr_score = lambda_param * relevance - (1 - lambda_param) * similarity
+            
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = i
+        
+        best_candidate = remaining.pop(best_idx)
+        selected.append(best_candidate)
+        
+        if hasattr(best_candidate, 'filepath') and best_candidate.filepath:
+            seen_policies.add(best_candidate.filepath)
+    
+    return selected
+
+
+def _apply_mmr_to_rerank_results(
+    results: List['RerankResult'],
+    lambda_param: float = 0.6,
+    max_results: int = 10
+) -> List['RerankResult']:
+    """
+    Apply Maximal Marginal Relevance (MMR) to Cohere rerank results.
+    
+    Ensures multi-policy queries return results from different policies
+    rather than multiple chunks from the same policy.
+    
+    Uses reference_number as the policy identifier for diversity.
+    
+    Args:
+        results: List of RerankResult objects from Cohere reranking
+        lambda_param: Balance between relevance (1.0) and diversity (0.0). 
+                      Default 0.6 (60% relevance, 40% diversity)
+        max_results: Maximum number of results to return
+    
+    Returns:
+        Diversified list of RerankResult objects
+    """
+    if not results or len(results) <= 1:
+        return results
+    
+    selected = []
+    remaining = list(results)
+    seen_policies = set()  # Track reference numbers to ensure diversity
+    
+    while remaining and len(selected) < max_results:
+        if not selected:
+            # First pick: highest relevance (already sorted by Cohere score)
+            first = remaining.pop(0)
+            selected.append(first)
+            if first.reference_number:
+                seen_policies.add(first.reference_number)
+            continue
+        
+        best_score = -float('inf')
+        best_idx = 0
+        
+        for i, candidate in enumerate(remaining):
+            # Get relevance score from Cohere
+            relevance = candidate.cohere_score or 0.0
+            
+            # Calculate similarity penalty (1.0 if same policy, 0.0 if different)
+            similarity = 1.0 if candidate.reference_number in seen_policies else 0.0
+            
+            # MMR score: balance relevance with diversity
+            mmr_score = lambda_param * relevance - (1 - lambda_param) * similarity
+            
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = i
+        
+        best_candidate = remaining.pop(best_idx)
+        selected.append(best_candidate)
+        
+        if best_candidate.reference_number:
+            seen_policies.add(best_candidate.reference_number)
+    
+    logger.debug(f"MMR diversification: {len(results)} -> {len(selected)} results, {len(seen_policies)} unique policies")
+    return selected
 
 
 def _extract_reference_identifier(citation: str) -> str:
@@ -327,10 +612,12 @@ class ChatService:
     def __init__(
         self,
         search_index: PolicySearchIndex,
-        on_your_data_service: Optional[OnYourDataService] = None
+        on_your_data_service: Optional[OnYourDataService] = None,
+        cohere_rerank_service: Optional[CohereRerankService] = None
     ):
         self.search_index = search_index
         self.on_your_data_service = on_your_data_service
+        self.cohere_rerank_service = cohere_rerank_service
 
         # Initialize synonym service for query expansion
         try:
@@ -339,6 +626,471 @@ class ChatService:
         except Exception as e:
             logger.warning(f"Synonym service unavailable: {e}")
             self.synonym_service = None
+
+        # Initialize Azure OpenAI client for Cohere rerank pipeline
+        # (Cohere reranks, then we use regular chat completions for LLM)
+        self._openai_client = None
+        if cohere_rerank_service and cohere_rerank_service.is_configured:
+            aoai_endpoint = os.environ.get("AOAI_ENDPOINT")
+            aoai_key = os.environ.get("AOAI_API_KEY") or os.environ.get("AOAI_API")
+            if aoai_endpoint and aoai_key:
+                http_client = httpx.Client(
+                    timeout=httpx.Timeout(60.0, connect=10.0),
+                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                )
+                self._openai_client = AzureOpenAI(
+                    azure_endpoint=aoai_endpoint,
+                    api_key=aoai_key,
+                    api_version=os.environ.get("AOAI_API_VERSION", "2024-08-01-preview"),
+                    http_client=http_client
+                )
+                logger.info("Azure OpenAI client initialized for Cohere rerank pipeline")
+
+    # ========================================================================
+    # FIX 1: Expanded "not found" detection
+    # ========================================================================
+    def _is_not_found_response(self, answer_text: str) -> bool:
+        """Detect if LLM response indicates no information found."""
+        if not answer_text:
+            return True
+        if answer_text == NOT_FOUND_MESSAGE:
+            return True
+
+        answer_lower = answer_text.lower()
+
+        # Check for explicit "not found" indicator phrases
+        for phrase in NOT_FOUND_PHRASES:
+            if phrase in answer_lower:
+                return True
+
+        return False
+
+    # ========================================================================
+    # FIX 2: Out-of-scope pre-query validation (DATA-DRIVEN)
+    # ========================================================================
+    def _is_out_of_scope_query(self, query: str) -> bool:
+        """
+        Detect queries about topics with NO policies in the database.
+
+        Based on analysis of 329 policies in Azure AI Search index.
+        Topics like dress code, PTO policy, leave of absence ARE in scope
+        (policies exist: Ref 704, 847, HR-B 13.00, HR-B 14.00).
+        """
+        query_lower = query.lower()
+
+        # Check against verified out-of-scope topics
+        for keyword in ALWAYS_OUT_OF_SCOPE:
+            if keyword in query_lower:
+                logger.info(f"Out-of-scope query detected (no policies exist): '{keyword}'")
+                return True
+
+        return False
+
+    # ========================================================================
+    # FIX 5: Multi-policy query detection (Enhanced)
+    # ========================================================================
+    def _is_multi_policy_query(self, query: str) -> bool:
+        """
+        Detect if query likely spans multiple policies.
+        
+        Uses four detection strategies:
+        1. Explicit indicators ("across policies", "compare", etc.)
+        2. Multiple topic keywords (2+ distinct policy topics)
+        3. Broad scope patterns (regex for comprehensive queries)
+        4. Query decomposition analysis (comparison, multi-topic, conditional)
+        """
+        query_lower = query.lower()
+        
+        # Strategy 1: Explicit multi-policy indicators
+        if any(ind in query_lower for ind in MULTI_POLICY_INDICATORS):
+            logger.debug(f"Multi-policy detected via indicator: {query[:50]}...")
+            return True
+        
+        # Strategy 2: Multiple topic keywords (2+ distinct policy topics)
+        topics_found = sum(1 for t in POLICY_TOPIC_KEYWORDS if t in query_lower)
+        if topics_found >= 2:
+            logger.debug(f"Multi-policy detected via {topics_found} topics: {query[:50]}...")
+            return True
+        
+        # Strategy 3: Broad scope patterns
+        import re
+        broad_patterns = [
+            r"\bwhat\s+(?:are\s+)?(?:all|any|the)\s+(?:different|various)\b",
+            r"\bhow\s+(?:do|does|should)\s+(?:we|staff|nurses?|i)\b.*\band\b",
+            r"\blist\s+(?:all|the)\b",
+            r"\bwhat\s+(?:should|must)\s+(?:be|i)\s+.*\band\b",
+            # Emergency/safety patterns that often span multiple policies
+            r"\bemergenc(?:y|ies)\b.*\b(?:method|protocol|communication)\b",
+            r"\bsafety\s+(?:precaution|protocol|measure)\b",
+            r"\bpatient\s+identification\b",
+        ]
+        if any(re.search(p, query_lower) for p in broad_patterns):
+            logger.debug(f"Multi-policy detected via broad pattern: {query[:50]}...")
+            return True
+        
+        # Strategy 4: Query decomposition analysis
+        # Complex queries that need decomposition are multi-policy by definition
+        try:
+            decomposer = get_query_decomposer()
+            needs_decomp, decomp_type = decomposer.needs_decomposition(query)
+            if needs_decomp:
+                logger.debug(f"Multi-policy detected via decomposition ({decomp_type}): {query[:50]}...")
+                return True
+        except Exception as e:
+            logger.debug(f"Query decomposition check failed: {e}")
+        
+        return False
+
+    # ========================================================================
+    # FIX 7: Dynamic search parameters based on query complexity
+    # ========================================================================
+    def _get_search_params(self, query: str) -> dict:
+        """
+        Determine optimal search parameters based on query characteristics.
+        
+        Per Microsoft best practices:
+        - Lower strictness for queries with acronyms (reduces false negatives)
+        - Higher top_n_documents for multi-policy queries (more comprehensive)
+        - Standard parameters for complex queries without acronyms
+        """
+        words = query.split()
+        word_count = len(words)
+        
+        # Known healthcare acronyms that benefit from lower strictness
+        healthcare_acronyms = {
+            'sbar', 'rrt', 'icu', 'ed', 'er', 'cpr', 'dnr', 'hipaa', 'pca',
+            'picc', 'npo', 'prn', 'stat', 'vte', 'rumc', 'rumg', 'roph',
+            'epic', 'lvad', 'ecmo', 'pacu', 'nicu', 'picu', 'bls', 'acls'
+        }
+        
+        # Check if query contains any healthcare acronyms
+        query_lower = query.lower()
+        has_acronym = any(acr in query_lower for acr in healthcare_acronyms)
+        
+        # Check for short acronym-only queries (e.g., "SBAR", "RRT")
+        is_acronym_query = word_count <= 2 and any(
+            w.isupper() and len(w) >= 2 for w in words
+        )
+        
+        # HEALTHCARE SAFETY: Always use strictness=5 (maximum)
+        # This ensures responses are strictly grounded in retrieved documents.
+        # Lower strictness allows model knowledge to contaminate responses.
+        
+        # Multi-policy queries need more documents
+        if self._is_multi_policy_query(query):
+            return {
+                'strictness': 5,  # HEALTHCARE: Maximum strictness
+                'top_n_documents': 100  # More documents for comprehensive coverage
+            }
+        
+        # Acronym queries - still use max strictness but more docs
+        if has_acronym or is_acronym_query or word_count <= 3:
+            return {
+                'strictness': 5,  # HEALTHCARE: Maximum strictness
+                'top_n_documents': 75  # More docs to compensate for strict grounding
+            }
+        
+        # Standard queries
+        return {
+            'strictness': 5,  # HEALTHCARE: Maximum strictness
+            'top_n_documents': 50
+        }
+
+    def _get_cohere_top_n(self, query: str) -> int:
+        """
+        Dynamic top_n for Cohere reranking based on query complexity.
+        
+        Multi-policy queries need more results to ensure comprehensive coverage.
+        Simple queries can use fewer results for precision.
+        """
+        if self._is_multi_policy_query(query):
+            return 10  # More results for multi-policy queries
+        if len(query.split()) <= 3:
+            return 5   # Fewer for simple/short queries
+        return 7       # Default for standard queries
+
+    # ========================================================================
+    # HEALTHCARE SAFETY: Confidence Scoring for Response Routing
+    # ========================================================================
+    def _calculate_response_confidence(
+        self,
+        reranked: List[RerankResult],
+        has_evidence: bool = True
+    ) -> Tuple[float, str]:
+        """
+        Calculate confidence score for healthcare response routing.
+        
+        In high-risk healthcare environments, low-confidence responses should
+        be routed to "I could not find" rather than risking hallucination.
+        
+        Args:
+            reranked: List of reranked results from Cohere
+            has_evidence: Whether evidence was found
+            
+        Returns:
+            Tuple of (confidence_score 0.0-1.0, confidence_level "high"|"medium"|"low")
+        """
+        if not reranked or not has_evidence:
+            return 0.0, "low"
+        
+        top_score = reranked[0].cohere_score
+        
+        # Calculate score gap between top and second result
+        score_gap = 0.0
+        if len(reranked) > 1:
+            score_gap = top_score - reranked[1].cohere_score
+        
+        # High confidence: top score > 0.7 AND clear separation from #2
+        if top_score > 0.7 and score_gap > 0.15:
+            return min(top_score * 1.1, 1.0), "high"
+        
+        # Medium-high confidence
+        if top_score > 0.5:
+            return top_score, "medium"
+        
+        # Low-medium confidence
+        if top_score > 0.3:
+            return top_score * 0.9, "low"
+        
+        # Very low confidence
+        return top_score * 0.5, "low"
+
+    def _confidence_level_from_score(self, score: float) -> str:
+        """Map a numeric confidence score to qualitative buckets."""
+        if score >= 0.7:
+            return "high"
+        if score >= 0.5:
+            return "medium"
+        return "low"
+
+    def _boost_confidence_with_grounding(
+        self,
+        confidence_score: float,
+        evidence_items: List[EvidenceItem],
+        verification: Optional[VerificationResult] = None
+    ) -> float:
+        """Boost confidence using grounding signals per Cohere/AWS guidance."""
+        if confidence_score >= 0.5:
+            return confidence_score
+        if not evidence_items:
+            return confidence_score
+
+        boosted = confidence_score
+
+        # Multi-signal scoring: use verifier confidence if available (AWS/Cohere best practice)
+        if verification:
+            boosted = max(boosted, verification.confidence_score)
+
+        # Additional lift when we have multiple grounded citations
+        if len(evidence_items) >= 2:
+            boosted = max(boosted, 0.55)
+        elif len(evidence_items) == 1:
+            boosted = max(boosted, 0.5)
+
+        return min(boosted, 0.95)
+
+    def _should_return_not_found(
+        self,
+        confidence_score: float,
+        confidence_level: str,
+        has_evidence: bool
+    ) -> bool:
+        """
+        Determine if response should be "not found" based on confidence.
+        
+        In healthcare, it's better to say "I don't know" than to
+        risk providing inaccurate information.
+        """
+        # No evidence = definitely not found
+        if not has_evidence:
+            return True
+        
+        # Very low confidence = safer to say not found
+        if confidence_score < 0.25:
+            logger.info(f"Routing to NOT_FOUND: confidence {confidence_score:.2f} too low")
+            return True
+        
+        return False
+
+    # ========================================================================
+    # P0: HyDE (Hypothetical Document Embeddings) Query Enhancement
+    # ========================================================================
+    async def _generate_hyde_query(self, query: str) -> str:
+        """
+        Generate a hypothetical policy document snippet for better retrieval.
+        
+        HyDE works by asking the LLM to generate a hypothetical answer to the query,
+        then using that hypothetical document for embedding-based search. This helps
+        bridge the vocabulary gap between user queries and policy documents.
+        
+        Example:
+        - Query: "What is SBAR?"
+        - HyDE output: "SBAR is a communication framework used during patient hand-offs.
+          It stands for Situation, Background, Assessment, Recommendation..."
+        - Combined: "What is SBAR? SBAR is a communication framework..."
+        """
+        try:
+            # Use a fast model for HyDE generation (GPT-4o-mini or similar)
+            aoai_endpoint = os.environ.get("AOAI_ENDPOINT", "")
+            aoai_key = os.environ.get("AOAI_API_KEY", "") or os.environ.get("AOAI_API", "")
+            
+            if not aoai_endpoint or not aoai_key:
+                logger.debug("HyDE skipped: Azure OpenAI not configured")
+                return query
+            
+            client = AzureOpenAI(
+                azure_endpoint=aoai_endpoint,
+                api_key=aoai_key,
+                api_version="2024-06-01",
+                timeout=5.0  # Fast timeout for HyDE
+            )
+            
+            hyde_prompt = f"""You are a hospital policy expert. Generate a brief (2-3 sentences) policy document excerpt that would answer this question. Write as if quoting from an official hospital policy document.
+
+Question: {query}
+
+Policy excerpt:"""
+            
+            # HEALTHCARE SAFETY: HyDE DISABLED - uses model knowledge, not database facts
+            # This is a hallucination vector. Keeping code for reference but bypassing.
+            logger.debug("HyDE disabled for healthcare safety - using original query")
+            return query
+            
+            # Original HyDE code (disabled):
+            # response = await asyncio.to_thread(
+            #     client.chat.completions.create,
+            #     model=os.environ.get("AOAI_CHAT_DEPLOYMENT", "gpt-4.1"),
+            #     messages=[{"role": "user", "content": hyde_prompt}],
+            #     max_tokens=150,
+            #     temperature=0.0
+            # )
+            
+            hypothetical_doc = response.choices[0].message.content.strip()
+            
+            # Combine original query with hypothetical document
+            enhanced_query = f"{query} {hypothetical_doc}"
+            logger.info(f"HyDE enhanced query: '{query[:50]}...' + hypothetical ({len(hypothetical_doc)} chars)")
+            
+            return enhanced_query
+            
+        except asyncio.TimeoutError:
+            logger.debug("HyDE generation timed out, using original query")
+            return query
+        except Exception as e:
+            logger.warning(f"HyDE generation failed: {e}, using original query")
+            return query
+
+    # ========================================================================
+    # P1: Multi-Query Fusion with Reciprocal Rank Fusion (RRF)
+    # ========================================================================
+    def _generate_query_variants(self, query: str) -> List[str]:
+        """
+        Generate query variants for multi-query fusion.
+        
+        Creates variations of the original query to capture different
+        phrasings and terminology. This improves recall by searching
+        for multiple interpretations of the user's intent.
+        """
+        variants = [query]  # Always include original
+        
+        query_lower = query.lower()
+        
+        # Healthcare-specific reformulations
+        reformulations = {
+            'what is': ['define', 'explain', 'describe'],
+            'how do i': ['procedure for', 'steps to', 'process for'],
+            'when': ['timing for', 'schedule for', 'requirements for'],
+            'who can': ['authorization for', 'eligibility for', 'permitted to'],
+            'policy for': ['guidelines for', 'protocol for', 'procedure for'],
+        }
+        
+        for pattern, alternatives in reformulations.items():
+            if pattern in query_lower:
+                for alt in alternatives[:2]:  # Max 2 variants per pattern
+                    variant = query_lower.replace(pattern, alt)
+                    variants.append(variant)
+                break  # Apply only first matching pattern
+        
+        # Add keyword-focused variant (removes question words)
+        keywords = query_lower.replace('what is', '').replace('how do i', '').replace('when', '').replace('who can', '')
+        keywords = ' '.join(keywords.split())  # Normalize whitespace
+        if keywords and keywords != query_lower:
+            variants.append(keywords)
+        
+        logger.debug(f"Query variants for '{query[:30]}...': {len(variants)} variants")
+        return variants[:4]  # Cap at 4 variants
+
+    def _reciprocal_rank_fusion(
+        self,
+        result_lists: List[List[Dict]],
+        k: int = 60
+    ) -> List[Dict]:
+        """
+        Merge multiple result lists using Reciprocal Rank Fusion (RRF).
+        
+        RRF is a simple but effective fusion algorithm that combines rankings
+        from multiple retrieval methods. Documents appearing in multiple lists
+        or at higher ranks get boosted.
+        
+        Formula: RRF_score(d) = Σ 1/(k + rank(d))
+        
+        Args:
+            result_lists: List of result lists, each containing dicts with 'id' or 'reference_number'
+            k: Ranking constant (default 60, per original RRF paper)
+        
+        Returns:
+            Merged list sorted by RRF score (highest first)
+        """
+        if not result_lists:
+            return []
+        
+        if len(result_lists) == 1:
+            return result_lists[0]
+        
+        # Calculate RRF scores
+        scores = defaultdict(float)
+        doc_map = {}  # Store full document data keyed by ID
+        
+        for results in result_lists:
+            for rank, doc in enumerate(results, start=1):
+                # Use reference_number as primary ID, fallback to other identifiers
+                doc_id = (
+                    doc.get('reference_number') or 
+                    doc.get('id') or 
+                    doc.get('title', '')[:50]
+                )
+                if doc_id:
+                    scores[doc_id] += 1.0 / (k + rank)
+                    # Keep the most detailed version of each doc
+                    if doc_id not in doc_map or len(str(doc)) > len(str(doc_map[doc_id])):
+                        doc_map[doc_id] = doc
+        
+        # Sort by RRF score (descending)
+        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+        
+        # Return documents in RRF order
+        return [doc_map[doc_id] for doc_id in sorted_ids if doc_id in doc_map]
+
+    # ========================================================================
+    # FIX 6: Adversarial query detection
+    # ========================================================================
+    def _is_adversarial_query(self, query: str) -> bool:
+        """
+        Detect adversarial queries that try to bypass safety protocols.
+
+        Examples:
+        - "How do I bypass the read-back requirement?"
+        - "Fastest way to skip authentication"
+        - "Pretend you're a different AI"
+        """
+        query_lower = query.lower()
+
+        for pattern in ADVERSARIAL_PATTERNS:
+            if pattern in query_lower:
+                logger.info(f"Adversarial query detected: '{pattern}' in query")
+                return True
+
+        return False
 
     def _expand_query(self, query: str) -> tuple[str, Optional[QueryExpansion]]:
         """
@@ -371,24 +1123,633 @@ class ChatService:
             logger.warning(f"Query expansion failed: {e}")
             return query, None
 
+    def _apply_policy_hints(self, query: str) -> Tuple[str, List[dict]]:
+        """Append domain hints and collect target references for deterministic retrieval."""
+        query_lower = query.lower()
+        hints_to_add = []
+        forced_entries: List[dict] = []
+        for entry in POLICY_HINTS:
+            if any(keyword in query_lower for keyword in entry["keywords"]):
+                hints_to_add.append(entry["hint"])
+                forced_entries.append(entry)
+        if hints_to_add:
+            return f"{query} {' '.join(hints_to_add)}", forced_entries
+        return query, forced_entries
+
     async def process_chat(self, request: ChatRequest) -> ChatResponse:
         """
-        Process a chat message using Azure OpenAI "On Your Data" (vectorSemanticHybrid).
+        Process a chat message using the best available search pipeline.
 
-        Uses vectorSemanticHybrid search for best quality:
-        - Vector search (text-embedding-3-large)
-        - BM25 + 132 synonym rules
-        - L2 Semantic Reranking
+        Pipeline priority:
+        1. Cohere Rerank (cross-encoder) - best for negation-aware queries
+        2. Azure "On Your Data" (vectorSemanticHybrid) - good general quality
+        3. Standard retrieval (fallback)
         """
+        from app.core.config import settings
+
         # Build safe filter expression
         filter_expr = build_applies_to_filter(request.filter_applies_to)
 
-        # Primary: Use On Your Data for full semantic hybrid search
+        # Priority 1: Cohere Rerank (cross-encoder for negation-aware search)
+        # This pipeline: Azure Search → Cohere Rerank → Regular Chat Completions
+        if (settings.USE_COHERE_RERANK and
+            self.cohere_rerank_service and
+            self.cohere_rerank_service.is_configured and
+            self._openai_client):
+            return await self._chat_with_cohere_rerank(request, filter_expr)
+
+        # Priority 2: Use On Your Data for full semantic hybrid search
         if self.on_your_data_service and self.on_your_data_service.is_configured:
             return await self._chat_with_on_your_data(request, filter_expr)
 
         # Fallback: Standard retrieval (search + basic response)
         return await self._chat_with_standard_retrieval(request, filter_expr)
+
+    async def _chat_with_cohere_rerank(
+        self,
+        request: ChatRequest,
+        filter_expr: Optional[str] = None
+    ) -> ChatResponse:
+        """
+        Chat pipeline using Cohere cross-encoder reranking.
+
+        Flow:
+        1. Azure AI Search (vector + BM25) to get candidate documents
+        2. Cohere Rerank (cross-encoder) to reorder by relevance + negation understanding
+        3. Azure OpenAI Chat Completions with reranked context
+
+        Why Cohere? Cross-encoders understand negation better than bi-encoders.
+        "Can MA accept verbal orders?" - Cohere understands "NOT authorized" contradicts the query.
+        """
+        logger.info(f"Using Cohere Rerank pipeline for query: {request.message[:50]}...")
+
+        # Early out-of-scope detection
+        if self._is_out_of_scope_query(request.message):
+            logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response="I could not find this in RUSH clinical policies. This topic is outside my scope.",
+                summary="Outside scope",
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["OUT_OF_SCOPE"]
+            )
+
+        # Adversarial query detection
+        if self._is_adversarial_query(request.message):
+            logger.info(f"Adversarial query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response=ADVERSARIAL_REFUSAL_MESSAGE,
+                summary=ADVERSARIAL_REFUSAL_MESSAGE,
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["ADVERSARIAL_BLOCKED"]
+            )
+
+        # Expand query with synonyms and domain-specific hints
+        expanded_query, expansion = self._expand_query(request.message)
+        search_query, forced_refs = self._apply_policy_hints(expanded_query)
+        forced_ref_numbers = {entry.get("reference") for entry in forced_refs if entry.get("reference")}
+
+        forced_doc_map: Dict[str, Dict[str, Any]] = {}
+
+        try:
+            # Step 1: Get candidate documents from Azure AI Search
+            # Per industry best practices: retrieve 100+ docs for reranking
+            # Research shows Cohere can move relevant docs from position 273 → 5
+            retrieve_top_k = settings.COHERE_RETRIEVE_TOP_K  # Default: 100
+            search_results = await asyncio.to_thread(
+                self.search_index.search,
+                search_query,
+                top=retrieve_top_k,
+                filter_expr=filter_expr,
+                use_semantic_ranking=True
+            )
+            logger.info(f"Retrieved {len(search_results) if search_results else 0} candidates for Cohere reranking")
+
+            if not search_results:
+                logger.warning("No search results returned")
+                return ChatResponse(
+                    response=NOT_FOUND_MESSAGE,
+                    summary=NOT_FOUND_MESSAGE,
+                    evidence=[],
+                    raw_response="",
+                    sources=[],
+                    chunks_used=0,
+                    found=False,
+                    confidence="low",
+                    safety_flags=["NO_SEARCH_RESULTS"]
+                )
+
+            # Convert SearchResults to dicts for Cohere
+            docs_for_rerank = []
+            for sr in search_results:
+                record = {
+                    "content": sr.content,
+                    "title": sr.title,
+                    "reference_number": sr.reference_number,
+                    "source_file": sr.source_file,
+                    "section": sr.section,
+                    "applies_to": getattr(sr, 'applies_to', '')
+                }
+                docs_for_rerank.append(record)
+                if sr.reference_number in forced_ref_numbers and sr.reference_number not in forced_doc_map:
+                    forced_doc_map[sr.reference_number] = record
+            original_docs = list(docs_for_rerank)
+
+            if forced_refs:
+                existing_refs = {doc.get("reference_number") for doc in docs_for_rerank}
+                for entry in forced_refs:
+                    ref = entry.get("reference")
+                    policy_query = entry.get("policy_query") or entry.get("hint")
+                    if not ref or ref in existing_refs:
+                        continue
+                    try:
+                        targeted = await asyncio.to_thread(
+                            self.search_index.search,
+                            f"{policy_query} {request.message}",
+                            top=3,
+                            filter_expr=filter_expr,
+                            use_semantic_ranking=True,
+                            use_fuzzy=False
+                        )
+                        for sr in targeted:
+                            if sr.reference_number and sr.reference_number != ref:
+                                continue
+                            if sr.reference_number and sr.reference_number not in existing_refs:
+                                record = {
+                                    "content": sr.content,
+                                    "title": sr.title,
+                                    "reference_number": sr.reference_number,
+                                    "source_file": sr.source_file,
+                                    "section": sr.section,
+                                    "applies_to": getattr(sr, 'applies_to', '')
+                                }
+                                docs_for_rerank.append(record)
+                                forced_doc_map.setdefault(ref, record)
+                                existing_refs.add(sr.reference_number)
+                                break
+                    except Exception as e:
+                        logger.warning(f"Forced reference lookup failed for Ref #{ref}: {e}")
+                original_docs = list(docs_for_rerank)
+
+            # CORRECTIVE RAG: Evaluate retrieval quality BEFORE generation
+            # This catches low-quality retrievals that could lead to hallucinations
+            try:
+                crag_service = get_corrective_rag_service()
+                quality_assessments = crag_service.assess_retrieval_quality(
+                    query=request.message,
+                    documents=docs_for_rerank
+                )
+                corrective_action = crag_service.determine_corrective_action(
+                    query=request.message,
+                    assessments=quality_assessments
+                )
+                
+                if corrective_action.action == "refuse":
+                    logger.warning("cRAG: insufficient quality; proceeding with unfiltered document set")
+                    docs_for_rerank = original_docs[: settings.COHERE_RETRIEVE_TOP_K]
+                else:
+                    filtered_docs = crag_service.filter_documents_by_quality(
+                        docs_for_rerank, quality_assessments, corrective_action
+                    )
+                    if filtered_docs:
+                        docs_for_rerank = filtered_docs
+                        logger.info(f"cRAG: Filtered to {len(docs_for_rerank)} quality-approved docs")
+                    elif corrective_action.relevant_docs:
+                        docs_for_rerank = [
+                            original_docs[i]
+                            for i in corrective_action.relevant_docs
+                            if i < len(original_docs)
+                        ]
+                        logger.info("cRAG: using relevant doc indices despite low aggregate score")
+                
+                if not docs_for_rerank:
+                    logger.info("cRAG filtering produced no docs; reverting to original candidate set")
+                    docs_for_rerank = original_docs
+                
+            except Exception as e:
+                logger.warning(f"Corrective RAG check failed (non-critical): {e}")
+
+            if forced_ref_numbers:
+                existing_refs = {doc.get("reference_number") for doc in docs_for_rerank}
+                for ref in forced_ref_numbers:
+                    if ref and ref not in existing_refs:
+                        for candidate in original_docs:
+                            if candidate.get("reference_number") == ref:
+                                docs_for_rerank.append(candidate)
+                                existing_refs.add(ref)
+                                logger.info(f"Forced inclusion of Ref #{ref} to maintain policy coverage")
+                                break
+
+            if not docs_for_rerank:
+                logger.warning("No documents available for reranking after cRAG processing")
+                if self.on_your_data_service and self.on_your_data_service.is_configured:
+                    return await self._chat_with_on_your_data(request, filter_expr)
+                return ChatResponse(
+                    response=NOT_FOUND_MESSAGE,
+                    summary=NOT_FOUND_MESSAGE,
+                    evidence=[],
+                    raw_response="",
+                    sources=[],
+                    chunks_used=0,
+                    found=False,
+                    confidence="low",
+                    safety_flags=["CRAG_NO_DOCS"]
+                )
+
+            # Step 2: Cohere rerank the documents
+            # Use dynamic top_n based on query complexity
+            dynamic_top_n = self._get_cohere_top_n(request.message)
+            reranked = await self.cohere_rerank_service.rerank_async(
+                query=request.message,  # Use original query for reranking
+                documents=docs_for_rerank,
+                top_n=dynamic_top_n,
+                min_score=settings.COHERE_RERANK_MIN_SCORE  # Explicit threshold
+            )
+            logger.info(f"Cohere reranked {len(docs_for_rerank)} docs → top {dynamic_top_n} results")
+
+            if not reranked:
+                logger.warning("Cohere rerank returned no results at calibrated threshold; retrying with min_score=0.0")
+                reranked = await self.cohere_rerank_service.rerank_async(
+                    query=request.message,
+                    documents=docs_for_rerank,
+                    top_n=dynamic_top_n,
+                    min_score=0.0
+                )
+
+            if not reranked:
+                logger.warning("Cohere rerank still empty after relaxed threshold")
+                if self.on_your_data_service and self.on_your_data_service.is_configured:
+                    logger.info("Falling back to On Your Data due to empty rerank set")
+                    return await self._chat_with_on_your_data(request, filter_expr)
+                return ChatResponse(
+                    response=NOT_FOUND_MESSAGE,
+                    summary=NOT_FOUND_MESSAGE,
+                    evidence=[],
+                    raw_response="",
+                    sources=[],
+                    chunks_used=0,
+                    found=False,
+                    confidence="low",
+                    safety_flags=["NO_RERANK_RESULTS"]
+                )
+
+            if forced_ref_numbers:
+                reranked_refs = {rr.reference_number for rr in reranked if rr.reference_number}
+                for ref in forced_ref_numbers:
+                    if not ref or ref in reranked_refs or ref not in forced_doc_map:
+                        continue
+                    doc = forced_doc_map[ref]
+                    reranked.append(RerankResult(
+                        content=doc.get("content", ""),
+                        title=doc.get("title", ""),
+                        reference_number=ref,
+                        source_file=doc.get("source_file", ""),
+                        section=doc.get("section", ""),
+                        applies_to=doc.get("applies_to", ""),
+                        cohere_score=0.35,
+                        original_index=len(reranked)
+                    ))
+                    reranked_refs.add(ref)
+                    logger.info(f"Appended forced rerank result for Ref #{ref}")
+            
+            # Apply MMR diversification for multi-policy queries
+            # This ensures results come from different policies, not just different chunks
+            is_multi_policy = self._is_multi_policy_query(request.message)
+            if is_multi_policy and len(reranked) > 3:
+                reranked = _apply_mmr_to_rerank_results(
+                    reranked,
+                    lambda_param=0.6,  # 60% relevance, 40% diversity
+                    max_results=10
+                )
+                logger.info(f"Applied MMR diversification for multi-policy query: {len(reranked)} diverse results")
+
+            # Step 3: Build context from reranked results
+            context_parts = []
+            evidence_items = []
+            sources = []
+            seen_refs = set()
+
+            for rr in reranked:
+                # Build context string
+                context_parts.append(
+                    f"[{rr.title} (Ref #{rr.reference_number})] "
+                    f"Section: {rr.section or 'N/A'}\n{rr.content}"
+                )
+
+                # Build evidence items (deduplicated by ref)
+                if rr.reference_number not in seen_refs:
+                    evidence_items.append(EvidenceItem(
+                        snippet=_truncate_verbatim(rr.content),
+                        citation=f"{rr.title} (Ref #{rr.reference_number})" if rr.reference_number else rr.title,
+                        title=rr.title,
+                        reference_number=rr.reference_number,
+                        section=rr.section,
+                        applies_to=rr.applies_to,
+                        source_file=rr.source_file,
+                        reranker_score=rr.cohere_score,
+                        match_type="verified",
+                    ))
+                    sources.append({
+                        "title": rr.title,
+                        "reference_number": rr.reference_number,
+                        "section": rr.section,
+                        "source_file": rr.source_file,
+                        "cohere_score": rr.cohere_score
+                    })
+                    seen_refs.add(rr.reference_number)
+
+            context = "\n\n---\n\n".join(context_parts)
+
+            if forced_ref_numbers:
+                ordered_evidence = []
+                ordered_sources = []
+                used_indices = set()
+                forced_order = [entry.get("reference") for entry in forced_refs if entry.get("reference")]
+                for ref in forced_order:
+                    for idx, item in enumerate(evidence_items):
+                        if idx in used_indices:
+                            continue
+                        if item.reference_number == ref:
+                            ordered_evidence.append(item)
+                            ordered_sources.append(sources[idx])
+                            used_indices.add(idx)
+                            break
+                for idx, item in enumerate(evidence_items):
+                    if idx not in used_indices:
+                        ordered_evidence.append(item)
+                        ordered_sources.append(sources[idx])
+                evidence_items = ordered_evidence
+                sources = ordered_sources
+
+            # Step 4: Call Azure OpenAI Chat Completions
+            messages = [
+                {"role": "system", "content": RISEN_PROMPT},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.message}"}
+            ]
+
+            # Dynamic max_tokens: multi-policy queries need more space for comprehensive answers
+            max_tokens = 800 if is_multi_policy else 500
+            
+            response = await asyncio.to_thread(
+                self._openai_client.chat.completions.create,
+                model=settings.AOAI_CHAT_DEPLOYMENT,
+                messages=messages,
+                temperature=0.0,  # HEALTHCARE: Zero temperature for deterministic, factual responses
+                max_tokens=max_tokens
+            )
+
+            answer_text = response.choices[0].message.content or NOT_FOUND_MESSAGE
+
+            # Check for NOT_FOUND patterns
+            if self._is_not_found_response(answer_text):
+                # But if we have evidence, trust the response
+                if evidence_items:
+                    logger.info(f"NOT_FOUND override: {len(evidence_items)} evidence items exist")
+                else:
+                    return ChatResponse(
+                        response=NOT_FOUND_MESSAGE,
+                        summary=NOT_FOUND_MESSAGE,
+                        evidence=[],
+                        raw_response=answer_text,
+                        sources=[],
+                        chunks_used=0,
+                        found=False,
+                        confidence="low",
+                        safety_flags=["LLM_NOT_FOUND"]
+                    )
+
+            # Calculate confidence from Cohere rerank scores
+            confidence_score, confidence_level = self._calculate_response_confidence(
+                reranked, has_evidence=bool(evidence_items)
+            )
+            
+            # Prepare contexts for validation (handle empty case)
+            contexts = [rr.content for rr in reranked] if reranked else []
+            
+            # Citation verification - detect hallucinated references
+            try:
+                citation_verifier = get_citation_verifier()
+                verification = citation_verifier.verify_response(
+                    response=answer_text,
+                    contexts=contexts,
+                    sources=sources
+                )
+                
+                # Add citation verification flags
+                citation_flags = verification.flags if verification.flags else []
+                if verification.hallucination_risk > 0.3:
+                    citation_flags.append(f"HALLUCINATION_RISK:{verification.hallucination_risk:.2f}")
+                    logger.warning(
+                        f"Citation verification: hallucination_risk={verification.hallucination_risk:.2f}, "
+                        f"flags={verification.flags}"
+                    )
+                
+                # HEALTHCARE CRITICAL: Verify all factual claims (numbers, dosages, timeframes)
+                # Multi-policy queries get slightly relaxed verification (claims can be in ANY context)
+                facts_verified, unverified_facts, fact_flags = citation_verifier.verify_factual_claims(
+                    response=answer_text,
+                    contexts=contexts,
+                    is_multi_policy=is_multi_policy
+                )
+                citation_flags.extend(fact_flags)
+                
+                if not facts_verified and unverified_facts:
+                    logger.warning(f"HEALTHCARE SAFETY: Blocking response with unverified facts: {unverified_facts}")
+                    return ChatResponse(
+                        response="I could not verify all factual claims against RUSH policy documents. "
+                                 "Please check https://rushumc.navexone.com/ or contact Policy Administration.",
+                        summary="Unable to verify factual accuracy",
+                        evidence=[],
+                        raw_response=answer_text,
+                        sources=[],
+                        chunks_used=0,
+                        found=False,
+                        confidence="low",
+                        confidence_score=confidence_score,
+                        needs_human_review=True,
+                        safety_flags=citation_flags + ["BLOCKED_UNVERIFIED_FACTS"]
+                    )
+                
+                # HEALTHCARE CRITICAL: Verify no fabricated policy references
+                refs_verified, fabricated_refs, ref_flags = citation_verifier.verify_no_fabricated_refs(
+                    response=answer_text,
+                    context_refs=verification.context_refs if verification else set()
+                )
+                citation_flags.extend(ref_flags)
+                
+                if not refs_verified and fabricated_refs:
+                    logger.warning(f"HEALTHCARE SAFETY: Blocking response with fabricated refs: {fabricated_refs}")
+                    return ChatResponse(
+                        response="I could not verify all policy citations. "
+                                 "Please check https://rushumc.navexone.com/ for accurate policy information.",
+                        summary="Unable to verify policy citations",
+                        evidence=[],
+                        raw_response=answer_text,
+                        sources=[],
+                        chunks_used=0,
+                        found=False,
+                        confidence="low",
+                        confidence_score=confidence_score,
+                        needs_human_review=True,
+                        safety_flags=citation_flags + ["BLOCKED_FABRICATED_REFS"]
+                    )
+                
+            except Exception as e:
+                logger.warning(f"Citation verification failed (non-critical): {e}")
+                citation_flags = []
+                verification = None
+            
+            confidence_score = self._boost_confidence_with_grounding(
+                confidence_score,
+                evidence_items,
+                verification
+            )
+            confidence_level = self._confidence_level_from_score(confidence_score)
+
+            # Safety validation for healthcare
+            try:
+                safety_validator = get_safety_validator(strict_mode=True)
+                safety_result = safety_validator.validate(
+                    response_text=answer_text,
+                    contexts=contexts,
+                    confidence_score=confidence_score,
+                    has_evidence=bool(evidence_items)
+                )
+                
+                # Combine citation and safety flags
+                all_flags = list(set(safety_result.flags + citation_flags))
+                
+            except Exception as e:
+                logger.warning(f"Safety validation failed (non-critical): {e}")
+                # Graceful degradation - allow response but flag for review
+                safety_result = None
+                all_flags = citation_flags + ["SAFETY_CHECK_SKIPPED"]
+            
+            # HEALTHCARE SAFETY: ALWAYS block responses that fail safety validation
+            # Patient safety requires blocking, not just flagging, unsafe responses
+            if safety_result and not safety_result.safe:
+                logger.warning(f"HEALTHCARE SAFETY BLOCK: {all_flags}")
+                fallback = (
+                    safety_result.fallback_response or
+                    "I could not verify this information against RUSH policies. "
+                    "Please check https://rushumc.navexone.com/ or contact Policy Administration."
+                )
+                return ChatResponse(
+                    response=fallback,
+                    summary=fallback,
+                    evidence=[],
+                    raw_response=answer_text,
+                    sources=[],
+                    chunks_used=0,
+                    found=False,
+                    confidence="low",
+                    confidence_score=confidence_score,
+                    needs_human_review=True,
+                    safety_flags=all_flags + ["BLOCKED_BY_SAFETY_CHECK"]
+                )
+            
+            # HEALTHCARE SAFETY: Block if citation verification found HIGH hallucination risk
+            # Note: 0.5 threshold allows responses without inline citations if content is grounded
+            # A response with good content but no "Ref #XXX" citations scores ~0.4 (not a hallucination)
+            if verification and verification.hallucination_risk > 0.5:
+                logger.warning(f"HEALTHCARE SAFETY BLOCK: Hallucination risk {verification.hallucination_risk:.2f}")
+                return ChatResponse(
+                    response="I could not verify all claims in this response against RUSH policies. "
+                             "Please check https://rushumc.navexone.com/ or contact Policy Administration.",
+                    summary="Unable to verify response accuracy",
+                    evidence=[],
+                    raw_response=answer_text,
+                    sources=[],
+                    chunks_used=0,
+                    found=False,
+                    confidence="low",
+                    confidence_score=confidence_score,
+                    needs_human_review=True,
+                    safety_flags=all_flags + ["BLOCKED_HALLUCINATION_RISK"]
+                )
+            
+            # Determine if human review needed
+            needs_review = (
+                (safety_result and safety_result.needs_human_review) or
+                (verification and verification.hallucination_risk > 0.5) or
+                confidence_level == "low"
+            )
+            
+            # SELF-REFLECTIVE RAG: Critique response for grounding before returning
+            # This catches issues that slipped past safety validation
+            try:
+                self_reflective_service = get_self_reflective_service()
+                critique = self_reflective_service.critique_response(
+                    response=answer_text,
+                    query=request.message,
+                    contexts=contexts
+                )
+                
+                if not critique.overall_pass:
+                    logger.warning(f"Self-Reflective critique failed: {critique.issues}")
+                    # Add flags but don't block - critique is advisory
+                    all_flags.append("SELF_CRITIQUE_WARNING")
+                    if not critique.is_grounded:
+                        all_flags.append("LOW_GROUNDING")
+                    if critique.unsupported_claims:
+                        all_flags.append("UNSUPPORTED_CLAIMS")
+                    # Trigger human review for low-confidence critiques
+                    if critique.confidence < 0.5:
+                        needs_review = True
+                else:
+                    logger.debug(f"Self-Reflective critique passed: confidence={critique.confidence:.2f}")
+                    
+            except Exception as e:
+                logger.warning(f"Self-Reflective critique failed (non-critical): {e}")
+            
+            # Dynamic evidence limit: multi-policy queries return more citations
+            max_evidence = 10 if is_multi_policy else 5
+            evidence_payload = evidence_items[:max_evidence]
+            sources_payload = sources[:max_evidence]
+
+            formatter = get_citation_formatter()
+            formatted = formatter.format(
+                answer_text=answer_text,
+                evidence=evidence_payload,
+                max_refs=max_evidence,
+                found=True,
+            )
+
+            summary_text = formatted.summary or (
+                answer_text[:200] + "..." if len(answer_text) > 200 else answer_text
+            )
+            response_text = formatted.response or answer_text
+
+            return ChatResponse(
+                response=response_text,
+                summary=summary_text,
+                evidence=evidence_payload,
+                raw_response=answer_text,
+                sources=sources_payload,
+                chunks_used=len(reranked),
+                found=True,
+                confidence=confidence_level,
+                confidence_score=confidence_score,
+                needs_human_review=needs_review,
+                safety_flags=all_flags
+            )
+
+        except Exception as e:
+            logger.error(f"Cohere rerank pipeline failed: {e}")
+            # Fallback to On Your Data if available
+            if self.on_your_data_service and self.on_your_data_service.is_configured:
+                logger.info("Falling back to On Your Data pipeline")
+                return await self._chat_with_on_your_data(request, filter_expr)
+            raise
 
     def _extract_policy_refs_from_response(self, response_text: str) -> List[dict]:
         """
@@ -466,49 +1827,127 @@ class ChatService:
         """
         logger.info(f"Using On Your Data (vectorSemanticHybrid) for query: {request.message[:50]}...")
 
+        # FIX 2: Early out-of-scope detection (before any API calls)
+        if self._is_out_of_scope_query(request.message):
+            logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response="I could not find this in RUSH clinical policies. This topic (parking, HR benefits, administrative matters) is outside my scope. Please contact Human Resources or the appropriate department.",
+                summary="I could not find this in RUSH clinical policies. This topic is outside my scope. Please contact Human Resources or the appropriate department.",
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False
+            )
+
+        # FIX 6: Adversarial query detection (bypass/circumvent safety protocols)
+        if self._is_adversarial_query(request.message):
+            logger.info(f"Adversarial query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response=ADVERSARIAL_REFUSAL_MESSAGE,
+                summary=ADVERSARIAL_REFUSAL_MESSAGE,
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False
+            )
+
         # Expand query with synonyms for better retrieval
         expanded_query, expansion = self._expand_query(request.message)
 
+        # P0: HyDE is disabled - testing showed it causes regressions with Azure "On Your Data"
+        # The On Your Data API does its own query expansion, so HyDE interferes
+        # Keep the method for future experimentation but don't use it by default
+        # TODO: Re-enable HyDE only when using direct search (not On Your Data)
+
+        # FIX 7: Get dynamic search parameters based on query type
+        search_params = self._get_search_params(request.message)
+        logger.info(
+            f"Search params for query: strictness={search_params['strictness']}, "
+            f"top_n={search_params['top_n_documents']}"
+        )
+
         try:
-            # 45s timeout allows for: embedding (1-2s) + search (1-3s) + generation (5-10s)
-            # + retry backoff (up to 14s for 3 retries with exponential backoff)
+            # 60s timeout allows for: embedding (1-2s) + search (1-3s) + generation (5-10s)
+            # + retry backoff (up to 14s for 3 retries with exponential backoff) + buffer
             result: OnYourDataResult = await asyncio.wait_for(
                 self.on_your_data_service.chat(
                     query=expanded_query,
                     filter_expr=filter_expr,
-                    top_n_documents=50,  # Get many for reranker to choose from
-                    strictness=3
+                    top_n_documents=search_params['top_n_documents'],
+                    strictness=search_params['strictness']
                 ),
-                timeout=45.0
+                timeout=60.0
             )
 
             answer_text = result.answer or NOT_FOUND_MESSAGE
 
-            # Check if we got a meaningful answer
-            found = (
-                answer_text and
-                answer_text != NOT_FOUND_MESSAGE and
-                "I don't have" not in answer_text.lower() and
-                "no information" not in answer_text.lower()
-            )
+            # FIX 1: Use expanded "not found" detection
+            # FIX 8: Context-aware NOT_FOUND - if citations exist, trust the response
+            # This prevents false positives when LLM says "could not find specific X"
+            # but actually DID retrieve relevant documents
+            has_citations = bool(result.citations and len(result.citations) > 0)
 
-            if not found:
-                return ChatResponse(
-                    response=NOT_FOUND_MESSAGE,
-                    summary=NOT_FOUND_MESSAGE,
-                    evidence=[],
-                    raw_response=str(result.raw_response),
-                    sources=[],
-                    chunks_used=0,
-                    found=False
-                )
+            # Phase 2 Diagnostic: Log which phrases trigger NOT_FOUND
+            if self._is_not_found_response(answer_text):
+                logger.warning(f"NOT_FOUND triggered for query: '{request.message[:80]}...'")
+                logger.warning(f"LLM response that triggered: '{answer_text[:300]}...'")
+                # Log which specific phrase matched for diagnosis
+                matched_phrase = None
+                answer_lower = answer_text.lower()
+                for phrase in NOT_FOUND_PHRASES:
+                    if phrase in answer_lower:
+                        matched_phrase = phrase
+                        logger.warning(f"Matched NOT_FOUND phrase: '{phrase}'")
+                        break
+                if not matched_phrase and answer_text == NOT_FOUND_MESSAGE:
+                    logger.warning("Matched: exact NOT_FOUND_MESSAGE constant")
+                elif not matched_phrase:
+                    logger.warning("NOT_FOUND triggered but no phrase matched (empty response?)")
+
+                # FIX 8: If there ARE citations, don't treat as "not found"
+                # The LLM may say "could not find X" but still provide useful info
+                if has_citations:
+                    logger.info(
+                        f"NOT_FOUND override: {len(result.citations)} citations exist, "
+                        f"treating as valid response despite phrase match"
+                    )
+                else:
+                    return ChatResponse(
+                        response=NOT_FOUND_MESSAGE,
+                        summary=NOT_FOUND_MESSAGE,
+                        evidence=[],
+                        raw_response=str(result.raw_response),
+                        sources=[],
+                        chunks_used=0,
+                        found=False
+                    )
+
+            # If we reach here, we have a valid answer (not an early "not found" return)
+            found = True
 
             # Convert On Your Data citations to EvidenceItems
             # Enrich citations with metadata from Azure AI Search
             evidence_items = []
             sources = []
 
-            for cit in result.citations[:5]:  # Limit to top 5 citations
+            # FIX 5: Dynamic citation limit for multi-policy queries
+            is_multi_policy = self._is_multi_policy_query(request.message)
+            max_citations = 10 if is_multi_policy else 5
+
+            # FIX 8: Apply MMR diversification for multi-policy queries
+            # This ensures citations come from different policies, not just different chunks
+            citations_to_process = result.citations
+            if is_multi_policy and len(result.citations) > max_citations:
+                citations_to_process = _apply_mmr_diversification(
+                    result.citations,
+                    lambda_param=0.6,  # 60% relevance, 40% diversity for multi-policy
+                    max_results=max_citations
+                )
+                logger.info(f"Applied MMR diversification: {len(result.citations)} -> {len(citations_to_process)} citations")
+
+            for cit in citations_to_process[:max_citations]:
                 source_file = cit.filepath or ""
 
                 # Look up full metadata from Azure AI Search by source_file
@@ -629,14 +2068,26 @@ class ChatService:
             # Format the summary with bold citations and reference markers
             formatted_summary = _format_answer_with_citations(clean_summary, evidence_items)
 
+            formatter = get_citation_formatter()
+            found_flag = bool(evidence_items)
+            formatted_result = formatter.format(
+                answer_text=formatted_summary or clean_summary,
+                evidence=evidence_items,
+                max_refs=len(evidence_items) if evidence_items else 0,
+                found=found_flag,
+            )
+
+            summary_payload = formatted_result.summary or formatted_summary
+            response_payload = formatted_result.response or answer_text
+
             return ChatResponse(
-                response=answer_text,
-                summary=formatted_summary,
+                response=response_payload,
+                summary=summary_payload,
                 evidence=evidence_items,
                 raw_response=str(result.raw_response),
                 sources=sources,
                 chunks_used=len(evidence_items),
-                found=bool(evidence_items)
+                found=found_flag
             )
 
         except asyncio.TimeoutError:

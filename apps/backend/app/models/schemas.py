@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 class ChatRequest(BaseModel):
@@ -30,6 +30,11 @@ class ChatResponse(BaseModel):
     sources: List[dict] = Field(default_factory=list)
     chunks_used: int = 0
     found: bool = True
+    # Healthcare safety fields - critical for high-risk environments
+    confidence: Literal["high", "medium", "low"] = "medium"
+    confidence_score: Optional[float] = None  # Raw score 0.0-1.0
+    needs_human_review: bool = False  # Flag for low-confidence responses
+    safety_flags: List[str] = Field(default_factory=list)  # Any safety concerns
 
 
 class SearchRequest(BaseModel):

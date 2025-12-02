@@ -159,6 +159,7 @@ sentinel event, serious reportable event, never event, SRE
 near miss, close call, good catch, prevented error
 time out, surgical time out, universal protocol, pre-procedure verification, safety pause
 pressure injury, pressure ulcer, bedsore, decubitus ulcer, skin breakdown
+latex, natural rubber latex, latex allergy, latex precautions, latex product, latex sensitivity, NRL
 
 # ============================================================================
 # COMPLIANCE & REGULATORY
@@ -180,6 +181,13 @@ progress note, clinical note, physician note, provider note
 discharge summary, discharge note, DC summary, hospital summary
 verbal orders, telephone orders, phone orders, read back
 CPOE, computerized physician order entry, order entry, order placement
+
+# ============================================================================
+# COMMUNICATION & HANDOFF (Fix for gen-004, gen-006)
+# ============================================================================
+SBAR, Situation Background Assessment Recommendation, handoff communication, patient handoff, handoff report
+shift report, change of shift report, hand-off report, bedside report, nursing handoff, shift change report
+hand-off, handoff, patient handoff, nursing handoff, care transition
 
 # ============================================================================
 # EQUIPMENT & DEVICES
@@ -1033,12 +1041,16 @@ class PolicySearchIndex:
 
         # Semantic ranking provides best results and handles typos via embedding similarity
         # Note: Synonym maps are applied at index time for keyword matching
-        if use_semantic_ranking:
+        # Check if semantic search is disabled (e.g., quota exceeded)
+        disable_semantic = os.environ.get("DISABLE_SEMANTIC_SEARCH", "").lower() == "true"
+        if use_semantic_ranking and not disable_semantic:
             search_params["query_type"] = "semantic"
             search_params["semantic_configuration_name"] = "default-semantic"
             # Enable speller for typo correction with semantic search
             search_params["query_language"] = "en-us"
             search_params["query_speller"] = "lexicon"
+        elif use_semantic_ranking and disable_semantic:
+            logger.info("Semantic search disabled via DISABLE_SEMANTIC_SEARCH env var, using simple search")
         elif use_fuzzy:
             # Fallback to fuzzy search if semantic ranking is disabled
             # Apply fuzzy matching to each word in the query for typo tolerance

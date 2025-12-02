@@ -19,6 +19,9 @@ cachetools>=5.3.0
 # OpenAI SDK (fallback for direct Azure OpenAI calls)
 openai>=1.55.0
 
+# Cohere Rerank (cross-encoder reranking for negation-aware search)
+cohere>=5.0.0
+
 # PDF processing (Docling is the primary chunker)
 docling>=2.15.0
 docling-core>=2.21.0

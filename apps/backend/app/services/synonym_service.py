@@ -132,7 +132,13 @@ class SynonymService:
             for system, synonyms in mappings.items():
                 self._abbreviations[system.lower()] = synonyms[0] if synonyms else system
 
-    def expand_query(self, query: str, max_expansions: int = 3) -> QueryExpansion:
+
+    def expand_query(
+        self,
+        query: str,
+        max_expansions: int = 3,
+        max_expansion_ratio: float = 2.0
+    ) -> QueryExpansion:
         """
         Expand a user query with synonyms and corrections.
 
@@ -141,10 +147,13 @@ class SynonymService:
         2. Expand medical abbreviations
         3. Add Rush-specific alternatives
         4. Apply pattern-based expansion rules
+        5. Add domain context for short acronym-only queries
+        6. NEW: Apply 2x expansion limit to prevent embedding dilution
 
         Args:
             query: Original user query
             max_expansions: Maximum synonym expansions per term
+            max_expansion_ratio: Maximum ratio of expanded to original word count (default 2.0)
 
         Returns:
             QueryExpansion with original and expanded query
@@ -153,6 +162,10 @@ class SynonymService:
             original_query=query,
             expanded_query=query
         )
+
+        # Calculate max words allowed (minimum 6 to handle short queries)
+        original_word_count = len(query.split())
+        max_words = max(6, int(original_word_count * max_expansion_ratio))
 
         words = query.split()
         expanded_words = []
@@ -172,7 +185,14 @@ class SynonymService:
                 word_lower = corrected.lower()
 
             # 2. Expand abbreviations (keep original + add expansion)
-            if word_lower in self._abbreviations:
+            # Skip common English words that happen to match abbreviations
+            # e.g., "it" should NOT become "information technology"
+            ABBREVIATION_STOPWORDS = {
+                'it', 'is', 'in', 'at', 'as', 'or', 'an', 'am', 'be', 'do', 'go',
+                'he', 'me', 'my', 'no', 'of', 'on', 'so', 'to', 'up', 'us', 'we',
+                'by', 'if', 'ms', 'mr', 'vs', 'pm', 'am'
+            }
+            if word_lower in self._abbreviations and word_lower not in ABBREVIATION_STOPWORDS:
                 expansion = self._abbreviations[word_lower]
                 result.abbreviations_expanded.append({
                     'abbreviation': word,
@@ -193,12 +213,111 @@ class SynonymService:
         # 4. Handle multi-word Rush terms (e.g., "code blue", "labor and delivery")
         expanded_query = self._expand_multiword_terms(query, expanded_query, result)
 
+        # 5. NEW: Add domain context for short acronym-only queries
+        # This helps queries like "SBAR" find the same results as "SBAR communication framework"
+        expanded_query = self._add_context_for_short_queries(query, expanded_query, result)
+
+        # 6. NEW: Truncate if over limit to prevent embedding dilution
+        # Research shows over-expansion causes semantic drift in embeddings
+        expanded_words_final = expanded_query.split()
+        if len(expanded_words_final) > max_words:
+            expanded_query = ' '.join(expanded_words_final[:max_words])
+            logger.info(f"Truncated expansion: {len(expanded_words_final)} -> {max_words} words")
+
         result.expanded_query = expanded_query
 
         if result.expansions_applied or result.misspellings_corrected or result.abbreviations_expanded:
             logger.info(f"Query expansion: '{query}' → '{expanded_query}'")
 
         return result
+
+    def _add_context_for_short_queries(
+        self,
+        original: str,
+        current: str,
+        result: QueryExpansion
+    ) -> str:
+        """
+        Add domain context for short acronym-only queries.
+        
+        Short queries like "SBAR" or "RRT" often miss relevant documents because
+        they lack context. This adds policy-related terms to improve retrieval.
+        
+        Examples:
+        - "SBAR" -> "SBAR situation background assessment recommendation communication hand-off"
+        - "RRT" -> "RRT rapid response team emergency"
+        """
+        words = original.split()
+        
+        # Only apply to very short queries (1-2 words)
+        if len(words) > 2:
+            return current
+        
+        # Check if query is primarily acronyms/uppercase terms
+        acronym_words = [w for w in words if w.isupper() and len(w) >= 2]
+        if not acronym_words:
+            return current
+        
+        # Domain-specific context additions for common healthcare acronyms
+        # CONSERVATIVE: Max 5 terms per entry to prevent embedding dilution
+        # Research shows over-expansion causes semantic drift in embeddings
+        context_map = {
+            # Communication (fix gen-004, gen-006) - SBAR = Situation Background Assessment Recommendation
+            'sbar': 'Situation Background Assessment Recommendation handoff',
+            'shift': 'shift change handoff report',
+            'handoff': 'hand-off communication report',
+            'hand-off': 'handoff communication report',
+            'report': 'shift handoff SBAR communication',
+
+            # Rapid Response (fix multi-001, adv-003)
+            'rrt': 'rapid response team family',
+            'rapid': 'rapid response RRT',
+
+            # Verbal Orders (fix edge-001)
+            'verbal': 'verbal telephone orders',
+            'orders': 'verbal telephone orders',
+
+            # Latex/Safety (fix edge-008, multi-002)
+            'latex': 'latex allergy product precautions',
+            'product': 'product latex identification labeling',
+            'allergy': 'allergy latex precautions',
+            'patient': 'patient identification safety',
+            'identification': 'identification patient safety',
+            'safety': 'safety patient precautions',
+
+            # Epic/Documentation (fix multi-003)
+            'epic': 'epic EHR documentation charting',
+            'documentation': 'documentation Epic charting',
+
+            # Standard acronyms (conservative - 3-4 terms)
+            'rn': 'registered nurse nursing',
+            'icu': 'intensive care critical',
+            'ed': 'emergency department ER',
+            'cpr': 'resuscitation cardiac arrest',
+            'dnr': 'do not resuscitate',
+            'hipaa': 'privacy patient information',
+            'pca': 'patient controlled analgesia',
+            'picc': 'central catheter line',
+            'npo': 'nothing by mouth fasting',
+            'prn': 'as needed medication',
+            'stat': 'immediately urgent',
+            'vte': 'blood clot prevention',
+            'fall': 'fall prevention risk',
+        }
+        
+        expanded = current
+        for word in words:
+            word_lower = word.lower()
+            if word_lower in context_map:
+                context_terms = context_map[word_lower]
+                expanded = f"{expanded} {context_terms}"
+                result.expansions_applied.append({
+                    'term': word,
+                    'context_added': context_terms
+                })
+                logger.debug(f"Added context for '{word}': {context_terms}")
+        
+        return expanded
 
     def _apply_expansion_rules(
         self,
@@ -267,6 +386,25 @@ class SynonymService:
                             'expansion': abbrev
                         })
                     break
+
+        # Communication terminology (fix gen-006: "shift report" → "hand-off")
+        # The policy uses "Hand Off Communication" but users search for "shift report"
+        communication_terms = {
+            'shift report': 'hand-off handoff communication nursing',
+            'change of shift': 'hand-off handoff patient status',
+            'shift change': 'hand-off handoff communication',
+            'bedside report': 'hand-off handoff nursing communication',
+            'nursing report': 'hand-off handoff shift communication',
+        }
+        for term, expansion in communication_terms.items():
+            if term in original_lower:
+                expanded = f"{expanded} {expansion}"
+                result.expansions_applied.append({
+                    'term': term,
+                    'expansion': expansion
+                })
+                logger.debug(f"Multi-word expansion: '{term}' → '{expansion}'")
+                break  # Only apply first match
 
         return expanded
 

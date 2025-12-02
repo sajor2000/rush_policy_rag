@@ -98,6 +98,9 @@ def evaluate_result(test_case: dict, api_response: dict, verbose: bool = False) 
             "please verify",
             "contact human resources",
             "contact policy administration",
+            "outside scope",
+            "outside my scope",
+            "this topic is outside",
         ]
         declined = any(p in response_text.lower() for p in decline_patterns)
 

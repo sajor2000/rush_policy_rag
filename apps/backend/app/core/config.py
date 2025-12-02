@@ -66,6 +66,20 @@ class Settings(BaseSettings):
     # Features
     USE_ON_YOUR_DATA: bool = False  # Enable Azure OpenAI "On Your Data" for vectorSemanticHybrid
 
+    # Cohere Rerank (cross-encoder for negation-aware search)
+    # Deploy Cohere Rerank 3.5 on Azure AI Foundry as serverless API
+    USE_COHERE_RERANK: bool = False  # Feature flag: use Cohere instead of On Your Data
+    COHERE_RERANK_ENDPOINT: Optional[str] = None  # e.g., https://cohere-rerank-v3-5-xyz.eastus.models.ai.azure.com/
+    COHERE_RERANK_API_KEY: Optional[str] = None
+    # Per industry best practices: retrieve 100+ docs, rerank to top 5-10
+    COHERE_RERANK_TOP_N: int = 10  # Increased for multi-policy queries (was 5)
+    # Healthcare needs higher precision - calibrated for policy domain
+    COHERE_RERANK_MIN_SCORE: float = 0.15  # Increased threshold (was 0.1)
+    # Number of documents to retrieve before reranking (higher = better recall)
+    COHERE_RETRIEVE_TOP_K: int = 100  # Industry standard: 100-150 candidates
+    # Model name for Cohere rerank (configurable for version upgrades)
+    COHERE_RERANK_MODEL: str = "cohere-rerank-v3-5"
+
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""
@@ -76,7 +90,7 @@ class Settings(BaseSettings):
         """Parse AZURE_AD_ALLOWED_CLIENT_IDS into a list."""
         return [client.strip() for client in self.AZURE_AD_ALLOWED_CLIENT_IDS.split(",") if client.strip()]
 
-    @field_validator('USE_ON_YOUR_DATA', mode='before')
+    @field_validator('USE_ON_YOUR_DATA', 'USE_COHERE_RERANK', mode='before')
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean from string (handles 'true', 'false', '1', '0')."""
@@ -140,6 +154,22 @@ class Settings(BaseSettings):
             critical_errors.append(
                 "USE_ON_YOUR_DATA=true but AOAI_API_KEY not set - vectorSemanticHybrid search will fail"
             )
+
+        # Critical: Cohere config required when USE_COHERE_RERANK is enabled
+        if self.USE_COHERE_RERANK:
+            missing_cohere = []
+            if not self.COHERE_RERANK_ENDPOINT:
+                missing_cohere.append("COHERE_RERANK_ENDPOINT")
+            if not self.COHERE_RERANK_API_KEY:
+                missing_cohere.append("COHERE_RERANK_API_KEY")
+            if not self.AOAI_ENDPOINT:
+                missing_cohere.append("AOAI_ENDPOINT (needed for chat completions)")
+            if not self.AOAI_API_KEY:
+                missing_cohere.append("AOAI_API_KEY (needed for chat completions)")
+            if missing_cohere:
+                critical_errors.append(
+                    "USE_COHERE_RERANK=true but missing: " + ", ".join(missing_cohere)
+                )
 
         # Critical: AAD config required when auth is enabled
         if self.REQUIRE_AAD_AUTH:

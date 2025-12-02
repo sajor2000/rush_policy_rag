@@ -6,6 +6,7 @@ from fastapi import FastAPI, Header, HTTPException, status
 
 from azure_policy_index import PolicySearchIndex
 from app.services.on_your_data_service import OnYourDataService
+from app.services.cohere_rerank_service import CohereRerankService
 from app.core.config import settings
 from app.core.auth import AzureADTokenValidator, TokenValidationError
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Global clients
 _search_index: Optional[PolicySearchIndex] = None
 _on_your_data_service: Optional[OnYourDataService] = None
+_cohere_rerank_service: Optional[CohereRerankService] = None
 _auth_validator: Optional[AzureADTokenValidator] = None
 
 # Request tracking for graceful shutdown
@@ -52,6 +54,12 @@ def get_on_your_data_service_dep() -> Optional[OnYourDataService]:
     return _on_your_data_service
 
 
+def get_cohere_rerank_service() -> Optional[CohereRerankService]:
+    """Get Cohere Rerank service (cross-encoder for negation-aware search)."""
+    global _cohere_rerank_service
+    return _cohere_rerank_service
+
+
 def get_current_user_claims(authorization: Optional[str] = Header(default=None)) -> Optional[Dict[str, Any]]:
     """Validate Authorization header when Azure AD auth is required."""
 
@@ -88,11 +96,12 @@ def _get_auth_validator() -> Optional[AzureADTokenValidator]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _search_index, _on_your_data_service, _auth_validator
+    global _search_index, _on_your_data_service, _cohere_rerank_service, _auth_validator
 
     # Initialize to None
     _search_index = None
     _on_your_data_service = None
+    _cohere_rerank_service = None
     _auth_validator = None
 
     # Initialize Search Index
@@ -124,6 +133,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error(f"Failed to initialize On Your Data Service: {e}")
         _on_your_data_service = None
 
+    # Initialize Cohere Rerank service (cross-encoder for negation-aware search)
+    try:
+        if settings.USE_COHERE_RERANK:
+            _cohere_rerank_service = CohereRerankService(
+                endpoint=settings.COHERE_RERANK_ENDPOINT,
+                api_key=settings.COHERE_RERANK_API_KEY,
+                top_n=settings.COHERE_RERANK_TOP_N,
+                min_score=settings.COHERE_RERANK_MIN_SCORE,
+                model_name=settings.COHERE_RERANK_MODEL
+            )
+            if _cohere_rerank_service.is_configured:
+                logger.info(
+                    f"Cohere Rerank service enabled (cross-encoder) - "
+                    f"top_n={settings.COHERE_RERANK_TOP_N}, "
+                    f"min_score={settings.COHERE_RERANK_MIN_SCORE}"
+                )
+            else:
+                logger.warning(
+                    "USE_COHERE_RERANK enabled but service not configured - "
+                    "check COHERE_RERANK_ENDPOINT and COHERE_RERANK_API_KEY"
+                )
+                _cohere_rerank_service = None
+        else:
+            logger.info("Cohere Rerank disabled - using Azure L2 semantic reranker")
+    except Exception as e:
+        logger.error(f"Failed to initialize Cohere Rerank Service: {e}")
+        _cohere_rerank_service = None
+
     # Initialize Azure AD validator if required
     try:
         if settings.REQUIRE_AAD_AUTH:
@@ -142,6 +179,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"Failed to initialize Azure AD auth validator: {e}")
         raise
+
+    # Warm up On Your Data service to prime connection pool (reduces first-request latency)
+    if _on_your_data_service and _on_your_data_service.is_configured:
+        try:
+            warmup_success = await _on_your_data_service.warmup()
+            if warmup_success:
+                logger.info("On Your Data service warmed up - connection pool primed")
+            else:
+                logger.warning("On Your Data service warmup failed - first requests may be slower")
+        except Exception as e:
+            logger.warning(f"On Your Data service warmup error (non-critical): {e}")
+
+    # Warm up Cohere Rerank service to prime connection pool
+    if _cohere_rerank_service and _cohere_rerank_service.is_configured:
+        try:
+            warmup_success = await _cohere_rerank_service.warmup()
+            if warmup_success:
+                logger.info("Cohere Rerank service warmed up - connection pool primed")
+            else:
+                logger.warning("Cohere Rerank service warmup failed - first requests may be slower")
+        except Exception as e:
+            logger.warning(f"Cohere Rerank service warmup error (non-critical): {e}")
 
     yield
 
@@ -174,6 +233,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.info("On Your Data service closed")
         except Exception as e:
             logger.warning(f"Error closing On Your Data service: {e}")
+
+    # Close Cohere Rerank service (async for proper cleanup)
+    if _cohere_rerank_service:
+        try:
+            await _cohere_rerank_service.aclose()
+            logger.info("Cohere Rerank service closed")
+        except Exception as e:
+            logger.warning(f"Error closing Cohere Rerank service: {e}")
 
     # Close search index
     if _search_index:

@@ -4,6 +4,7 @@ from app.models.schemas import ChatRequest, ChatResponse, SearchRequest, SearchR
 from app.dependencies import (
     get_search_index,
     get_on_your_data_service_dep,
+    get_cohere_rerank_service,
     get_current_user_claims,
 )
 from app.services.chat_service import ChatService
@@ -104,7 +105,8 @@ async def chat(
 
     service = ChatService(
         search_index,
-        on_your_data_service
+        on_your_data_service,
+        cohere_rerank_service=get_cohere_rerank_service()
     )
 
     try:
