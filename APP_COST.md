@@ -4,9 +4,9 @@
 >
 > | Tier | Monthly Cost | Annual (with 10% buffer) |
 > |------|-------------|--------------------------|
-> | **Low** (100 queries/day) | $256-$356 | **$5,800** |
-> | **Medium** (250 queries/day) | $456-$556 | **$8,500** |
-> | **High** (500 queries/day) | $777-$877 | **$12,850** |
+> | **Low** (100 queries/day) | $262-$362 | **$4,800** |
+> | **Medium** (250 queries/day) | $517-$617 | **$8,200** |
+> | **High** (500 queries/day) | $1,014-$1,114 | **$14,800** |
 >
 > *Costs include infrastructure only. Add $100/mo for Azure Support (optional).*
 
@@ -42,6 +42,7 @@
 |---------------|---------|----------|--------------|
 | **Azure AI Search** | Vector store (3072-dim) + 132 synonym rules | ✅ **Required** | ~$75 (Basic) |
 | **Azure OpenAI** | GPT-4.1 + text-embedding-3-large | ✅ **Required** | Variable (token-based) |
+| **Azure AI Foundry** | Cohere Rerank 3.5 (Serverless) | ✅ **Required** | ~$6-$30 |
 | **Azure Blob Storage** | PDF storage (3 containers) | ✅ **Required** | ~$3-$48 |
 | **Azure Container Apps** | Host backend + frontend | ✅ **Required** | ~$70-$280 |
 | **Azure Container Registry** | Container images | ✅ **Required** | ~$5 (Basic) |
@@ -156,7 +157,24 @@ Fixed monthly cost based on tier selection.
 
 ---
 
-### C. Azure Container Apps (Compute)
+### C. Cohere Rerank (Serverless - Azure AI Foundry)
+
+Cross-encoder reranking improves precision by re-scoring the top 50 documents.
+Pricing is based on "Search Units" (1 unit = 1 query with up to 100 documents).
+
+**Cohere Rerank 3.5**
+- Price: $2.00 per 1,000 queries (Search Units)
+- Reranking 50 documents per query counts as 1 unit.
+
+| Tier | Queries | Unit Cost | **Total** | **95% CI** |
+|------|---------|-----------|-----------|------------|
+| Low | 3,000 | $0.002 | **$6** | $5-$7 |
+| Medium | 7,500 | $0.002 | **$15** | $13-$17 |
+| High | 15,000 | $0.002 | **$30** | $25-$35 |
+
+---
+
+### D. Azure Container Apps (Compute)
 
 Consumption-based pricing with free tier allowance.
 
@@ -183,7 +201,7 @@ Consumption-based pricing with free tier allowance.
 
 ---
 
-### D. Azure Blob Storage
+### E. Azure Blob Storage
 
 Minimal cost for document storage. **Required for PDF viewing feature.**
 
@@ -207,7 +225,7 @@ Minimal cost for document storage. **Required for PDF viewing feature.**
 
 ---
 
-### E. Monitoring (Application Insights + Log Analytics)
+### F. Monitoring (Application Insights + Log Analytics)
 
 **Data Ingestion**: ~$2.30/GB
 **Free Tier**: First 5 GB/month included
@@ -224,22 +242,22 @@ Minimal cost for document storage. **Required for PDF viewing feature.**
 
 ### Infrastructure Only
 
-| Tier | OpenAI | Search | Compute | Storage | Monitor | **TOTAL** | **95% CI** |
-|------|--------|--------|---------|---------|---------|-----------|------------|
-| **Low** | $105 | $78 | $70 | $3 | $0 | **$256** | **$220-$320** |
-| **Medium** | $263 | $80 | $140 | $12 | $7 | **$502** | **$410-$630** |
-| **High** | $525 | $85 | $280 | $48 | $46 | **$984** | **$820-$1,215** |
+| Tier | OpenAI | Search | Rerank | Compute | Storage | Monitor | **TOTAL** | **95% CI** |
+|------|--------|--------|--------|---------|---------|---------|-----------|------------|
+| **Low** | $105 | $78 | $6 | $70 | $3 | $0 | **$262** | **$226-$326** |
+| **Medium** | $263 | $80 | $15 | $140 | $12 | $7 | **$517** | **$425-$645** |
+| **High** | $525 | $85 | $30 | $280 | $48 | $46 | **$1,014** | **$850-$1,245** |
 
 ### Cost Distribution by Tier
 
 ```
-Low Tier ($256/mo)                Medium Tier ($502/mo)           High Tier ($984/mo)
+Low Tier ($262/mo)                Medium Tier ($517/mo)           High Tier ($1,014/mo)
 ┌────────────────────┐            ┌────────────────────┐          ┌────────────────────┐
-│ OpenAI      41%    │            │ OpenAI      52%    │          │ OpenAI      53%    │
-│ Search      30%    │            │ Search      16%    │          │ Compute     28%    │
-│ Compute     27%    │            │ Compute     28%    │          │ Search       9%    │
-│ Storage      1%    │            │ Storage      2%    │          │ Storage      5%    │
-│ Monitor      0%    │            │ Monitor      1%    │          │ Monitor      5%    │
+│ OpenAI      40%    │            │ OpenAI      51%    │          │ OpenAI      52%    │
+│ Search      30%    │            │ Compute     27%    │          │ Compute     28%    │
+│ Compute     27%    │            │ Search      15%    │          │ Search       8%    │
+│ Rerank       2%    │            │ Rerank       3%    │          │ Storage      5%    │
+│ Storage      1%    │            │ Storage      2%    │          │ Monitor      4%    │
 └────────────────────┘            └────────────────────┘          └────────────────────┘
 ```
 
@@ -252,6 +270,7 @@ Low Tier ($256/mo)                Medium Tier ($502/mo)           High Tier ($98
 | Initial PDF ingestion | ~$5 | Embeddings for ~10,000 chunks |
 | Search index creation | $0 | Included in Search tier |
 | Azure OpenAI deployment | $0 | Model deployments included |
+| Azure AI Foundry | $0 | Serverless model deployment |
 | Container registry setup | $0 | Basic tier (5 GB free) |
 | Blob container setup | $0 | 3 containers (source, active, archive) |
 | **Total Setup** | **~$5** | One-time only |
@@ -295,17 +314,17 @@ Low Tier ($256/mo)                Medium Tier ($502/mo)           High Tier ($98
 
 | Tier | Monthly Infra | + Support | **Monthly Total** | **Annual** | **+10% Buffer** |
 |------|---------------|-----------|-------------------|------------|-----------------|
-| **Low** | $256 | $100 | **$356** | $4,272 | **$4,700** |
-| **Medium** | $502 | $100 | **$602** | $7,224 | **$8,000** |
-| **High** | $984 | $100 | **$1,084** | $13,008 | **$14,300** |
+| **Low** | $262 | $100 | **$362** | $4,344 | **$4,800** |
+| **Medium** | $517 | $100 | **$617** | $7,404 | **$8,200** |
+| **High** | $1,014 | $100 | **$1,114** | $13,368 | **$14,800** |
 
 ### Infrastructure Only (No Azure Support)
 
 | Tier | Monthly | Annual | +10% Buffer |
 |------|---------|--------|-------------|
-| **Low** | $256 | $3,072 | **$3,400** |
-| **Medium** | $502 | $6,024 | **$6,600** |
-| **High** | $984 | $11,808 | **$13,000** |
+| **Low** | $262 | $3,144 | **$3,500** |
+| **Medium** | $517 | $6,204 | **$6,900** |
+| **High** | $1,014 | $12,168 | **$13,400** |
 
 ---
 
@@ -360,6 +379,7 @@ All pricing based on Azure East US region as of November 2025:
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-12-02 | 1.2 | Added Cohere Rerank costs and updated budget projections |
 | 2025-11-28 | 1.1 | Updated for simplified architecture (FastAPI + Next.js only, no Azure Functions) |
 | 2025-11-26 | 1.0 | Initial cost documentation |
 
