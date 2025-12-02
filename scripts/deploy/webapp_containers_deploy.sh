@@ -17,8 +17,19 @@ TARGET_PORT=${TARGET_PORT:-8000}
 ENV_FILE=${ENV_FILE:-"$PROJECT_ROOT/.env"}
 AUTO_LOAD_ENV=${AUTO_LOAD_ENV:-true}
 STARTUP_COMMAND=${STARTUP_COMMAND:-"uvicorn main:app --host 0.0.0.0 --port 8000"}
+TAGS=${TAGS:-"project=rush-policy-rag environment=production managed-by=deployment-script"}
 
 IMAGE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Source common functions and run pre-flight checks
+if [[ -f "$SCRIPT_DIR/common-functions.sh" ]]; then
+  source "$SCRIPT_DIR/common-functions.sh"
+  
+  echo "Running pre-flight checks..."
+  validate_azure_cli || exit 1
+  validate_resource_group "$RESOURCE_GROUP" || exit 1
+  echo "Pre-flight checks passed."
+fi
 
 echo "================================================================================"
 echo "Azure Web App for Containers Deployment"
@@ -44,6 +55,7 @@ if [[ -z "$APP_EXISTS" ]]; then
       --resource-group "$RESOURCE_GROUP" \
       --is-linux \
       --sku B2 \
+      --tags $TAGS \
       --output none
   fi
   
@@ -53,11 +65,13 @@ if [[ -z "$APP_EXISTS" ]]; then
     --resource-group "$RESOURCE_GROUP" \
     --plan "$APP_SERVICE_PLAN" \
     --deployment-container-image-name "$IMAGE" \
+    --tags $TAGS \
     --output none
   
   echo "Web App created successfully"
 else
   echo "Web App already exists, updating configuration..."
+  az webapp update --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --tags $TAGS --output none
 fi
 
 # Configure container registry if needed
@@ -113,11 +127,17 @@ if [[ "$AUTO_LOAD_ENV" == "true" && -f "$ENV_FILE" ]]; then
         # Format: KEY1="value1" KEY2="value2" ...
         declare -a SETTINGS_ARRAY
         
-        # Use eval to properly parse quoted values (safe here since we control the input format)
-        # First, convert the string to an array by splitting on spaces that precede KEY= patterns
-        # This handles quoted values with spaces correctly
-        eval "SETTINGS_ARRAY=($APP_SETTINGS_FROM_FILE)" 2>/dev/null || {
-          # Fallback: simple space-split if eval fails
+        # Use Python's shlex to properly parse shell-quoted strings safely without eval
+        # This handles spaces and quotes correctly while avoiding code execution risks
+        if command -v python3 &>/dev/null; then
+          while IFS= read -r pair; do
+            if [[ -n "$pair" ]]; then
+              SETTINGS_ARRAY+=("$pair")
+            fi
+          done < <(python3 -c "import shlex, sys; print('\n'.join(shlex.split(sys.argv[1])))" "$APP_SETTINGS_FROM_FILE")
+        else
+          # Fallback if python3 is not available (less robust for spaces)
+          echo "Warning: python3 not found, falling back to simple splitting (may fail with spaces)" >&2
           IFS=' ' read -ra SETTING_PAIRS <<< "$APP_SETTINGS_FROM_FILE"
           for pair in "${SETTING_PAIRS[@]}"; do
             if [[ "$pair" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
@@ -129,7 +149,7 @@ if [[ "$AUTO_LOAD_ENV" == "true" && -f "$ENV_FILE" ]]; then
               SETTINGS_ARRAY+=("${KEY}=${VALUE}")
             fi
           done
-        }
+        fi
         
         # Set all settings at once
         if [[ ${#SETTINGS_ARRAY[@]} -gt 0 ]]; then

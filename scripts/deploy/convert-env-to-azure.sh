@@ -57,11 +57,20 @@ fi
 # Function to check if a variable is sensitive
 is_sensitive() {
   local var_name="$1"
+  # Check explicit list first
   for sensitive in "${SENSITIVE_VARS[@]}"; do
     if [[ "$var_name" == "$sensitive" ]]; then
       return 0
     fi
   done
+  
+  # Fallback: pattern matching for common sensitive suffixes
+  if [[ "$var_name" =~ .*(KEY|SECRET|PASSWORD|TOKEN|CREDENTIAL|CONNECTION_STRING)$ ]]; then
+    # Log to stderr so it doesn't pollute output
+    echo "Info: Detected '$var_name' as sensitive via pattern matching" >&2
+    return 0
+  fi
+  
   return 1
 }
 

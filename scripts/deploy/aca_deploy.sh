@@ -16,6 +16,7 @@ MEMORY=${MEMORY:-2Gi}
 MIN_REPLICAS=${MIN_REPLICAS:-1}
 MAX_REPLICAS=${MAX_REPLICAS:-5}
 HTTP_CONCURRENCY=${HTTP_CONCURRENCY:-50}
+TAGS=${TAGS:-"project=rush-policy-rag environment=production managed-by=deployment-script"}
 LOG_ANALYTICS_WORKSPACE_ID=${LOG_ANALYTICS_WORKSPACE_ID:-}
 LOG_ANALYTICS_WORKSPACE_KEY=${LOG_ANALYTICS_WORKSPACE_KEY:-}
 EXPOSED=${EXTERNAL_INGRESS:-true}
@@ -24,6 +25,20 @@ ENV_FILE=${ENV_FILE:-"$PROJECT_ROOT/.env"}
 AUTO_LOAD_ENV=${AUTO_LOAD_ENV:-true}
 
 IMAGE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Source common functions and run pre-flight checks
+if [[ -f "$SCRIPT_DIR/common-functions.sh" ]]; then
+  source "$SCRIPT_DIR/common-functions.sh"
+  
+  echo "Running pre-flight checks..."
+  validate_azure_cli || exit 1
+  validate_resource_group "$RESOURCE_GROUP" || exit 1
+  # Only check environment if we expect it to exist (update mode) or we want to fail fast
+  # For create/update, it's good to check if it exists, but if the script is intended to create it?
+  # This script assumes ACA_ENVIRONMENT exists (it doesn't create it). aca_provision.sh creates it.
+  validate_container_app_env "$ACA_ENVIRONMENT" "$RESOURCE_GROUP" || exit 1
+  echo "Pre-flight checks passed."
+fi
 
 # Auto-load environment variables from .env file if enabled and file exists
 if [[ "$AUTO_LOAD_ENV" == "true" && -f "$ENV_FILE" ]]; then
@@ -114,6 +129,7 @@ COMMON_ARGS=(
   --max-replicas "$MAX_REPLICAS"
   --scale-rule-name http
   --scale-rule-http-concurrency "$HTTP_CONCURRENCY"
+  --tags $TAGS
 )
 
 if [[ -n "$ENV_VARS" ]]; then
