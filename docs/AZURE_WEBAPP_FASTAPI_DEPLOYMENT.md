@@ -11,10 +11,11 @@ This document provides detailed instructions for deploying the RUSH Policy RAG F
 3. [Deployment Option 1: Azure Web App Service (Python)](#deployment-option-1-azure-web-app-service-python)
 4. [Deployment Option 2: Azure Web App for Containers (Docker)](#deployment-option-2-azure-web-app-for-containers-docker)
 5. [Deployment Option 3: Azure Container Apps (Recommended)](#deployment-option-3-azure-container-apps-recommended)
-6. [Common Issues & Solutions](#common-issues--solutions)
-7. [Environment Variables Reference](#environment-variables-reference)
-8. [Health Check Endpoints](#health-check-endpoints)
-9. [Troubleshooting Commands](#troubleshooting-commands)
+6. [Using .env Files with Azure Deployments](#using-env-files-with-azure-deployments)
+7. [Common Issues & Solutions](#common-issues--solutions)
+8. [Environment Variables Reference](#environment-variables-reference)
+9. [Health Check Endpoints](#health-check-endpoints)
+10. [Troubleshooting Commands](#troubleshooting-commands)
 
 ---
 
@@ -137,18 +138,50 @@ az webapp config appsettings set \
 
 **Option A: ZIP Deploy (Recommended)**
 
+**Using the automated script (Recommended):**
+
+```bash
+# Create optimized ZIP deployment package with validation
+./scripts/deploy/create-zip-deploy.sh
+
+# This will create apps/backend/deploy.zip with proper exclusions
+# Then deploy:
+az webapp deployment source config-zip \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --src apps/backend/deploy.zip
+```
+
+**Manual ZIP creation:**
+
 ```bash
 # From apps/backend directory
 cd apps/backend
 
-# Create deployment package
-zip -r deploy.zip . -x "*.pyc" -x "__pycache__/*" -x ".env" -x "venv/*" -x ".venv/*"
+# Create deployment package (excludes unnecessary files)
+zip -r deploy.zip . \
+  -x "*.pyc" \
+  -x "__pycache__/*" \
+  -x ".env" \
+  -x "venv/*" \
+  -x ".venv/*" \
+  -x "tests/*" \
+  -x "data/test_pdfs/*" \
+  -x "Dockerfile" \
+  -x "evaluation/*"
 
 # Deploy
 az webapp deployment source config-zip \
   --name $APP_NAME \
   --resource-group $RESOURCE_GROUP \
   --src deploy.zip
+```
+
+**Before deploying, analyze any existing issues:**
+
+```bash
+# Analyze current configuration and identify problems
+./scripts/deploy/analyze-zip-deploy-issues.sh <resource-group> <app-name> [zip-file]
 ```
 
 **Option B: Git Deploy**
@@ -221,6 +254,23 @@ az webapp config container set \
 
 ### Step 3: Set Environment Variables
 
+**Option A: Using Automated Script (Recommended)**
+
+The deployment script automatically loads environment variables from your `.env` file:
+
+```bash
+# Deploy with automatic .env file loading
+./scripts/deploy/webapp_containers_deploy.sh
+
+# Or with custom configuration
+RESOURCE_GROUP="rg-rush-policy-prod" \
+APP_NAME="rush-policy-backend" \
+ACR_NAME="rushpolicyacr" \
+./scripts/deploy/webapp_containers_deploy.sh
+```
+
+**Option B: Manual Configuration**
+
 Same as Option 1, Step 3.
 
 ---
@@ -244,6 +294,29 @@ az containerapp env create \
 
 ### Step 2: Deploy Container App
 
+**Option A: Using Automated Script (Recommended)**
+
+The deployment script automatically loads environment variables from your `.env` file:
+
+```bash
+# Deploy with automatic .env file loading
+./scripts/deploy/aca_deploy.sh
+
+# Or with custom configuration
+RESOURCE_GROUP="rg-rush-policy-prod" \
+CONTAINER_APP_NAME="rush-policy-backend" \
+ACR_NAME="rushpolicyacr" \
+./scripts/deploy/aca_deploy.sh
+```
+
+The script will:
+- Automatically parse your `.env` file
+- Set non-sensitive variables as environment variables
+- Set sensitive variables (API keys, connection strings) as secrets
+- Link secrets to environment variable references
+
+**Option B: Manual Configuration**
+
 ```bash
 az containerapp create \
   --name $APP_NAME \
@@ -265,7 +338,9 @@ az containerapp create \
     # ... (all other env vars as secrets)
 ```
 
-### Step 3: Configure Secrets for Sensitive Values
+### Step 3: Configure Secrets for Sensitive Values (Manual Only)
+
+If not using the automated script, configure secrets manually:
 
 ```bash
 az containerapp secret set \
@@ -277,6 +352,146 @@ az containerapp secret set \
     storage-connection-string=<value> \
     cohere-api-key=<value>
 ```
+
+---
+
+## Using .env Files with Azure Deployments
+
+### Problem: Docker `--env-file` Doesn't Work in Azure
+
+When deploying Docker containers to Azure, you cannot use Docker's `--env-file` flag like you can locally:
+
+```bash
+# This works locally:
+docker run --env-file .env -p 8000:8000 rush-policy-api:latest
+
+# But Azure doesn't support --env-file directly
+```
+
+Azure services require environment variables to be set through Azure-specific configuration mechanisms.
+
+### Solution: Automated .env File Loading
+
+The deployment scripts now automatically convert your `.env` file to Azure-compatible format:
+
+1. **For Azure Container Apps**: Uses `scripts/deploy/aca_deploy.sh`
+   - Automatically loads `.env` file from project root
+   - Separates sensitive vs non-sensitive variables
+   - Sets secrets for sensitive values (API keys, connection strings)
+   - Sets environment variables for non-sensitive values
+
+2. **For Azure Web App for Containers**: Uses `scripts/deploy/webapp_containers_deploy.sh`
+   - Automatically loads `.env` file from project root
+   - Converts all variables to Azure App Settings
+   - Azure handles encryption for sensitive values
+
+### Usage
+
+**Container Apps Deployment:**
+
+```bash
+# Basic usage (uses .env from project root)
+./scripts/deploy/aca_deploy.sh
+
+# With custom .env file location
+ENV_FILE="/path/to/.env.production" ./scripts/deploy/aca_deploy.sh
+
+# Disable auto-loading (use ENV_VARS environment variable instead)
+AUTO_LOAD_ENV=false ENV_VARS="KEY1=value1 KEY2=value2" ./scripts/deploy/aca_deploy.sh
+```
+
+**Web App for Containers Deployment:**
+
+```bash
+# Basic usage (uses .env from project root)
+./scripts/deploy/webapp_containers_deploy.sh
+
+# With custom configuration
+RESOURCE_GROUP="rg-rush-policy-prod" \
+APP_NAME="rush-policy-backend" \
+ACR_NAME="rushpolicyacr" \
+./scripts/deploy/webapp_containers_deploy.sh
+```
+
+### Manual Environment Variable Updates
+
+To update environment variables for an existing deployment without redeploying:
+
+```bash
+# For Container Apps
+./scripts/deploy/set-env-vars.sh container-apps <resource-group> <app-name> [env-file]
+
+# For Web App for Containers
+./scripts/deploy/set-env-vars.sh webapp-containers <resource-group> <app-name> [env-file]
+
+# Examples:
+./scripts/deploy/set-env-vars.sh container-apps rush-rg rush-policy-api
+./scripts/deploy/set-env-vars.sh webapp-containers rush-rg rush-policy-backend .env.production
+```
+
+### How It Works
+
+The `convert-env-to-azure.sh` script:
+
+1. Parses your `.env` file (handles comments, empty lines, quoted values)
+2. Identifies sensitive variables (API keys, connection strings, etc.)
+3. Generates Azure CLI-compatible format:
+   - **Container Apps**: Separates into `ENV_VARS` (non-sensitive) and `SECRET_VARS` (sensitive)
+   - **Web App**: Converts all to `APP_SETTINGS` format
+
+### Sensitive Variables
+
+By default, these variables are treated as sensitive and stored as secrets (Container Apps) or encrypted settings (Web App):
+
+- `SEARCH_API_KEY`
+- `AOAI_API_KEY` / `AOAI_API`
+- `COHERE_RERANK_API_KEY`
+- `ADMIN_API_KEY`
+- `STORAGE_CONNECTION_STRING`
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`
+- `AZURE_AD_TENANT_ID`
+- `AZURE_AD_CLIENT_ID`
+- `AZURE_AD_CLIENT_SECRET`
+
+You can customize this list by providing a file with variable names (one per line) to the converter script.
+
+### Troubleshooting
+
+**Issue: Environment variables not loading**
+
+- Verify `.env` file exists at project root (or specify path with `ENV_FILE`)
+- Check file permissions (script must be able to read the file)
+- Ensure `AUTO_LOAD_ENV=true` (default) is set
+- Check script output for parsing errors
+
+**Issue: Secrets not being set**
+
+- For Container Apps, secrets must be set before environment variables that reference them
+- Verify you have permissions to set secrets in the Container App
+- Check that secret names match the environment variable names
+
+**Issue: Variables with special characters**
+
+- The script handles quoted values and escaped characters
+- If issues persist, check the `.env` file format (should be `KEY=VALUE` or `KEY="VALUE"`)
+
+### References
+
+This implementation follows Azure best practices for environment variable management:
+
+- **Azure Container Apps**: [Environment Variables Documentation](https://learn.microsoft.com/azure/container-apps/environment-variables)
+- **Azure Web App for Containers**: [Configure Custom Containers](https://learn.microsoft.com/azure/app-service/configure-custom-container)
+- **Azure CLI Reference**:
+  - [az containerapp update](https://learn.microsoft.com/cli/azure/containerapp#az-containerapp-update) - `--env-vars` parameter
+  - [az webapp config appsettings set](https://learn.microsoft.com/cli/azure/webapp/config/appsettings#az-webapp-config-appsettings-set) - `--settings` parameter
+
+**Key Best Practices Implemented:**
+
+1. ✅ **Secrets Management**: Sensitive variables (API keys, connection strings) are stored as secrets in Container Apps
+2. ✅ **Secret References**: Container Apps use `secretref:` to reference secrets securely
+3. ✅ **Encryption**: Web App for Containers automatically encrypts sensitive app settings
+4. ✅ **Separation of Concerns**: Non-sensitive config vs sensitive secrets are handled differently
+5. ✅ **Automation**: Scripts automate the conversion from `.env` to Azure-compatible format
 
 ---
 
@@ -368,6 +583,122 @@ az webapp config set \
 1. Ensure `requirements.txt` is in the root of the deployed folder
 2. Add `startup.txt` file with startup command
 3. Or switch to Docker deployment (more reliable)
+
+### Issue 7: Missing Environment Variables in Azure
+
+**Symptom**: Application fails because environment variables are missing or not set correctly in Azure, even though `docker run --env-file .env` works locally.
+
+**Cause**: Azure services don't support Docker's `--env-file` flag. Environment variables must be set through Azure-specific configuration.
+
+**Solution**:
+1. Use the automated deployment scripts that convert `.env` files automatically:
+   ```bash
+   # For Container Apps
+   ./scripts/deploy/aca_deploy.sh
+   
+   # For Web App for Containers
+   ./scripts/deploy/webapp_containers_deploy.sh
+   ```
+
+2. Or manually update environment variables using the helper script:
+   ```bash
+   ./scripts/deploy/set-env-vars.sh container-apps <resource-group> <app-name>
+   ```
+
+3. Verify variables are set:
+   ```bash
+   # Container Apps
+   az containerapp show --name <app-name> --resource-group <rg> \
+     --query 'properties.template.containers[0].env'
+   
+   # Web App
+   az webapp config appsettings list --name <app-name> --resource-group <rg>
+   ```
+
+### Issue 8: ZIP Deploy Failure - "Package deployment using ZIP Deploy failed"
+
+**Symptom**: ZIP deployment fails with error "Failed to deploy web package to App Service" or "Package deployment using ZIP Deploy failed".
+
+**Common Causes**:
+1. **Python version mismatch**: Azure Web App Service may not support very new Python versions (e.g., 3.13.8)
+2. **Missing startup command**: FastAPI requires explicit startup command configuration
+3. **Incorrect file structure**: `requirements.txt` or `main.py` not in correct location
+4. **Missing app settings**: Required settings like `WEBSITES_PORT` not configured
+
+**Solution**:
+
+**Option A: Use the fix script (Recommended)**
+```bash
+# Fix common ZIP deploy configuration issues
+./scripts/deploy/fix-zip-deploy.sh <resource-group> <app-name>
+
+# Then redeploy
+cd apps/backend
+zip -r deploy.zip . -x "*.pyc" -x "__pycache__/*" -x ".env" -x "venv/*" -x ".venv/*"
+az webapp deployment source config-zip \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --src deploy.zip
+```
+
+**Option B: Manual Fix**
+```bash
+# 1. Set Python version to 3.11 (recommended, well-supported)
+az webapp config set \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --linux-fx-version "PYTHON|3.11"
+
+# 2. Configure startup command
+az webapp config set \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --startup-file "gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000"
+
+# 3. Set required app settings
+az webapp config appsettings set \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --settings \
+    WEBSITES_PORT=8000 \
+    SCM_DO_BUILD_DURING_DEPLOYMENT=true \
+    ENABLE_ORYX_BUILD=true
+
+# 4. Verify requirements.txt is in ZIP root
+# Ensure your ZIP file structure is:
+#   deploy.zip
+#   ├── main.py
+#   ├── requirements.txt
+#   ├── app/
+#   └── ...
+```
+
+**Option C: Switch to Container Deployment (Recommended for FastAPI)**
+
+ZIP deploy can be unreliable for FastAPI. Consider switching to:
+- **Azure Web App for Containers**: Uses Docker, more reliable
+  ```bash
+  ./scripts/deploy/webapp_containers_deploy.sh
+  ```
+- **Azure Container Apps**: Best option for containerized FastAPI apps
+  ```bash
+  ./scripts/deploy/aca_deploy.sh
+  ```
+
+**Troubleshooting ZIP Deploy**:
+```bash
+# Check current Python version
+az webapp config show --name <app-name> --resource-group <rg> --query "linuxFxVersion"
+
+# View deployment logs
+az webapp log tail --name <app-name> --resource-group <rg>
+
+# Download detailed logs
+az webapp log download --name <app-name> --resource-group <rg> --log-file logs.zip
+
+# Check if app is running
+az webapp show --name <app-name> --resource-group <rg> --query "state"
+```
 
 ---
 

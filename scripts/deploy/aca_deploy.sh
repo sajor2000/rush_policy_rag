@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 RESOURCE_GROUP=${RESOURCE_GROUP:-rush-rg}
 ACA_ENVIRONMENT=${ACA_ENVIRONMENT:-rush-aca-env}
 CONTAINER_APP_NAME=${CONTAINER_APP_NAME:-rush-policy-api}
@@ -17,8 +20,84 @@ LOG_ANALYTICS_WORKSPACE_ID=${LOG_ANALYTICS_WORKSPACE_ID:-}
 LOG_ANALYTICS_WORKSPACE_KEY=${LOG_ANALYTICS_WORKSPACE_KEY:-}
 EXPOSED=${EXTERNAL_INGRESS:-true}
 ENV_VARS=${ENV_VARS:-}
+ENV_FILE=${ENV_FILE:-"$PROJECT_ROOT/.env"}
+AUTO_LOAD_ENV=${AUTO_LOAD_ENV:-true}
 
 IMAGE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Auto-load environment variables from .env file if enabled and file exists
+if [[ "$AUTO_LOAD_ENV" == "true" && -f "$ENV_FILE" ]]; then
+  echo "Loading environment variables from $ENV_FILE..."
+  
+  # Use converter script to parse .env file
+  CONVERTER_SCRIPT="$SCRIPT_DIR/convert-env-to-azure.sh"
+  if [[ ! -f "$CONVERTER_SCRIPT" ]]; then
+    echo "Warning: convert-env-to-azure.sh not found, skipping auto-load" >&2
+  else
+    # Get converted environment variables
+    CONVERTED_ENV=$("$CONVERTER_SCRIPT" "$ENV_FILE" "container-apps" 2>/dev/null || true)
+    
+    if [[ -n "$CONVERTED_ENV" ]]; then
+      # Extract ENV_VARS and SECRET_VARS from converter output
+      # Format: ENV_VARS="KEY1=\"value1\" KEY2=\"value2\" ..."
+      ENV_VARS_FROM_FILE=$(echo "$CONVERTED_ENV" | grep "^ENV_VARS=" | sed 's/^ENV_VARS="//;s/"$//' || true)
+      SECRET_VARS_FROM_FILE=$(echo "$CONVERTED_ENV" | grep "^SECRET_VARS=" | sed 's/^SECRET_VARS="//;s/"$//' || true)
+      
+      # Merge with existing ENV_VARS if provided
+      if [[ -n "$ENV_VARS_FROM_FILE" ]]; then
+        if [[ -n "$ENV_VARS" ]]; then
+          ENV_VARS="$ENV_VARS $ENV_VARS_FROM_FILE"
+        else
+          ENV_VARS="$ENV_VARS_FROM_FILE"
+        fi
+      fi
+      
+      # Set secrets if any were found
+      if [[ -n "$SECRET_VARS_FROM_FILE" ]]; then
+        echo "Setting secrets in Container App..."
+        # Convert space-separated KEY=VALUE pairs to array
+        IFS=' ' read -ra SECRET_PAIRS <<< "$SECRET_VARS_FROM_FILE"
+        declare -a SECRET_ARGS
+        for pair in "${SECRET_PAIRS[@]}"; do
+          # Extract key name for secret reference
+          KEY="${pair%%=*}"
+          # Remove quotes from value if present
+          VALUE="${pair#*=}"
+          VALUE="${VALUE#\"}"
+          VALUE="${VALUE%\"}"
+          SECRET_ARGS+=("${KEY}=${VALUE}")
+        done
+        
+        # Set secrets
+        if [[ ${#SECRET_ARGS[@]} -gt 0 ]]; then
+          az containerapp secret set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$CONTAINER_APP_NAME" \
+            --secrets "${SECRET_ARGS[@]}" \
+            --output none 2>/dev/null || {
+            echo "Warning: Failed to set secrets. Container App may not exist yet or secrets may already be set." >&2
+          }
+          
+          # Link secrets to environment variables (create secret references)
+          declare -a SECRET_ENV_REFS
+          for arg in "${SECRET_ARGS[@]}"; do
+            KEY="${arg%%=*}"
+            SECRET_ENV_REFS+=("${KEY}=secretref:${KEY}")
+          done
+          
+          if [[ ${#SECRET_ENV_REFS[@]} -gt 0 ]]; then
+            # Add secret references to ENV_VARS
+            if [[ -n "$ENV_VARS" ]]; then
+              ENV_VARS="$ENV_VARS ${SECRET_ENV_REFS[*]}"
+            else
+              ENV_VARS="${SECRET_ENV_REFS[*]}"
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+fi
 
 COMMON_ARGS=(
   --name "$CONTAINER_APP_NAME"
