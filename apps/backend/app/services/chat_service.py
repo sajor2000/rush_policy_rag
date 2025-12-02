@@ -1703,7 +1703,7 @@ Policy excerpt:"""
                     logger.warning(f"HEALTHCARE SAFETY: Blocking response with unverified facts: {unverified_facts}")
                     return ChatResponse(
                         response="I could not verify all factual claims against RUSH policy documents. "
-                                 "Please check https://rushumc.navexone.com/ or contact Policy Administration.",
+                                 f"Please check {settings.POLICYTECH_URL} or contact Policy Administration.",
                         summary="Unable to verify factual accuracy",
                         evidence=[],
                         raw_response=answer_text,
@@ -1727,7 +1727,7 @@ Policy excerpt:"""
                     logger.warning(f"HEALTHCARE SAFETY: Blocking response with fabricated refs: {fabricated_refs}")
                     return ChatResponse(
                         response="I could not verify all policy citations. "
-                                 "Please check https://rushumc.navexone.com/ for accurate policy information.",
+                                 f"Please check {settings.POLICYTECH_URL} for accurate policy information.",
                         summary="Unable to verify policy citations",
                         evidence=[],
                         raw_response=answer_text,
@@ -1777,8 +1777,8 @@ Policy excerpt:"""
                 logger.warning(f"HEALTHCARE SAFETY BLOCK: {all_flags}")
                 fallback = (
                     safety_result.fallback_response or
-                    "I could not verify this information against RUSH policies. "
-                    "Please check https://rushumc.navexone.com/ or contact Policy Administration."
+                    f"I could not verify this information against RUSH policies. "
+                    f"Please check {settings.POLICYTECH_URL} or contact Policy Administration."
                 )
                 return ChatResponse(
                     response=fallback,
@@ -1801,7 +1801,7 @@ Policy excerpt:"""
                 logger.warning(f"HEALTHCARE SAFETY BLOCK: Hallucination risk {verification.hallucination_risk:.2f}")
                 return ChatResponse(
                     response="I could not verify all claims in this response against RUSH policies. "
-                             "Please check https://rushumc.navexone.com/ or contact Policy Administration.",
+                             f"Please check {settings.POLICYTECH_URL} or contact Policy Administration.",
                     summary="Unable to verify response accuracy",
                     evidence=[],
                     raw_response=answer_text,

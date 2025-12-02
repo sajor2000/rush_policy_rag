@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen } from "lucide-react";
 import { Evidence, Source } from "@/lib/api";
+import { POLICYTECH_URL } from "@/lib/constants";
 
 // All RUSH entity codes for checkbox display (matching PDF headers)
 const RUSH_ENTITIES = ["RUMC", "RUMG", "ROPH", "RCMC", "RCH", "ROPPG", "RCMG", "RU"] as const;
@@ -320,12 +321,12 @@ export default function ChatMessage({
             <p className="text-xs text-muted-foreground">
               Need assistance? Visit{" "}
               <a
-                href="https://rushumc.navexone.com/"
+                href={POLICYTECH_URL}
                 className="text-rush-legacy underline decoration-dotted underline-offset-4"
                 target="_blank"
                 rel="noreferrer"
               >
-                rushumc.navexone.com
+                {POLICYTECH_URL.replace(/^https?:\/\//, "")}
               </a>{" "}
               or contact Policy Administration.
             </p>

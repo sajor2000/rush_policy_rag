@@ -197,9 +197,10 @@ class ResponseSafetyValidator:
         # Set fallback response if not safe
         fallback_response = None
         if not safe:
+            from app.core.config import settings
             fallback_response = (
-                "I could not find reliable information in RUSH policies to answer this question. "
-                "Please verify at https://rushumc.navexone.com/ or contact Policy Administration."
+                f"I could not find reliable information in RUSH policies to answer this question. "
+                f"Please verify at {settings.POLICYTECH_URL} or contact Policy Administration."
             )
         
         logger.info(

@@ -1,3 +1,5 @@
+from app.core.config import settings
+
 # RISEN Prompt for Literal Retrieval with Styled Output
 RISEN_PROMPT = """## R - ROLE
 
@@ -35,7 +37,7 @@ The frontend will display the policy metadata and verbatim evidence separately. 
 """
 
 NOT_FOUND_MESSAGE = (
-    "We couldn’t find that in RUSH policies. Please verify at "
-    "https://rushumc.navexone.com/ or contact Policy Administration for guidance."
+    f"We couldn't find that in RUSH policies. Please verify at "
+    f"{settings.POLICYTECH_URL} or contact Policy Administration for guidance."
 )
 LLM_UNAVAILABLE_MESSAGE = "Azure OpenAI is not configured. Displaying the most relevant supporting evidence below."

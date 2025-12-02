@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { POLICYTECH_URL } from "@/lib/constants";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -99,8 +100,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: errorData.detail || "Failed to get response from backend",
-          response: "I'm having trouble connecting to the policy database right now. Please try again in a moment or contact Policy Administration at https://rushumc.navexone.com/",
-          summary: "I'm having trouble connecting to the policy database right now. Please try again in a moment or contact Policy Administration.",
+          response: `I'm having trouble connecting to the policy database right now. Please try again in a moment or contact Policy Administration at ${POLICYTECH_URL}`,
+          summary: `I'm having trouble connecting to the policy database right now. Please try again in a moment or contact Policy Administration at ${POLICYTECH_URL}`,
           evidence: [],
           sources: [],
           found: false
@@ -143,8 +144,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to process request",
-        response: "We're having trouble connecting right now. Let's try that again, or you can verify policies directly at https://rushumc.navexone.com/",
-        summary: "We're having trouble connecting right now. Let's try that again, or you can verify policies directly at rushumc.navexone.com",
+        response: `We're having trouble connecting right now. Let's try that again, or you can verify policies directly at ${POLICYTECH_URL}`,
+        summary: `We're having trouble connecting right now. Let's try that again, or you can verify policies directly at ${POLICYTECH_URL}`,
         evidence: [],
         sources: [],
         found: false

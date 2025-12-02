@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # Model name for Cohere rerank (configurable for version upgrades)
     COHERE_RERANK_MODEL: str = "cohere-rerank-v3-5"
 
+    # PolicyTech URL - official RUSH policy administration portal
+    POLICYTECH_URL: str = "https://rushumc.navexone.com/"
+
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""
