@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "production"
+    },
+    "containerImage": {
+      "value": "ghcr.io/YOUR_ORG/rush_policy_rag/backend:latest"
+    },
+    "registryPassword": {
+      "value": "YOUR_GITHUB_PAT_WITH_PACKAGES_READ"
+    },
+    "searchEndpoint": {
+      "value": "https://YOUR_SEARCH_NAME.search.windows.net"
+    },
+    "searchApiKey": {
+      "value": "YOUR_SEARCH_API_KEY"
+    },
+    "aoaiEndpoint": {
+      "value": "https://YOUR_AOAI_NAME.openai.azure.com/"
+    },
+    "aoaiApiKey": {
+      "value": "YOUR_AOAI_API_KEY"
+    },
+    "storageConnectionString": {
+      "value": "DefaultEndpointsProtocol=https;AccountName=YOUR_STORAGE;AccountKey=YOUR_KEY;EndpointSuffix=core.windows.net"
+    },
+    "appInsightsConnectionString": {
+      "value": "InstrumentationKey=YOUR_KEY;IngestionEndpoint=https://YOUR_REGION.in.applicationinsights.azure.com/"
+    },
+    "cohereRerankerEndpoint": {
+      "value": "https://Cohere-rerank-v3-5-YOUR_ID.YOUR_REGION.models.ai.azure.com"
+    },
+    "cohereRerankerApiKey": {
+      "value": "YOUR_COHERE_API_KEY"
+    },
+    "useCohereRerank": {
+      "value": true
+    },
+    "cohereRerankerModel": {
+      "value": "cohere-rerank-v3-5"
+    },
+    "cohereRerankerTopN": {
+      "value": 10
+    },
+    "cohereRerankerMinScore": {
+      "value": "0.15"
+    },
+    "customFrontendDomain": {
+      "value": ""
+    },
+    "minReplicas": {
+      "value": 2
+    },
+    "maxReplicas": {
+      "value": 10
+    }
+  }
+}
