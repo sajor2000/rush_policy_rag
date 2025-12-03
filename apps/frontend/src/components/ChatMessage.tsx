@@ -7,7 +7,8 @@ import { Evidence, Source } from "@/lib/api";
 import { POLICYTECH_URL } from "@/lib/constants";
 
 // All RUSH entity codes for checkbox display (matching PDF headers)
-const RUSH_ENTITIES = ["RUMC", "RUMG", "ROPH", "RCMC", "RCH", "ROPPG", "RCMG", "RU"] as const;
+// Note: RMG (Rush Medical Group) is different from RUMG (Rush University Medical Group)
+const RUSH_ENTITIES = ["RUMC", "RUMG", "RMG", "ROPH", "RCMC", "RCH", "ROPPG", "RCMG", "RU"] as const;
 
 interface ChatMessageProps {
   role: "user" | "assistant";
