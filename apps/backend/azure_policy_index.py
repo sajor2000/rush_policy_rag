@@ -1387,6 +1387,164 @@ if __name__ == "__main__":
                 print(f"    Score: {r.score:.2f} | Reranker: {r.reranker_score or 'N/A'}")
                 print(f"    Content: {r.content[:150]}...")
 
+        elif command == "verify" and len(sys.argv) > 2:
+            # Verify a specific policy by reference number
+            ref_number = sys.argv[2]
+            print(f"\nVerifying policy: {ref_number}")
+            print("-" * 60)
+
+            search_client = index.get_search_client()
+            results = list(search_client.search(
+                search_text="*",
+                filter=f"reference_number eq '{ref_number}'",
+                select=["id", "title", "reference_number", "version_number", "policy_status",
+                        "effective_date", "source_file", "section", "applies_to"],
+                top=100
+            ))
+
+            if not results:
+                print(f"ERROR: No chunks found for reference number '{ref_number}'")
+                sys.exit(1)
+
+            # Group by version
+            versions = {}
+            for r in results:
+                v = r.get("version_number", "1.0")
+                if v not in versions:
+                    versions[v] = {"chunks": 0, "status": r.get("policy_status", "UNKNOWN")}
+                versions[v]["chunks"] += 1
+
+            title = results[0].get("title", "Unknown")
+            source_file = results[0].get("source_file", "Unknown")
+
+            print(f"Policy: {title}")
+            print(f"Reference: {ref_number}")
+            print(f"Source: {source_file}")
+            print(f"\nVersions:")
+            print(f"{'Version':<10} {'Status':<12} {'Chunks':<8}")
+            print("-" * 30)
+            for v, info in sorted(versions.items(), key=lambda x: x[0], reverse=True):
+                status_icon = "✓" if info["status"] == "ACTIVE" else " "
+                print(f"{v:<10} {info['status']:<12} {info['chunks']:<8} {status_icon}")
+
+            print(f"\n✓ Verification complete: {len(results)} total chunks across {len(versions)} version(s)")
+
+        elif command == "list-versions" and len(sys.argv) > 2:
+            # List all versions of a policy
+            ref_number = sys.argv[2]
+            print(f"\nVersion history for: {ref_number}")
+            print("-" * 60)
+
+            search_client = index.get_search_client()
+            results = list(search_client.search(
+                search_text="*",
+                filter=f"reference_number eq '{ref_number}'",
+                select=["version_number", "policy_status", "effective_date", "superseded_by"],
+                top=1000
+            ))
+
+            if not results:
+                print(f"ERROR: No chunks found for '{ref_number}'")
+                sys.exit(1)
+
+            # Group by version
+            versions = {}
+            for r in results:
+                v = r.get("version_number", "1.0")
+                if v not in versions:
+                    versions[v] = {
+                        "status": r.get("policy_status", "UNKNOWN"),
+                        "effective_date": r.get("effective_date", ""),
+                        "superseded_by": r.get("superseded_by", ""),
+                        "chunk_count": 0
+                    }
+                versions[v]["chunk_count"] += 1
+
+            print(f"{'Version':<10} {'Status':<12} {'Effective':<20} {'Superseded By':<12} {'Chunks':<8}")
+            print("-" * 70)
+            for v, info in sorted(versions.items(), key=lambda x: x[0], reverse=True):
+                eff_date = info["effective_date"][:10] if info["effective_date"] else "N/A"
+                sup_by = info["superseded_by"] or "-"
+                print(f"{v:<10} {info['status']:<12} {eff_date:<20} {sup_by:<12} {info['chunk_count']:<8}")
+
+        elif command == "verify-all":
+            # Verify all active policies
+            print("\nVerifying all ACTIVE policies...")
+            print("-" * 60)
+
+            search_client = index.get_search_client()
+
+            # Get unique reference numbers with ACTIVE status
+            results = list(search_client.search(
+                search_text="*",
+                filter="policy_status eq 'ACTIVE'",
+                select=["reference_number", "title", "source_file"],
+                top=5000
+            ))
+
+            # Group by reference number
+            policies = {}
+            for r in results:
+                ref = r.get("reference_number", "UNKNOWN")
+                if ref not in policies:
+                    policies[ref] = {
+                        "title": r.get("title", "Unknown"),
+                        "source_file": r.get("source_file", ""),
+                        "chunk_count": 0
+                    }
+                policies[ref]["chunk_count"] += 1
+
+            print(f"Found {len(policies)} ACTIVE policies with {len(results)} total chunks\n")
+            print(f"{'Ref #':<15} {'Chunks':<8} {'Title':<50}")
+            print("-" * 75)
+            for ref, info in sorted(policies.items()):
+                title = info["title"][:47] + "..." if len(info["title"]) > 50 else info["title"]
+                print(f"{ref:<15} {info['chunk_count']:<8} {title}")
+
+            print(f"\n✓ Verification complete: {len(policies)} policies, {len(results)} chunks")
+
+        elif command == "backup":
+            # Backup index metadata to JSON
+            import json
+            from datetime import datetime
+
+            output_file = sys.argv[2] if len(sys.argv) > 2 else f"index_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            print(f"\nBacking up index to: {output_file}")
+            print("-" * 60)
+
+            search_client = index.get_search_client()
+
+            # Get all documents (metadata only, not content)
+            results = list(search_client.search(
+                search_text="*",
+                select=["id", "title", "reference_number", "version_number", "policy_status",
+                        "effective_date", "source_file", "section", "applies_to",
+                        "applies_to_rumc", "applies_to_rumg", "applies_to_rmg",
+                        "applies_to_roph", "applies_to_rcmc", "applies_to_rch"],
+                top=50000
+            ))
+
+            backup_data = {
+                "backup_date": datetime.now().isoformat(),
+                "index_name": INDEX_NAME,
+                "total_documents": len(results),
+                "documents": [dict(r) for r in results]
+            }
+
+            with open(output_file, 'w') as f:
+                json.dump(backup_data, f, indent=2, default=str)
+
+            print(f"✓ Backed up {len(results)} documents to {output_file}")
+
+            # Summary stats
+            active = sum(1 for r in results if r.get("policy_status") == "ACTIVE")
+            superseded = sum(1 for r in results if r.get("policy_status") == "SUPERSEDED")
+            retired = sum(1 for r in results if r.get("policy_status") == "RETIRED")
+            print(f"\nStatus breakdown:")
+            print(f"  ACTIVE: {active}")
+            print(f"  SUPERSEDED: {superseded}")
+            print(f"  RETIRED: {retired}")
+
         else:
             print("Usage:")
             print("  python azure_policy_index.py create                  # Create index")
@@ -1395,5 +1553,9 @@ if __name__ == "__main__":
             print("  python azure_policy_index.py stats                   # Get stats")
             print("  python azure_policy_index.py synonyms                # Update synonym map")
             print("  python azure_policy_index.py test-synonyms <query>   # Test synonym expansion")
+            print("  python azure_policy_index.py verify <ref_number>     # Verify a policy")
+            print("  python azure_policy_index.py list-versions <ref>     # List policy versions")
+            print("  python azure_policy_index.py verify-all              # Verify all policies")
+            print("  python azure_policy_index.py backup [filename]       # Backup index metadata")
     else:
-        print("\nRun with 'create', 'upload', 'search', 'stats', 'synonyms', or 'test-synonyms' command")
+        print("\nRun with 'create', 'upload', 'search', 'stats', 'synonyms', 'verify', 'list-versions', 'verify-all', or 'backup' command")

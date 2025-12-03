@@ -850,6 +850,7 @@ class PolicySyncManager:
 # CLI for testing
 if __name__ == "__main__":
     import sys
+    import argparse
 
     print("=" * 60)
     print("POLICY SYNC MANAGER")
@@ -859,18 +860,24 @@ if __name__ == "__main__":
         print("ERROR: STORAGE_CONNECTION_STRING not set")
         sys.exit(1)
 
-    # Parse backend option from command line
-    backend = None
-    use_docling = None
-    for arg in sys.argv:
-        if arg.startswith('--backend='):
-            backend = arg.split('=')[1]
-        elif arg == '--use-docling':
-            use_docling = True
-        elif arg == '--no-docling':
-            use_docling = False
+    # Helper to parse CLI args
+    def get_arg(flag, default=None):
+        """Get argument value from sys.argv."""
+        for i, arg in enumerate(sys.argv):
+            if arg == flag and i + 1 < len(sys.argv):
+                return sys.argv[i + 1]
+            if arg.startswith(f"{flag}="):
+                return arg.split('=', 1)[1]
+        return default
 
-    sync = PolicySyncManager(backend=backend, use_docling=use_docling)
+    # Parse backend option from command line
+    backend = get_arg('--backend')
+    use_docling = '--use-docling' in sys.argv
+    no_docling = '--no-docling' in sys.argv
+    if no_docling:
+        use_docling = False
+
+    sync = PolicySyncManager(backend=backend, use_docling=use_docling if use_docling or no_docling else None)
     print(f"Backend: {sync.chunker.backend}")
 
     if len(sys.argv) > 1:
@@ -885,17 +892,41 @@ if __name__ == "__main__":
             print(f"\nNew: {len(new)}")
             for f in new[:10]:
                 print(f"  + {f}")
+            if len(new) > 10:
+                print(f"  ... and {len(new) - 10} more")
             print(f"\nChanged: {len(changed)}")
             for f in changed[:10]:
                 print(f"  ~ {f}")
+            if len(changed) > 10:
+                print(f"  ... and {len(changed) - 10} more")
             print(f"\nDeleted: {len(deleted)}")
             for f in deleted[:10]:
                 print(f"  - {f}")
+            if len(deleted) > 10:
+                print(f"  ... and {len(deleted) - 10} more")
+
+            # Summary
+            total_source = len(new) + len(changed)
+            print(f"\n{'=' * 40}")
+            print(f"Total in source: {total_source + len(deleted) - len(deleted)}")
+            print(f"Unchanged: (run sync to calculate)")
 
         elif command == "sync":
             source = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('--') else SOURCE_CONTAINER
             target = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].startswith('--') else TARGET_CONTAINER
             dry_run = "--dry-run" in sys.argv
+
+            # Parse optional version and effective-date
+            version = get_arg('--version')
+            effective_date = get_arg('--effective-date')
+
+            if version or effective_date:
+                print(f"\nNote: --version and --effective-date are advisory.")
+                print(f"  Version transitions are auto-incremented (v1.0 → v2.0)")
+                if version:
+                    print(f"  Requested version: {version}")
+                if effective_date:
+                    print(f"  Effective date: {effective_date}")
 
             sync.sync_monthly(source, target, dry_run=dry_run)
 
@@ -907,17 +938,110 @@ if __name__ == "__main__":
             pdf_path = sys.argv[2]
             sync.process_single_document(pdf_path)
 
+        elif command == "rollback":
+            # Rollback a policy to a previous version
+            ref_number = get_arg('--reference') or get_arg('--ref')
+            to_version = get_arg('--to-version')
+            reason = get_arg('--reason') or "Manual rollback"
+
+            if not ref_number or not to_version:
+                print("ERROR: Rollback requires --reference and --to-version")
+                print("\nUsage:")
+                print("  python policy_sync.py rollback --reference POL-001 --to-version 1.0 --reason 'Issue found'")
+                sys.exit(1)
+
+            print(f"\nRolling back {ref_number} to version {to_version}")
+            print(f"Reason: {reason}")
+
+            try:
+                search_client = sync.search_index.get_search_client()
+
+                # Find current active version
+                current_results = list(search_client.search(
+                    search_text="*",
+                    filter=f"reference_number eq '{ref_number}' and policy_status eq 'ACTIVE'",
+                    select=["id", "version_number", "source_file"],
+                    top=1
+                ))
+
+                if not current_results:
+                    print(f"ERROR: No ACTIVE chunks found for {ref_number}")
+                    sys.exit(1)
+
+                current_version = current_results[0].get("version_number", "unknown")
+                source_file = current_results[0].get("source_file", "")
+                print(f"  Current version: {current_version}")
+
+                # Find target version chunks
+                target_results = list(search_client.search(
+                    search_text="*",
+                    filter=f"reference_number eq '{ref_number}' and version_number eq '{to_version}'",
+                    select=["id", "policy_status"],
+                    top=1000
+                ))
+
+                if not target_results:
+                    print(f"ERROR: No chunks found for version {to_version}")
+                    sys.exit(1)
+
+                print(f"  Found {len(target_results)} chunks for version {to_version}")
+
+                # Mark current version as SUPERSEDED
+                current_chunks = list(search_client.search(
+                    search_text="*",
+                    filter=f"reference_number eq '{ref_number}' and policy_status eq 'ACTIVE'",
+                    select=["id"],
+                    top=1000
+                ))
+
+                supersede_updates = [{"id": c["id"], "policy_status": "SUPERSEDED", "superseded_by": to_version} for c in current_chunks]
+                if supersede_updates:
+                    search_client.merge_documents(documents=supersede_updates)
+                    print(f"  ✓ Marked {len(supersede_updates)} v{current_version} chunks as SUPERSEDED")
+
+                # Mark target version as ACTIVE
+                activate_updates = [{"id": c["id"], "policy_status": "ACTIVE", "superseded_by": None} for c in target_results]
+                search_client.merge_documents(documents=activate_updates)
+                print(f"  ✓ Marked {len(activate_updates)} v{to_version} chunks as ACTIVE")
+
+                print(f"\n✓ Rollback complete: {ref_number} v{current_version} → v{to_version}")
+                print(f"  Reason logged: {reason}")
+
+            except Exception as e:
+                print(f"ERROR: Rollback failed: {e}")
+                sys.exit(1)
+
+        elif command == "retire":
+            # Retire a policy
+            filename = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('--') else None
+            container = get_arg('--container') or TARGET_CONTAINER
+
+            if not filename:
+                print("ERROR: Retire requires a filename")
+                print("\nUsage:")
+                print("  python policy_sync.py retire policy.pdf [--container policies-active]")
+                sys.exit(1)
+
+            print(f"\nRetiring: {filename}")
+            retired_count = sync.retire_policy(container, filename)
+            print(f"✓ Retired {retired_count} chunks, moved to archive")
+
         else:
             print("Usage:")
             print("  python policy_sync.py detect [source] [target]    # Detect changes")
             print("  python policy_sync.py sync [source] [target]      # Run monthly sync")
             print("  python policy_sync.py reindex [container]         # Full reindex")
             print("  python policy_sync.py process <pdf_path>          # Process single file")
+            print("  python policy_sync.py rollback --reference REF --to-version X.X")
+            print("  python policy_sync.py retire <filename>           # Retire a policy")
             print("\nOptions:")
             print("  --backend=docling   Use Docling parser")
             print("  --backend=pymupdf   Use PyMuPDF parser")
             print("  --use-docling       Shorthand for --backend=docling")
             print("  --no-docling        Shorthand for --backend=pymupdf")
             print("  --dry-run           Detect changes only (for sync)")
+            print("  --version X.X       Advisory version number (auto-increments)")
+            print("  --effective-date    Advisory effective date (uses current time)")
+            print("  --reason 'text'     Reason for rollback")
     else:
-        print("\nRun with 'detect', 'sync', 'reindex', or 'process' command")
+        print("\nRun with 'detect', 'sync', 'reindex', 'process', 'rollback', or 'retire' command")

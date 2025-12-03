@@ -21,7 +21,7 @@ This document describes the procedures for processing monthly policy updates to 
 │  policies-source/  ←── UPLOAD NEW/UPDATED PDFs HERE (Staging)               │
 │       │                                                                      │
 │       │  1. Admin uploads policy-v2.pdf                                     │
-│       │  2. Run: python policy_sync.py sync --version "2.0"                 │
+│       │  2. Run: python policy_sync.py sync                                 │
 │       ▼                                                                      │
 │  ┌─────────────────────────────────────────────────────────────┐            │
 │  │  PolicySyncManager.sync_monthly_versioned()                 │            │
@@ -149,10 +149,8 @@ python policy_sync.py detect
 # │ UNCHANGED: 1800                                  │
 # └─────────────────────────────────────────────────┘
 
-# Step 4: Execute sync with version info
-python policy_sync.py sync \
-  --version "1.0" \
-  --effective-date "2025-12-01"
+# Step 4: Execute sync (version is auto-assigned as 1.0 for new policies)
+python policy_sync.py sync
 
 # Expected output:
 # Processing NEW: patient-safety-fall-prevention-v1.0.pdf
@@ -164,10 +162,9 @@ python policy_sync.py sync \
 # Step 5: Verify in Azure AI Search
 python azure_policy_index.py verify "PS-2025-001"
 
-# Expected output:
-# Policy: Patient Safety: Fall Prevention (PS-2025-001)
-# Version: 1.0 | Status: ACTIVE | Effective: 2025-12-01
-# Chunks: 15 | Index verified: ✓
+# Note: You can use optional advisory flags for logging purposes:
+# python policy_sync.py sync --version "1.0" --effective-date "2025-12-01"
+# These flags are informational only - versions are auto-incremented
 ```
 
 ### Metadata Stored
@@ -234,17 +231,15 @@ python policy_sync.py detect
 # │ UNCHANGED: 1799                                  │
 # └─────────────────────────────────────────────────┘
 
-# Step 4: Execute versioned sync
-python policy_sync.py sync \
-  --version "2.0" \
-  --effective-date "2025-12-15" \
-  --archive-old
+# Step 4: Execute sync (archiving happens automatically for changed files)
+python policy_sync.py sync
 
 # This performs:
-# 1. Mark old v1.0 chunks as SUPERSEDED (not deleted)
-# 2. Create new v2.0 chunks with ACTIVE status
-# 3. Move old PDF to policies-archive container
-# 4. Copy new PDF to policies-active container
+# 1. Detects changed file via content hash comparison
+# 2. Mark old v1.0 chunks as SUPERSEDED (not deleted)
+# 3. Create new v2.0 chunks with ACTIVE status
+# 4. Move old PDF to policies-archive container
+# 5. Copy new PDF to policies-active container
 
 # Expected output:
 # Processing CHANGED: npo-policy.pdf
@@ -257,18 +252,9 @@ python policy_sync.py sync \
 #   ✓ Total time: 3.1s
 
 # Step 5: Verify version transition
-python azure_policy_index.py verify-version "NPO-2025-001"
+python azure_policy_index.py list-versions "NPO-2025-001"
 
-# Expected output:
-# Policy: NPO Policy for Patient Care (NPO-2025-001)
-#
-# Version History:
-# ┌─────────┬────────────┬──────────────┬──────────┬────────┐
-# │ Version │ Status     │ Effective    │ Chunks   │ Active │
-# ├─────────┼────────────┼──────────────┼──────────┼────────┤
-# │ 2.0     │ ACTIVE     │ 2025-12-15   │ 14       │ ✓      │
-# │ 1.0     │ SUPERSEDED │ 2025-01-01   │ 12       │        │
-# └─────────┴────────────┴──────────────┴──────────┴────────┘
+# Expected output shows version history for the policy
 ```
 
 ### What Happens to Old Chunks (v1 → v2)
@@ -348,20 +334,17 @@ python policy_sync.py detect
 # │ UNCHANGED: 1799                                  │
 # └─────────────────────────────────────────────────┘
 
-# Step 3: Execute sync (with archive)
-python policy_sync.py sync --archive-deleted
+# Step 3: Retire the policy by filename
+python policy_sync.py retire "old-policy-to-retire.pdf"
 
 # This performs:
-# 1. Mark all chunks as RETIRED (not deleted from index)
+# 1. Mark all chunks for this PDF as RETIRED (not deleted from index)
 # 2. Move PDF to policies-archive container
 # 3. Record retirement date in metadata
 
 # Expected output:
-# Processing DELETED: old-policy-to-retire.pdf
-#   ✓ Found 8 chunks in index
-#   ✓ Marked 8 chunks as RETIRED
-#   ✓ Archived to policies-archive/old-policy-to-retire.pdf
-#   ✓ Added retirement metadata: 2025-11-28T14:30:00Z
+# Retiring: old-policy-to-retire.pdf
+#   ✓ Retired 8 chunks, moved to archive
 ```
 
 ### Retention Policy
@@ -443,7 +426,7 @@ python azure_policy_index.py verify "NPO-2025-001"
 - [ ] Upload all PDFs to policies-source container
 - [ ] Run detect: `python policy_sync.py detect`
 - [ ] Review change summary with policy team
-- [ ] Execute sync: `python policy_sync.py sync --version X.X --effective-date YYYY-MM-DD`
+- [ ] Execute sync: `python policy_sync.py sync` (versions auto-increment)
 - [ ] Verify all changes: `python azure_policy_index.py verify-all`
 - [ ] Test sample queries in frontend
 - [ ] Update CHANGELOG.md with changes
@@ -467,44 +450,65 @@ python azure_policy_index.py verify "NPO-2025-001"
 
 ```bash
 # Detect changes without applying
-python policy_sync.py detect
+python policy_sync.py detect [source_container] [target_container]
 
-# Sync with version info
-python policy_sync.py sync \
-  --version "2.0" \
-  --effective-date "2025-12-01" \
-  --archive-old
+# Sync changes (version auto-increments for updates: v1.0 → v2.0)
+python policy_sync.py sync [source_container] [target_container]
 
 # Dry run (detect + preview without changes)
 python policy_sync.py sync --dry-run
 
+# Advisory flags (version auto-increments, these are informational only)
+python policy_sync.py sync --version "2.0" --effective-date "2025-12-01"
+
 # Rollback to previous version
 python policy_sync.py rollback \
-  --reference "POL-2025-001" \
+  --reference "502" \
   --to-version "1.0" \
   --reason "Issue description"
 
-# Force full reindex (use sparingly)
-python policy_sync.py reindex --all --version "1.0"
+# Retire a policy (mark as RETIRED, move to archive)
+python policy_sync.py retire policy.pdf
+
+# Process single PDF file
+python policy_sync.py process /path/to/policy.pdf
+
+# Full reindex (use sparingly - slow for large indexes)
+python policy_sync.py reindex [container]
 ```
 
 ### azure_policy_index.py Commands
 
 ```bash
-# Verify specific policy
-python azure_policy_index.py verify "POL-2025-001"
+# Create/update index schema
+python azure_policy_index.py create
 
-# List all versions of a policy
-python azure_policy_index.py list-versions "POL-2025-001"
+# Upload chunks from folder
+python azure_policy_index.py upload /path/to/chunks
 
-# Verify all active policies
-python azure_policy_index.py verify-all
-
-# Backup index metadata
-python azure_policy_index.py backup
+# Test search
+python azure_policy_index.py search "visitor policy"
 
 # Get index statistics
 python azure_policy_index.py stats
+
+# Update synonym map (132 healthcare rules)
+python azure_policy_index.py synonyms
+
+# Test synonym expansion
+python azure_policy_index.py test-synonyms "ED code blue"
+
+# Verify specific policy by reference number
+python azure_policy_index.py verify "502"
+
+# List all versions of a policy
+python azure_policy_index.py list-versions "502"
+
+# Verify all active policies (summary)
+python azure_policy_index.py verify-all
+
+# Backup index metadata to JSON
+python azure_policy_index.py backup [output_filename.json]
 ```
 
 ---
@@ -514,38 +518,59 @@ python azure_policy_index.py stats
 ### Issue: Chunks not appearing after sync
 
 ```bash
-# Check if chunks are marked SUPERSEDED instead of ACTIVE
-python azure_policy_index.py search \
-  --filter "source_file eq 'policy.pdf'" \
-  --select "id,policy_status,version_number"
+# Verify the policy by reference number to check status
+python azure_policy_index.py verify "502"
 
-# If status is wrong, update manually:
-python azure_policy_index.py update-status \
-  --filter "source_file eq 'policy.pdf' and version_number eq '2.0'" \
-  --status "ACTIVE"
+# If chunks are missing, run the full pipeline ingestion
+cd /Users/JCR/Desktop/rag_pt_rush/apps/backend
+python scripts/full_pipeline_ingest.py
 ```
 
 ### Issue: Version conflict (same version number)
 
 ```bash
-# List existing versions
-python azure_policy_index.py list-versions "POL-2025-001"
+# List existing versions to see what's already indexed
+python azure_policy_index.py list-versions "502"
 
-# If version 2.0 already exists, use 2.1 or 3.0
-python policy_sync.py sync --version "2.1" --force
+# Version numbers are auto-incremented by policy_sync.py
+# If you need to re-sync, first delete the PDF from source and re-add
+az storage blob delete --account-name policytechrush \
+  --container-name policies-source --name "policy.pdf"
+
+az storage blob upload --account-name policytechrush \
+  --container-name policies-source --file "policy.pdf"
+
+python policy_sync.py sync
 ```
 
 ### Issue: Rollback fails
 
 ```bash
 # Check if previous version chunks still exist
-python azure_policy_index.py search \
-  --filter "reference_number eq 'POL-2025-001' and version_number eq '1.0'"
+python azure_policy_index.py list-versions "502"
 
-# If chunks were hard-deleted (not superseded), restore from backup
-python azure_policy_index.py restore \
-  --backup-date "2025-11-28" \
-  --reference "POL-2025-001"
+# Rollback to specific version (chunks must still exist)
+python policy_sync.py rollback --reference "502" --to-version "1.0" --reason "Production issue"
+
+# If previous version was hard-deleted, restore from backup JSON
+# First, check available backups in your backup location
+ls -la backups/*.json
+
+# Re-ingest from the backup or source PDF
+python scripts/full_pipeline_ingest.py
+```
+
+### Issue: Need to verify index health
+
+```bash
+# Verify all active policies in index
+python azure_policy_index.py verify-all
+
+# Get full index statistics
+python azure_policy_index.py stats
+
+# Create a backup of current index metadata
+python azure_policy_index.py backup "pre-update-backup.json"
 ```
 
 ---
