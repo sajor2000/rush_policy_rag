@@ -44,6 +44,7 @@ class OnYourDataReference:
     reference_number: str = ""
     section: str = ""
     applies_to: str = ""
+    page_number: Optional[int] = None  # 1-indexed page number for PDF navigation
     reranker_score: Optional[float] = None
 
 

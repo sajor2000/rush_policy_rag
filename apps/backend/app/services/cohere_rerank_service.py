@@ -48,6 +48,7 @@ class RerankResult:
     source_file: str
     section: str = ""
     applies_to: str = ""
+    page_number: Optional[int] = None  # 1-indexed page number for PDF navigation
     cohere_score: float = 0.0
     original_index: int = 0
 
@@ -232,6 +233,7 @@ class CohereRerankService:
                 source_file=original_doc.get("source_file", ""),
                 section=original_doc.get("section", ""),
                 applies_to=original_doc.get("applies_to", ""),
+                page_number=original_doc.get("page_number"),
                 cohere_score=score,
                 original_index=idx
             ))
