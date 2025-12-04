@@ -30,19 +30,252 @@ SYNONYMS_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "s
 
 # Compound term detection patterns for domain-specific expansion
 # When two related terms appear together, add contextual synonyms
+# CRITICAL: Include exact policy title phrases for better retrieval
 COMPOUND_EXPANSIONS = {
-    ('nicu', 'pain'): 'neonatal pain assessment FLACC N-PASS infant',
-    ('picu', 'pain'): 'pediatric pain assessment FLACC Wong-Baker child',
-    ('neonatal', 'pain'): 'NICU infant newborn FLACC N-PASS assessment',
-    ('pediatric', 'pain'): 'PICU child FLACC Wong-Baker assessment',
-    ('ed', 'pain'): 'emergency triage pain score assessment',
-    ('icu', 'pain'): 'critical care sedation pain CPOT assessment',
-    ('labor', 'pain'): 'obstetric delivery epidural L&D',
-    ('postpartum', 'pain'): 'delivery recovery cesarean pain assessment',
-    ('nicu', 'nursing'): 'neonatal nursing care infant newborn',
-    ('pediatric', 'nursing'): 'child nursing care PICU',
-    ('nicu', 'policy'): 'neonatal newborn infant intensive care',
-    ('pediatric', 'policy'): 'child children PICU kids',
+    # NICU/Neonatal - Include "Neonatal ICU" exact phrase for title matching
+    ('nicu', 'pain'): 'Neonatal ICU pain assessment neonatal FLACC N-PASS infant',
+    ('neonatal', 'pain'): 'Neonatal ICU NICU pain assessment infant newborn FLACC N-PASS',
+    ('nicu', 'nursing'): 'Neonatal ICU neonatal nursing care infant newborn',
+    ('neonatal', 'nursing'): 'Neonatal ICU NICU nursing care infant newborn',
+    ('nicu', 'policy'): 'Neonatal ICU neonatal newborn infant intensive care',
+    ('neonatal', 'policy'): 'Neonatal ICU NICU newborn infant intensive care',
+    # PICU/Pediatric - Include "Pediatric ICU" exact phrase
+    ('picu', 'pain'): 'Pediatric ICU pain assessment pediatric FLACC Wong-Baker child',
+    ('pediatric', 'pain'): 'Pediatric ICU PICU pain assessment child FLACC Wong-Baker',
+    ('pediatric', 'nursing'): 'Pediatric ICU PICU child nursing care',
+    ('pediatric', 'policy'): 'Pediatric ICU PICU child children kids',
+    # ED/Emergency
+    ('ed', 'pain'): 'emergency department pain assessment triage pain score',
+    ('emergency', 'pain'): 'ED emergency department pain assessment triage',
+    # ICU general
+    ('icu', 'pain'): 'intensive care pain assessment sedation CPOT critical care',
+    # OB/L&D
+    ('labor', 'pain'): 'labor and delivery pain assessment obstetric epidural L&D',
+    ('postpartum', 'pain'): 'postpartum pain assessment delivery recovery cesarean',
+    ('delivery', 'pain'): 'labor and delivery pain assessment L&D obstetric',
+    # Generic "pain policy" -> "pain assessment" bridge
+    ('pain', 'policy'): 'pain assessment pain management procedure',
+    # Catheter-related compounds
+    ('urinary', 'catheter'): 'Foley catheter indwelling bladder urinary',
+    ('foley', 'catheter'): 'urinary catheter indwelling bladder',
+    ('central', 'line'): 'central venous line CVC PICC central catheter',
+    ('central', 'catheter'): 'CVC central venous line PICC',
+    # Sedation-related compounds
+    ('sedation', 'policy'): 'sedation mechanical ventilation IV sedation moderate procedural',
+    ('sedation', 'protocol'): 'sedation mechanical ventilation IV sedation moderate',
+    ('mechanical', 'ventilation'): 'sedation ventilator weaning respiratory',
+    # End-of-life compounds
+    ('advance', 'directive'): 'advance directive advance care planning DNR end-of-life',
+    # Emergency code compounds
+    ('code', 'blue'): 'code blue cardiac arrest resuscitation CPR',
+    ('code', 'gray'): 'code gray combative patient behavioral emergency security',
+    ('code', 'orange'): 'code orange hazmat chemical spill decontamination',
+    ('code', 'purple'): 'code purple infant abduction missing child security',
+    ('code', 'silver'): 'code silver active shooter weapon threat security',
+    ('code', 'white'): 'code white IT telecom disruption downtime Epic',
+    ('code', 'yellow'): 'code yellow bomb threat evacuation security',
+    ('code', 'red'): 'code red fire emergency evacuation RACE PASS',
+    ('code', 'pink'): 'code pink infant abduction pediatric security',
+    # Compliance compounds
+    ('prior', 'authorization'): 'prior authorization preauth approval insurance',
+    ('charity', 'care'): 'charity care financial assistance uncompensated',
+    ('identity', 'theft'): 'identity theft fraud security breach',
+    # Safety compounds
+    ('fire', 'safety'): 'fire safety prevention RACE PASS evacuation',
+    ('fall', 'prevention'): 'fall prevention fall risk patient safety',
+    ('needle', 'stick'): 'needlestick sharps injury bloodborne exposure',
+    # Point of Care Testing
+    ('point', 'care'): 'point of care testing POCT POC bedside',
+    # Against Medical Advice / Elopement
+    ('against', 'medical'): 'against medical advice AMA discharge leaving',
+    ('code', 'gold'): 'code gold elopement missing patient AMA leaving',
+    # Additional emergency codes (from environment-of-care policies)
+    ('code', 'maroon'): 'code maroon bomb threat evacuation security',
+    ('code', 'black'): 'code black severe weather tornado shelter',
+    ('code', 'triage'): 'code triage mass casualty disaster MCI surge',
+    ('code', 'green'): 'code green evacuation relocation all clear',
+    # Emergency management
+    ('incident', 'command'): 'incident command system ICS HICS emergency management',
+    ('emergency', 'operations'): 'emergency operations plan EOP disaster preparedness',
+    # Administrative/Compliance
+    ('safe', 'haven'): 'safe haven newborn abandonment infant relinquishment',
+    ('two', 'midnight'): 'two midnight rule inpatient observation billing',
+    ('primary', 'source'): 'primary source verification PSV credentialing licensure',
+    # Diagnostic imaging
+    ('computed', 'tomography'): 'CT scan CAT scan imaging radiology',
+    ('magnetic', 'resonance'): 'MRI magnetic resonance imaging scan radiology',
+}
+
+# Single-term expansions for key clinical terms
+# Applied when term appears WITHOUT a compound match
+SINGLE_TERM_EXPANSIONS = {
+    'neonatal': 'NICU Neonatal ICU neonatal intensive care newborn infant',
+    'pediatric': 'PICU Pediatric ICU pediatric intensive care child children',
+    'pain': 'pain assessment pain management',
+    'visitor': 'visitor visitation visiting hours guest',
+    'restraint': 'restraint seclusion physical restraint chemical restraint',
+    'fall': 'fall prevention fall risk patient falls',
+    'medication': 'medication administration drug dispensing pharmacy',
+    'infection': 'infection control infection prevention HAI',
+    'transfusion': 'blood transfusion blood products blood administration',
+    'consent': 'informed consent consent form authorization',
+    # Catheter synonyms (user requested)
+    'foley': 'urinary catheter indwelling bladder Foley',
+    'catheter': 'urinary catheter Foley indwelling',
+    'cvc': 'central venous catheter central line TLC PICC Quinton Trialysis',
+    'tlc': 'triple lumen catheter central venous catheter CVC central line',
+    'quinton': 'central venous catheter dialysis catheter CVC central line',
+    'trialysis': 'central venous catheter dialysis catheter CVC central line',
+    'central': 'central venous catheter central line CVC PICC TLC Quinton',
+    'iv': 'peripheral intravenous PIV catheter',
+    # Sedation synonyms (user requested)
+    'sedation': 'sedation mechanical ventilation IV sedation moderate sedation',
+    # Respiratory/ventilation synonyms (user requested)
+    'hamilton': 'ventilator mechanical ventilation respiratory',
+    'bipap': 'non-invasive positive pressure ventilation NIPPV BiPAP respiratory',
+    'cpap': 'continuous positive airway pressure CPAP respiratory sleep apnea',
+    'ventilator': 'mechanical ventilation Hamilton respiratory weaning',
+    'hfnc': 'high-flow nasal cannula heated humidified oxygen therapy respiratory',
+    # End-of-life/DNR synonyms (user requested)
+    'dnr': 'do not resuscitate end-of-life advance care planning advance directive',
+    'unilateral': 'unilateral do-not-resuscitate DNR',
+    'end-of-life': 'end of life DNR advance care planning comfort care hospice',
+    'comfort': 'comfort care end-of-life palliative hospice',
+    # Tubes/Lines (common nursing equipment)
+    'ngt': 'nasogastric tube NG tube feeding tube',
+    'ogt': 'orogastric tube OG tube feeding tube',
+    'ett': 'endotracheal tube intubation airway',
+    'trach': 'tracheostomy tracheotomy airway',
+    'dobhoff': 'small bore feeding tube nasogastric enteral',
+    'peg': 'percutaneous endoscopic gastrostomy feeding tube enteral',
+    'jp': 'Jackson-Pratt drain surgical drain wound',
+    'hemovac': 'wound drain surgical drain drainage',
+    # Monitoring/Assessment
+    'tele': 'telemetry cardiac monitoring ECG EKG',
+    'a-line': 'arterial line arterial catheter blood pressure monitoring',
+    'swan': 'Swan-Ganz pulmonary artery catheter hemodynamic',
+    'scd': 'sequential compression device DVT prevention pneumatic',
+    # Cardiac/Vascular
+    'afib': 'atrial fibrillation arrhythmia cardiac rhythm',
+    'mi': 'myocardial infarction heart attack cardiac',
+    'chf': 'congestive heart failure cardiac heart failure',
+    'cva': 'cerebrovascular accident stroke brain',
+    'dvt': 'deep vein thrombosis blood clot venous thromboembolism VTE',
+    'pe': 'pulmonary embolism blood clot lung',
+    # Critical conditions
+    'ards': 'acute respiratory distress syndrome respiratory failure lung',
+    'aki': 'acute kidney injury renal failure kidney',
+    'dka': 'diabetic ketoacidosis diabetes glucose insulin',
+    'sepsis': 'sepsis infection systemic inflammatory',
+    'ams': 'altered mental status confusion consciousness neurological',
+    # Emergency Codes (from environment-of-care policies)
+    'code': 'emergency code hospital emergency',
+    'gray': 'code gray combative patient security behavioral',
+    'orange': 'code orange hazmat chemical spill decontamination',
+    'purple': 'code purple infant abduction child missing',
+    'silver': 'code silver active shooter weapon security',
+    'triage': 'code triage mass casualty disaster MCI',
+    'white': 'code white IT telecom disruption downtime',
+    'yellow': 'code yellow bomb threat evacuation',
+    # Compliance/Billing (from corporate-compliance policies)
+    'hipaa': 'HIPAA privacy security patient information PHI',
+    'emtala': 'EMTALA emergency medical treatment labor act screening',
+    'abn': 'advanced beneficiary notice ABN non-coverage Medicare',
+    'cdm': 'charge description master CDM pricing billing',
+    'fmv': 'fair market value FMV compensation arrangement',
+    'pos': 'place of service POS codes billing location',
+    'stark': 'Stark law self-referral prohibition physician',
+    'kickback': 'anti-kickback kickback prohibition AKS',
+    # Safety/Environment of Care
+    'ppe': 'personal protective equipment PPE safety gown gloves mask',
+    'ilsm': 'interim life safety measures ILSM fire construction',
+    'rmw': 'regulated medical waste RMW biohazard sharps',
+    'sds': 'safety data sheet SDS MSDS chemical hazard',
+    'usp': 'USP 800 hazardous drug handling compounding',
+    'bloodborne': 'bloodborne pathogen exposure BBP needlestick',
+    # HR/Administrative
+    'fmla': 'Family Medical Leave Act FMLA leave absence',
+    'ada': 'Americans with Disabilities Act ADA accommodation',
+    'eeo': 'equal employment opportunity EEO discrimination',
+    'onboarding': 'onboarding orientation new hire employee',
+    'credentialing': 'credentialing privileging verification PSV',
+    'psv': 'primary source verification PSV credentialing license',
+    # IT/Cyber
+    'downtime': 'downtime system outage IT disruption Epic',
+    'phishing': 'phishing cyber security email scam',
+    'mfa': 'multi-factor authentication MFA two-factor security',
+    # Point of Care Testing / Lab
+    'poct': 'point of care testing POC bedside glucose A1C',
+    'poc': 'point of care testing POCT bedside',
+    'a1c': 'hemoglobin A1C HbA1C glycated hemoglobin diabetes',
+    'hba1c': 'hemoglobin A1C A1c glycated hemoglobin diabetes',
+    'inr': 'international normalized ratio INR anticoagulation warfarin coumadin',
+    # Diagnostic Imaging
+    'ekg': 'electrocardiogram ECG cardiac heart rhythm',
+    'ecg': 'electrocardiogram EKG cardiac heart rhythm',
+    'eeg': 'electroencephalogram brain wave seizure neurology',
+    'ct': 'computed tomography CAT scan imaging radiology',
+    'mri': 'magnetic resonance imaging MRI radiology scan',
+    'pet': 'positron emission tomography PET scan nuclear imaging oncology',
+    'spect': 'single photon emission computed tomography SPECT nuclear imaging',
+    'fluoro': 'fluoroscopy fluoroscopic imaging radiation live x-ray',
+    'xray': 'x-ray radiograph imaging radiology',
+    # Pre-operative
+    'npo': 'nothing by mouth nil per os fasting surgery preop',
+    'preop': 'preoperative pre-op surgery preparation NPO',
+    # Staff Roles
+    'aprn': 'advanced practice registered nurse NP nurse practitioner',
+    'np': 'nurse practitioner APRN advanced practice',
+    'lpn': 'licensed practical nurse LPN practical nursing',
+    'cna': 'certified nursing assistant CNA aide patient care',
+    'rn': 'registered nurse RN nursing staff',
+    'md': 'physician doctor medical doctor attending',
+    'pa': 'physician assistant PA-C provider',
+    # Equipment/Devices
+    'vad': 'ventricular assist device VAD LVAD heart failure mechanical',
+    'lvad': 'left ventricular assist device VAD heart failure mechanical',
+    'dme': 'durable medical equipment DME supplies wheelchair walker',
+    'iabp': 'intra-aortic balloon pump IABP cardiac support counterpulsation',
+    # Administrative/Discharge
+    'ama': 'against medical advice AMA discharge patient leaving elopement',
+    'elopement': 'elopement AMA code gold missing patient leaving',
+    # Renal/Dialysis
+    'esrd': 'end stage renal disease ESRD dialysis kidney failure',
+    'dialysis': 'dialysis ESRD hemodialysis peritoneal renal',
+    'hd': 'hemodialysis HD dialysis renal',
+    # Infectious Disease
+    'tb': 'tuberculosis TB PPD screening lung infection respiratory',
+    'ppd': 'tuberculin skin test PPD TB tuberculosis screening',
+    'mrsa': 'methicillin-resistant Staphylococcus aureus MRSA infection isolation',
+    'vre': 'vancomycin-resistant Enterococcus VRE infection isolation',
+    'cdiff': 'Clostridioides difficile C. diff infection isolation diarrhea',
+    # Emergency Management
+    'ics': 'incident command system ICS HICS emergency management',
+    'hics': 'hospital incident command system HICS ICS emergency',
+    'eop': 'emergency operations plan EOP disaster preparedness',
+    'hva': 'hazard vulnerability analysis HVA risk assessment emergency',
+    'mci': 'mass casualty incident MCI disaster surge triage',
+    # EMS/Transport
+    'ems': 'emergency medical services EMS ambulance paramedic',
+    # Environmental Services
+    'evs': 'environmental services EVS housekeeping cleaning sanitation',
+    # Radiation Safety
+    'alara': 'as low as reasonably achievable ALARA radiation safety exposure',
+    'ram': 'radioactive materials RAM radiation nuclear medicine',
+    # Security/Violence Prevention
+    'bart': 'behavioral assessment response team BART violence workplace security',
+    'wds': 'weapons detection system WDS security screening metal detector',
+    # Research/Compliance
+    'ctms': 'clinical trial management system CTMS research study',
+    'irb': 'institutional review board IRB research ethics human subjects',
+    # Payment/Financial Compliance
+    'pci': 'payment card industry PCI compliance credit card security',
+    'fwa': 'fraud waste abuse FWA compliance Medicare Medicaid',
+    # Additional Emergency Codes
+    'maroon': 'code maroon bomb threat evacuation security',
+    'black': 'code black severe weather tornado shelter',
+    'gold': 'code gold elopement missing patient AMA',
+    'green': 'code green evacuation relocation all clear',
 }
 
 
@@ -188,8 +421,45 @@ class SynonymService:
                     'expansion': expansion
                 })
                 logger.info(f"Compound expansion: {term1}+{term2} -> {expansion}")
-                return f"{query} {expansion}"
+                return f"{query} {expansion}", True  # Return tuple with match flag
 
+        return query, False  # No compound match
+
+    def _apply_single_term_expansions(
+        self,
+        query: str,
+        result: QueryExpansion
+    ) -> str:
+        """
+        Apply single-term expansions for key clinical terms.
+
+        This catches queries like "neonatal pain policy" where the user
+        says "neonatal" but the policy title uses "Neonatal ICU".
+
+        Only applies if the expansion term isn't already in the query.
+        """
+        query_lower = query.lower()
+        additions = []
+
+        for term, expansion in SINGLE_TERM_EXPANSIONS.items():
+            if term in query_lower:
+                # Only add terms not already present
+                new_terms = []
+                for exp_word in expansion.split():
+                    if exp_word.lower() not in query_lower:
+                        new_terms.append(exp_word)
+
+                if new_terms:
+                    addition = ' '.join(new_terms[:4])  # Limit to 4 new terms
+                    additions.append(addition)
+                    result.expansions_applied.append({
+                        'single_term': term,
+                        'expansion': addition
+                    })
+                    logger.info(f"Single-term expansion: {term} -> {addition}")
+
+        if additions:
+            return f"{query} {' '.join(additions)}"
         return query
 
     def expand_query(
@@ -280,7 +550,12 @@ class SynonymService:
         expanded_query = self._add_context_for_short_queries(query, expanded_query, result)
 
         # 6. Apply compound term expansions (NICU + pain -> neonatal terms)
-        expanded_query = self._apply_compound_expansions(expanded_query, result)
+        expanded_query, compound_matched = self._apply_compound_expansions(expanded_query, result)
+
+        # 6.5 Apply single-term expansions if no compound match
+        # This catches "neonatal pain" -> adds "Neonatal ICU" even without compound
+        if not compound_matched:
+            expanded_query = self._apply_single_term_expansions(expanded_query, result)
 
         # 7. Truncate if over limit to prevent embedding dilution
         # Research shows over-expansion causes semantic drift in embeddings
@@ -318,11 +593,6 @@ class SynonymService:
         if len(words) > 2:
             return current
         
-        # Check if query is primarily acronyms/uppercase terms
-        acronym_words = [w for w in words if w.isupper() and len(w) >= 2]
-        if not acronym_words:
-            return current
-        
         # Domain-specific context additions for common healthcare acronyms
         # CONSERVATIVE: Max 5 terms per entry to prevent embedding dilution
         # Research shows over-expansion causes semantic drift in embeddings
@@ -353,6 +623,28 @@ class SynonymService:
             # Epic/Documentation (fix multi-003)
             'epic': 'epic EHR documentation charting',
             'documentation': 'documentation Epic charting',
+
+            # Language Services (fix retrieval for translator)
+            'translator': 'interpreter language services translation',
+            'interpreter': 'translator language services translation',
+
+            # Clinical Colloquialisms & Brands (Deep semantic audit)
+            'sitter': 'safety assistant patient observer suicide precautions',
+            'vac': 'negative pressure wound therapy NPWT vacuum',
+            'woundvac': 'negative pressure wound therapy NPWT',
+            'ceribell': 'rapid EEG seizure monitoring',
+            'veletri': 'epoprostenol prostacyclin',
+            'remodulin': 'treprostinil prostacyclin',
+            'licox': 'brain oxygen monitoring cerebral oxygenation',
+            'vashe': 'hypochlorous acid wound cleanser',
+            'shingrix': 'zoster vaccine shingles',
+            'cholestech': 'lipid profile cholesterol POCT',
+            'glucostabilizer': 'insulin drip infusion glycemic',
+            'agiloft': 'contract management system CMS',
+            'kronos': 'timekeeping time attendance',
+            'vocera': 'communication badge hands-free',
+            'flexing': 'reallocation nursing staffing floating',
+            'firewatch': 'impairment fire protection downtime',
 
             # Standard acronyms (conservative - 3-4 terms)
             'rn': 'registered nurse nursing',

@@ -240,7 +240,7 @@ class CohereRerankService:
         
         if filtered_count > 0:
             logger.info(f"Filtered {filtered_count} docs below score threshold {threshold}")
-        
+
         return reranked
 
     @retry(
@@ -307,6 +307,14 @@ class CohereRerankService:
 
             # Log score distribution for threshold calibration analysis
             self._log_score_distribution(reranked, query)
+
+            # LOW_RETRIEVAL logging - grep logs for these to find synonym gaps
+            if not reranked:
+                logger.warning(f"LOW_RETRIEVAL: query='{query}' zero_results")
+            elif reranked[0].cohere_score < 0.3:
+                logger.warning(
+                    f"LOW_RETRIEVAL: query='{query}' top_score={reranked[0].cohere_score:.3f}"
+                )
 
             # Log top results for debugging
             if reranked:
@@ -391,6 +399,14 @@ class CohereRerankService:
 
                     # Log score distribution at DEBUG level (avoid log spam)
                     self._log_score_distribution(reranked, query)
+
+                    # LOW_RETRIEVAL logging - grep logs for these to find synonym gaps
+                    if not reranked:
+                        logger.warning(f"LOW_RETRIEVAL: query='{query}' zero_results")
+                    elif reranked[0].cohere_score < 0.3:
+                        logger.warning(
+                            f"LOW_RETRIEVAL: query='{query}' top_score={reranked[0].cohere_score:.3f}"
+                        )
 
                     if reranked:
                         top_refs = [f"{r.reference_number}({r.cohere_score:.4f})" for r in reranked[:3]]

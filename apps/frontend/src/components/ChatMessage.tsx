@@ -509,7 +509,7 @@ export default function ChatMessage({
                       new Map(
                         evidence.map((e, idx) => [e.reference_number || e.title, { ...e, idx }])
                       ).values()
-                    ).slice(0, 4).map((item, displayIdx) => {
+                    ).map((item, displayIdx) => {
                       const ref = formatReferenceNumber(item.reference_number);
                       return (
                         <button
@@ -549,7 +549,19 @@ export default function ChatMessage({
             </div>
 
             {/* Supporting Evidence Section - Compact PDF Style */}
-            {evidence && evidence.length > 0 && (
+            {evidence && evidence.length > 0 && (() => {
+              // Build citation number map: first occurrence of each policy gets the display number
+              // This ensures Policy Sources, Supporting Evidence, and PDFs all use same numbering
+              const policyToCitationNum = new Map<string, number>();
+              let citationCounter = 1;
+              evidence.forEach((e) => {
+                const key = e.reference_number || e.title;
+                if (key && !policyToCitationNum.has(key)) {
+                  policyToCitationNum.set(key, citationCounter++);
+                }
+              });
+
+              return (
             <div className="rounded-lg border border-rush-legacy/20 bg-white/90 p-3 overflow-hidden">
               {/* Section header with match type indicator */}
               {(() => {
@@ -600,7 +612,10 @@ export default function ChatMessage({
                 </div>
               </div>
               <div className="space-y-3">
-                {evidence.map((item, idx) => (
+                {evidence.map((item, idx) => {
+                  // Get consistent citation number from policy map
+                  const citationNum = policyToCitationNum.get(item.reference_number || item.title) || idx + 1;
+                  return (
                   <div
                     key={`${item.citation}-${idx}`}
                     ref={(el) => {
@@ -625,9 +640,9 @@ export default function ChatMessage({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            {/* Citation number badge */}
+                            {/* Citation number badge - matches Policy Sources and PDFs */}
                             <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold bg-rush-legacy text-white rounded">
-                              {idx + 1}
+                              {citationNum}
                             </span>
                             {/* Match type badge */}
                             {item.match_type === "verified" ? (
@@ -690,7 +705,8 @@ export default function ChatMessage({
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               {/* PolicyTech search link */}
               <div className="mt-3 pt-3 border-t border-rush-legacy/10">
@@ -705,7 +721,8 @@ export default function ChatMessage({
                 </a>
               </div>
             </div>
-            )}
+              );
+            })()}
 
             {/* Source Documents - PDF Links at Bottom with matching citation numbers */}
             {effectiveSources.length > 0 && onViewPdf && (
@@ -715,11 +732,24 @@ export default function ChatMessage({
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {(() => {
-                    // Build map of source_file -> first evidence index (1-based citation number)
+                    // Build consistent citation number map by policy (reference_number or title)
+                    // This matches the numbering in Policy Sources and Supporting Evidence sections
+                    const policyToCitationNum = new Map<string, number>();
+                    let citationCounter = 1;
+                    evidence?.forEach((e) => {
+                      const key = e.reference_number || e.title;
+                      if (key && !policyToCitationNum.has(key)) {
+                        policyToCitationNum.set(key, citationCounter++);
+                      }
+                    });
+
+                    // Map source_file to citation number via its policy key
                     const sourceToNumber = new Map<string, number>();
-                    evidence?.forEach((e, idx) => {
+                    evidence?.forEach((e) => {
                       if (e.source_file && !sourceToNumber.has(e.source_file)) {
-                        sourceToNumber.set(e.source_file, idx + 1);
+                        const key = e.reference_number || e.title;
+                        const num = policyToCitationNum.get(key) || 1;
+                        sourceToNumber.set(e.source_file, num);
                       }
                     });
 
