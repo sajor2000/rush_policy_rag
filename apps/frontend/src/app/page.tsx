@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import RushLogo from "@/components/RushLogo";
 import HeroSection from "@/components/HeroSection";
+import PolicyCategories from "@/components/PolicyCategories";
 import PromptingTips from "@/components/PromptingTips";
 import ChatInterface from "@/components/ChatInterface";
 
@@ -23,7 +24,9 @@ export default function Home() {
 
       <main className="flex-1 flex flex-col">
         <HeroSection onGetStarted={scrollToChat} />
-        
+
+        <PolicyCategories />
+
         <PromptingTips />
 
         <div ref={chatRef} className="flex-1 flex flex-col min-h-[600px] border-t border-border">

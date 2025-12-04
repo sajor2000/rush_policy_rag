@@ -6,27 +6,27 @@ import { Lightbulb, MessageSquare, Search, FileText } from "lucide-react";
 const tips = [
   {
     icon: MessageSquare,
-    title: "Set the scene",
-    description: "Mention the role, unit, and situation so the Quick Answer is laser focused.",
-    example: "\"RUMC ICU charge nurse onboarding requirements\"",
+    title: "Ask a specific question",
+    description: "Direct questions find better matches than vague topics. Ask exactly what you need to know.",
+    example: "\"What are the dwell time limits for peripheral IVs?\"",
   },
   {
     icon: Search,
-    title: "Call out entity & timeframe",
-    description: "Include the RUSH entity (RUMC/RMG/ROPH/RCMC) and any timing or status cues.",
-    example: "\"Visitor rules for ROPH after 10pm\"",
-  },
-  {
-    icon: FileText,
-    title: "Use both sections",
-    description: "Read the Quick Answer, then scan the Supporting Evidence snippets for context.",
-    example: "\"Who can accept verbal orders? Show the proof.\"",
+    title: "Name the RUSH entity",
+    description: "For entity-specific answers, include RUMC, RUMG, RMG, ROPH, RCMC, or RCH in your question.",
+    example: "\"What is the visitor policy for ROPH pediatric units?\"",
   },
   {
     icon: Lightbulb,
-    title: "Request more proof",
-    description: "Need another citation? Ask for more evidence or a different section.",
-    example: "\"Show me additional sections on medication reconciliation\"",
+    title: "Abbreviations work",
+    description: "Use medical shorthand naturally—ED, ICU, SBAR, PIV, CLABSI, and 150+ others are understood.",
+    example: "\"ED triage protocol for chest pain\"",
+  },
+  {
+    icon: FileText,
+    title: "Check Supporting Evidence",
+    description: "Quick Answer summarizes; Supporting Evidence shows exact policy text with page numbers.",
+    example: "\"Click numbered citations to see the source.\"",
   },
 ];
 

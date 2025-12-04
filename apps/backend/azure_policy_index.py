@@ -98,7 +98,7 @@ code blue, cardiac arrest, cardiopulmonary arrest, resuscitation, medical emerge
 code pink, missing infant, infant abduction, child abduction, missing baby
 code gold, patient elopement, missing patient, patient wandering, AWOL
 code gray, combative patient, violent patient, aggressive behavior, behavioral emergency
-code silver, active shooter, person with weapon, armed individual, weapon threat
+code silver, active shooter, person with weapon, armed individual, weapon threat, armed intruder
 code orange, hazmat, hazardous materials, chemical spill, decontamination
 code red, fire emergency, fire alarm, smoke, evacuation fire
 code stroke, stroke alert, brain attack, CVA, cerebrovascular accident
@@ -106,6 +106,32 @@ code STEMI, heart attack, myocardial infarction, STEMI alert
 code sepsis, sepsis alert, severe infection, septic shock
 code trauma, trauma alert, major injury, trauma activation
 rapid response, RRT, rapid response team, medical emergency team, MET
+code triage, disaster plan, mass casualty, surge capacity
+
+# ============================================================================
+# CLINICAL COLLOQUIALISMS & BRAND NAMES (Bridge nurse speak to policy)
+# ============================================================================
+sitter, safety assistant, patient observer, one-to-one, 1:1, suicide precautions
+tube system, pneumatic tube system, 6-inch tube, transport system
+late viewing, death of a patient, morgue viewing, family viewing
+fire watch, impairment of fire protection, fire system downtime
+wound vac, negative pressure wound therapy, NPWT, vacuum assisted closure
+chemical restraint, emergency medication management, behavioral restraint
+frequent flyer, high utilizer, care plan, complex care management
+flexing, reallocation of nursing personnel, staffing, floating
+call-off, absenteeism, attendance policy, sick call
+Ceribell, rapid EEG, seizure monitoring, electroencephalogram
+Vashe, hypochlorous acid, wound cleanser
+Veletri, Flolan, epoprostenol, prostacyclin, pulmonary hypertension
+Remodulin, treprostinil, prostacyclin
+Licox, brain oxygen monitoring, cerebral oxygenation
+Shingrix, zoster vaccine, herpes zoster, shingles vaccine
+Bear Hugger, warming blanket, patient warming, thermoregulation
+Cholestech, lipid profile, cholesterol testing, POCT
+Glucostabilizer, insulin drip, insulin infusion, glycemic control
+Agiloft, contract management system, CMS
+Kronos, timekeeping, time and attendance
+Vocera, communication badge, hands-free communication
 
 # ============================================================================
 # DEPARTMENTS & UNITS (High-frequency searches)
@@ -128,6 +154,13 @@ environmental services, housekeeping, EVS, cleaning services, janitorial
 patient access, registration, admissions, patient registration
 revenue cycle, billing, patient accounting, charge capture, coding
 infection prevention, infection control, epidemiology
+
+# ============================================================================
+# PATIENT SERVICES & SUPPORT
+# ============================================================================
+interpreter, translator, language services, medical interpreter, language assistance
+LEP, limited english proficient, non-english speaking, language barrier
+sign language, ASL, deaf services, hearing impaired
 
 # ============================================================================
 # CLINICAL PROCEDURES & TREATMENTS

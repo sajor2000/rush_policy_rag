@@ -5,5 +5,5 @@
 /**
  * Official RUSH PolicyTech administration portal URL
  */
-export const POLICYTECH_URL = "https://rushumc.navexone.com/";
+export const POLICYTECH_URL = "https://rushumc.policytech.com";
 

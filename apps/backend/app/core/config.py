@@ -46,12 +46,12 @@ class Settings(BaseSettings):
     # Admin
     ADMIN_API_KEY: Optional[str] = None
 
-    # Azure AD / Authentication
+    # Azure AD / Authentication (disabled by default for testing)
     AZURE_AD_TENANT_ID: Optional[str] = None
     AZURE_AD_CLIENT_ID: Optional[str] = None
     AZURE_AD_TOKEN_AUDIENCE: Optional[str] = None
     AZURE_AD_ALLOWED_CLIENT_IDS: str = ""
-    REQUIRE_AAD_AUTH: bool = False
+    REQUIRE_AAD_AUTH: bool = False  # Set to True to enable Azure AD authentication
 
     # CORS - stored as comma-separated string, parsed to list via property
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5000,http://127.0.0.1:3000,http://127.0.0.1:5000"
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     PEDS_PENALTY_IN_ADULT_CONTEXT: float = 0.8  # Penalty for peds policies in adult context
 
     # PolicyTech URL - official RUSH policy administration portal
-    POLICYTECH_URL: str = "https://rushumc.navexone.com/"
+    POLICYTECH_URL: str = "https://rushumc.policytech.com"
 
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
@@ -119,7 +119,8 @@ class Settings(BaseSettings):
 
     @field_validator('REQUIRE_AAD_AUTH', 'FAIL_ON_MISSING_CONFIG', mode='before')
     @classmethod
-    def parse_require_auth(cls, v):
+    def parse_auth_flags(cls, v):
+        """Parse boolean flags from string."""
         if isinstance(v, str):
             return v.lower() in ("true", "1", "yes")
         return bool(v)
@@ -190,7 +191,7 @@ class Settings(BaseSettings):
                     "USE_COHERE_RERANK=true but missing: " + ", ".join(missing_cohere)
                 )
 
-        # Critical: AAD config required when auth is enabled
+        # AAD config required when auth is enabled (not enforced by default)
         if self.REQUIRE_AAD_AUTH:
             missing_auth = []
             if not self.AZURE_AD_TENANT_ID:
