@@ -303,6 +303,7 @@ class SynonymService:
             'stat': 'immediately urgent',
             'vte': 'blood clot prevention',
             'fall': 'fall prevention risk',
+            'ai': 'artificial intelligence technology',
         }
         
         expanded = current

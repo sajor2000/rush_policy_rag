@@ -103,3 +103,5 @@ echo "   - Azure Web App for Containers (Docker): More reliable for FastAPI"
 echo "   - Azure Container Apps: Recommended for containerized apps"
 echo ""
 
+
+

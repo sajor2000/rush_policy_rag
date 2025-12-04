@@ -601,6 +601,31 @@ class PolicyChunker:
                 if match:
                     # Normalize whitespace (collapse multiple spaces/newlines)
                     title_text = ' '.join(match.group(1).strip().split())
+                    # Clean repeated "Policy Title:" labels from malformed table extraction
+                    if 'Policy Title' in title_text:
+                        title_text = re.sub(r'\s*Policy\s+Title[:\s]*', ' ', title_text, flags=re.IGNORECASE).strip()
+                        title_text = ' '.join(title_text.split())  # Re-normalize whitespace
+                    # Remove "Former" anywhere in the title (artifact from "Former Policy Number" field)
+                    title_text = re.sub(r'\s*Former\s*', ' ', title_text, flags=re.IGNORECASE).strip()
+                    title_text = ' '.join(title_text.split())  # Re-normalize whitespace
+                    # Remove checkbox characters that may leak from table extraction
+                    title_text = re.sub(r'[☐☒✓✔■□\[\]x]', '', title_text).strip()
+                    # Truncate at common table field labels that shouldn't be in title
+                    title_text = re.split(r'\s*(?:Approver|Date\s*Approved|Effective|Owner|Department|Version|Status)[:\(]', title_text, flags=re.IGNORECASE)[0].strip()
+                    # Deduplicate repeated title text (e.g., "AI Policy AI Policy AI Policy" -> "AI Policy")
+                    words = title_text.split()
+                    if len(words) >= 4:
+                        # Try to find repeating pattern
+                        for pattern_len in range(2, len(words) // 2 + 1):
+                            pattern_words = words[:pattern_len]
+                            pattern_str = ' '.join(pattern_words)
+                            # Check if the pattern repeats
+                            full_pattern = ' '.join(pattern_words * (len(words) // pattern_len))
+                            if title_text.startswith(full_pattern) and len(pattern_str) >= 5:
+                                title_text = pattern_str
+                                break
+                    # Final cleanup: normalize whitespace again
+                    title_text = ' '.join(title_text.split())
                     # Skip if it looks like we captured the next field
                     if title_text and not re.match(r'^(Policy\s*Number|Reference|Document|Applies)', title_text, re.IGNORECASE):
                         metadata.title = title_text

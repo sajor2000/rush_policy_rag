@@ -180,3 +180,5 @@ echo ""
 echo "Quick Fix: Run ./scripts/deploy/fix-zip-deploy.sh $RESOURCE_GROUP $APP_NAME"
 echo ""
 
+
+

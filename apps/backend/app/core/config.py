@@ -79,6 +79,22 @@ class Settings(BaseSettings):
     COHERE_RETRIEVE_TOP_K: int = 100  # Industry standard: 100-150 candidates
     # Model name for Cohere rerank (configurable for version upgrades)
     COHERE_RERANK_MODEL: str = "cohere-rerank-v3-5"
+    
+    # Surge capacity policy deprioritization
+    # Penalty multiplier for surge level/capacity-based policies (0.0-1.0)
+    # Lower values = more aggressive deprioritization
+    SURGE_CAPACITY_PENALTY: float = 0.6  # 40% score reduction
+
+    # Location/entity match score boost
+    # Multiplier for policies matching entity codes in query (>1.0 = boost)
+    # Higher values = more aggressive prioritization of location-specific policies
+    LOCATION_MATCH_BOOST: float = 1.3  # 30% score boost
+
+    # Pediatric vs Adult population ranking settings
+    PEDIATRIC_BOOST: float = 1.3  # Boost pediatric policies when peds keywords detected
+    ADULT_DEFAULT_BOOST: float = 1.2  # Boost adult/general policies by default
+    ADULT_PENALTY_IN_PEDS_CONTEXT: float = 0.85  # Penalty for adult policies in peds context
+    PEDS_PENALTY_IN_ADULT_CONTEXT: float = 0.8  # Penalty for peds policies in adult context
 
     # PolicyTech URL - official RUSH policy administration portal
     POLICYTECH_URL: str = "https://rushumc.navexone.com/"

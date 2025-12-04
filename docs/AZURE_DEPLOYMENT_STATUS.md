@@ -248,6 +248,161 @@ Allowed Origins:
 
 ---
 
+## Deployment Workflow
+
+### Updating Existing Deployment (Most Common)
+
+Run these commands in order after pushing code changes to git:
+
+```bash
+# Step 1: Build backend image in ACR (~15 minutes)
+cd apps/backend
+az acr build --registry aiinnovation --image policytech-backend:latest .
+
+# Step 2: Build frontend image in ACR (~2-3 minutes)
+cd apps/frontend
+az acr build --registry aiinnovation --image policytech-frontend:latest .
+
+# Step 3: Update backend container app (~30 seconds)
+az containerapp update \
+  --name rush-policy-backend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/policytech-backend:latest
+
+# Step 4: Update frontend container app (~30 seconds)
+az containerapp update \
+  --name rush-policy-frontend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/policytech-frontend:latest
+
+# Step 5: Verify deployment
+curl https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/health
+curl https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/api/health
+```
+
+### Quick Reference
+
+| Step | Command | Time |
+|------|---------|------|
+| 1. Build Backend | `az acr build --registry aiinnovation --image policytech-backend:latest .` | ~15 min |
+| 2. Build Frontend | `az acr build --registry aiinnovation --image policytech-frontend:latest .` | ~2-3 min |
+| 3. Update Backend | `az containerapp update --name rush-policy-backend ...` | ~30 sec |
+| 4. Update Frontend | `az containerapp update --name rush-policy-frontend ...` | ~30 sec |
+| 5. Verify | `curl .../health` | instant |
+
+### First-Time Setup (New Environment)
+
+If Container Apps don't exist yet, run these steps first:
+
+```bash
+# Variables
+RESOURCE_GROUP="RU-A-NonProd-AI-Innovation-RG"
+ACR_NAME="aiinnovation"
+ENV_NAME="rush-policy-env"
+
+# 1. Create Container Apps Environment
+az containerapp env create \
+  --name $ENV_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --location eastus
+
+# 2. Build images
+az acr build --registry $ACR_NAME --image policytech-backend:latest ./apps/backend
+az acr build --registry $ACR_NAME --image policytech-frontend:latest ./apps/frontend
+
+# 3. Get ACR credentials
+ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query "passwords[0].value" -o tsv)
+
+# 4. Create backend container app
+az containerapp create \
+  --name rush-policy-backend \
+  --resource-group $RESOURCE_GROUP \
+  --environment $ENV_NAME \
+  --image ${ACR_NAME}.azurecr.io/policytech-backend:latest \
+  --registry-server ${ACR_NAME}.azurecr.io \
+  --registry-username $ACR_NAME \
+  --registry-password "$ACR_PASSWORD" \
+  --target-port 8000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 5 \
+  --cpu 1.0 \
+  --memory 2Gi \
+  --env-vars \
+    SEARCH_ENDPOINT="https://policychataisearch.search.windows.net" \
+    SEARCH_API_KEY="$SEARCH_API_KEY" \
+    SEARCH_INDEX_NAME="rush-policies" \
+    SEARCH_SEMANTIC_CONFIG="my-semantic-config" \
+    AOAI_ENDPOINT="https://ai-aihubnonprod680009095162.openai.azure.com/" \
+    AOAI_API_KEY="$AOAI_API_KEY" \
+    AOAI_CHAT_DEPLOYMENT="gpt-4.1" \
+    AOAI_EMBEDDING_DEPLOYMENT="text-embedding-3-large" \
+    STORAGE_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
+    CONTAINER_NAME="policies-active" \
+    SOURCE_CONTAINER_NAME="policies-source" \
+    USE_ON_YOUR_DATA="true" \
+    USE_COHERE_RERANK="true" \
+    COHERE_RERANK_ENDPOINT="$COHERE_RERANK_ENDPOINT" \
+    COHERE_RERANK_API_KEY="$COHERE_RERANK_API_KEY" \
+    COHERE_RERANK_MODEL="cohere-rerank-v3-5" \
+    COHERE_RERANK_TOP_N="10" \
+    COHERE_RERANK_MIN_SCORE="0.15" \
+    BACKEND_PORT="8000" \
+    LOG_FORMAT="json" \
+    CORS_ORIGINS="http://localhost:3000"
+
+# 5. Get backend URL for frontend config
+BACKEND_URL=$(az containerapp show --name rush-policy-backend \
+  --resource-group $RESOURCE_GROUP \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+
+# 6. Create frontend container app
+az containerapp create \
+  --name rush-policy-frontend \
+  --resource-group $RESOURCE_GROUP \
+  --environment $ENV_NAME \
+  --image ${ACR_NAME}.azurecr.io/policytech-frontend:latest \
+  --registry-server ${ACR_NAME}.azurecr.io \
+  --registry-username $ACR_NAME \
+  --registry-password "$ACR_PASSWORD" \
+  --target-port 3000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 5 \
+  --cpu 0.5 \
+  --memory 1Gi \
+  --env-vars \
+    BACKEND_URL="https://$BACKEND_URL" \
+    NODE_ENV="production" \
+    PORT="3000"
+
+# 7. Update backend CORS with frontend URL
+FRONTEND_URL=$(az containerapp show --name rush-policy-frontend \
+  --resource-group $RESOURCE_GROUP \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+
+az containerapp update \
+  --name rush-policy-backend \
+  --resource-group $RESOURCE_GROUP \
+  --set-env-vars CORS_ORIGINS="https://$FRONTEND_URL,http://localhost:3000"
+
+# 8. Verify both apps
+curl https://$BACKEND_URL/health
+curl https://$FRONTEND_URL/api/health
+```
+
+### Monitor ACR Build Progress
+
+```bash
+# List recent builds
+az acr task list-runs --registry aiinnovation -o table
+
+# View build logs (replace cp4 with run ID)
+az acr task logs --registry aiinnovation --run-id cp4
+```
+
+---
+
 ## Maintenance Commands
 
 ### View Logs

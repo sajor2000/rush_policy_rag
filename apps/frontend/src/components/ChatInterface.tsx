@@ -279,7 +279,7 @@ export default function ChatInterface() {
             Press Enter to send • Shift + Enter for new line
           </p>
           <p className="text-[11px] text-muted-foreground mt-1 text-center">
-            Every response includes a Quick Answer summary plus three cited evidence segments.
+            Every answer includes a quick summary plus the exact policy text that supports it.
           </p>
         </div>
       </div>

@@ -509,7 +509,7 @@ export default function ChatMessage({
                       new Map(
                         evidence.map((e, idx) => [e.reference_number || e.title, { ...e, idx }])
                       ).values()
-                    ).slice(0, 4).map((item) => {
+                    ).slice(0, 4).map((item, displayIdx) => {
                       const ref = formatReferenceNumber(item.reference_number);
                       return (
                         <button
@@ -519,7 +519,7 @@ export default function ChatMessage({
                         >
                           {/* Citation number badge */}
                           <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 text-xs font-bold bg-rush-legacy text-white rounded-md shadow-sm">
-                            {item.idx + 1}
+                            {displayIdx + 1}
                           </span>
 
                           {/* Policy info */}
@@ -575,6 +575,30 @@ export default function ChatMessage({
                   The cited policy is not in our database. Showing related policies that may help.
                 </p>
               )}
+              {/* Explanatory message about result limits */}
+              <div className="mb-3 flex items-start gap-2 text-[11px] text-gray-600 bg-gray-50/50 border border-gray-200/50 rounded px-2.5 py-2">
+                <div className="flex-shrink-0 mt-0.5">
+                  <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="leading-relaxed">
+                    We show you the <span className="font-medium text-gray-700">most relevant policies</span> that match your question. 
+                    For comprehensive search of all policies, visit{" "}
+                    <a
+                      href={POLICYTECH_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-rush-legacy hover:text-rush-legacy/80 hover:underline font-medium"
+                    >
+                      PolicyTech
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                    .
+                  </p>
+                </div>
+              </div>
               <div className="space-y-3">
                 {evidence.map((item, idx) => (
                   <div
@@ -662,6 +686,18 @@ export default function ChatMessage({
                     </div>
                   </div>
                 ))}
+              </div>
+              {/* PolicyTech search link */}
+              <div className="mt-3 pt-3 border-t border-rush-legacy/10">
+                <a
+                  href={POLICYTECH_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-rush-legacy hover:text-rush-legacy/80 font-medium transition-colors"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Search all policies on PolicyTech</span>
+                </a>
               </div>
             </div>
             )}
