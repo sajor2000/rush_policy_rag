@@ -28,6 +28,23 @@ logger = logging.getLogger(__name__)
 # Path to synonym configuration
 SYNONYMS_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "semantic-search-synonyms.json"
 
+# Compound term detection patterns for domain-specific expansion
+# When two related terms appear together, add contextual synonyms
+COMPOUND_EXPANSIONS = {
+    ('nicu', 'pain'): 'neonatal pain assessment FLACC N-PASS infant',
+    ('picu', 'pain'): 'pediatric pain assessment FLACC Wong-Baker child',
+    ('neonatal', 'pain'): 'NICU infant newborn FLACC N-PASS assessment',
+    ('pediatric', 'pain'): 'PICU child FLACC Wong-Baker assessment',
+    ('ed', 'pain'): 'emergency triage pain score assessment',
+    ('icu', 'pain'): 'critical care sedation pain CPOT assessment',
+    ('labor', 'pain'): 'obstetric delivery epidural L&D',
+    ('postpartum', 'pain'): 'delivery recovery cesarean pain assessment',
+    ('nicu', 'nursing'): 'neonatal nursing care infant newborn',
+    ('pediatric', 'nursing'): 'child nursing care PICU',
+    ('nicu', 'policy'): 'neonatal newborn infant intensive care',
+    ('pediatric', 'policy'): 'child children PICU kids',
+}
+
 
 @dataclass
 class QueryExpansion:
@@ -132,6 +149,48 @@ class SynonymService:
             for system, synonyms in mappings.items():
                 self._abbreviations[system.lower()] = synonyms[0] if synonyms else system
 
+    def _normalize_possessives(self, query: str) -> str:
+        """
+        Normalize possessive forms to improve entity detection.
+
+        Examples:
+        - "RUMC's NICU" -> "RUMC NICU"
+        - "Rush's policy" -> "Rush policy"
+        - "nurses'" -> "nurses"
+        """
+        # Remove possessive 's and ' patterns
+        # Pattern handles: RUMC's, Rush's, hospital's, nurses'
+        normalized = re.sub(r"(\w+)'s\b", r"\1", query)
+        normalized = re.sub(r"(\w+)'\b", r"\1", normalized)
+        return normalized
+
+    def _apply_compound_expansions(
+        self,
+        query: str,
+        result: QueryExpansion
+    ) -> str:
+        """
+        Detect compound terms and add contextual expansions.
+
+        When two related terms appear together (e.g., NICU + pain),
+        add domain-specific synonyms for better retrieval.
+
+        Examples:
+        - "NICU pain assessment" -> adds "neonatal FLACC N-PASS infant"
+        - "pediatric pain policy" -> adds "PICU child Wong-Baker"
+        """
+        query_lower = query.lower()
+
+        for (term1, term2), expansion in COMPOUND_EXPANSIONS.items():
+            if term1 in query_lower and term2 in query_lower:
+                result.expansions_applied.append({
+                    'compound': f"{term1}+{term2}",
+                    'expansion': expansion
+                })
+                logger.info(f"Compound expansion: {term1}+{term2} -> {expansion}")
+                return f"{query} {expansion}"
+
+        return query
 
     def expand_query(
         self,
@@ -162,6 +221,9 @@ class SynonymService:
             original_query=query,
             expanded_query=query
         )
+
+        # Step 0: Normalize possessives first (RUMC's -> RUMC)
+        query = self._normalize_possessives(query)
 
         # Calculate max words allowed (minimum 6 to handle short queries)
         original_word_count = len(query.split())
@@ -217,7 +279,10 @@ class SynonymService:
         # This helps queries like "SBAR" find the same results as "SBAR communication framework"
         expanded_query = self._add_context_for_short_queries(query, expanded_query, result)
 
-        # 6. NEW: Truncate if over limit to prevent embedding dilution
+        # 6. Apply compound term expansions (NICU + pain -> neonatal terms)
+        expanded_query = self._apply_compound_expansions(expanded_query, result)
+
+        # 7. Truncate if over limit to prevent embedding dilution
         # Research shows over-expansion causes semantic drift in embeddings
         expanded_words_final = expanded_query.split()
         if len(expanded_words_final) > max_words:

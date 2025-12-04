@@ -17,6 +17,7 @@ class EvidenceItem(BaseModel):
     date_updated: Optional[str] = None
     date_approved: Optional[str] = None
     source_file: Optional[str] = None
+    page_number: Optional[int] = None  # 1-indexed page number for PDF navigation
     score: Optional[float] = None
     reranker_score: Optional[float] = None
     match_type: Optional[str] = None  # "verified" (exact match), "related" (fallback search)

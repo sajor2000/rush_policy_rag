@@ -652,6 +652,11 @@ export default function ChatMessage({
                           </div>
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
                             <AppliesTo appliesTo={item.applies_to} />
+                            {item.page_number && (
+                              <span className="text-[10px] text-rush-legacy bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium">
+                                Page {item.page_number}
+                              </span>
+                            )}
                             {item.date_updated && (
                               <span className="text-[10px] text-gray-500">
                                 Updated: {item.date_updated}
@@ -702,31 +707,50 @@ export default function ChatMessage({
             </div>
             )}
 
-            {/* Source Documents - PDF Links at Bottom */}
+            {/* Source Documents - PDF Links at Bottom with matching citation numbers */}
             {effectiveSources.length > 0 && onViewPdf && (
               <div className="pt-2 border-t border-rush-legacy/15">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium">
                   View Source PDFs
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {Array.from(
-                    new Map(
-                      effectiveSources
-                        .filter((s) => s.source_file)
-                        .map((s) => [s.source_file, s])
-                    ).values()
-                  ).map((source, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => onViewPdf(source.source_file, source.title)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] bg-white hover:bg-rush-legacy/5 border border-rush-legacy/25 rounded text-rush-legacy transition-colors"
-                    >
-                      <FileText className="h-3 w-3" />
-                      <span className="max-w-[180px] truncate">
-                        {source.title || source.source_file}
-                      </span>
-                    </button>
-                  ))}
+                  {(() => {
+                    // Build map of source_file -> first evidence index (1-based citation number)
+                    const sourceToNumber = new Map<string, number>();
+                    evidence?.forEach((e, idx) => {
+                      if (e.source_file && !sourceToNumber.has(e.source_file)) {
+                        sourceToNumber.set(e.source_file, idx + 1);
+                      }
+                    });
+
+                    // Dedupe sources while preserving citation numbers
+                    const uniqueSources = Array.from(
+                      new Map(
+                        effectiveSources
+                          .filter((s) => s.source_file)
+                          .map((s) => [s.source_file, s])
+                      ).values()
+                    );
+
+                    return uniqueSources.map((source, idx) => {
+                      const citationNum = sourceToNumber.get(source.source_file) || idx + 1;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => onViewPdf(source.source_file, source.title)}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] bg-white hover:bg-rush-legacy/5 border border-rush-legacy/25 rounded text-rush-legacy transition-colors"
+                        >
+                          <FileText className="h-3 w-3" />
+                          <span className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-bold bg-rush-legacy text-white rounded">
+                            {citationNum}
+                          </span>
+                          <span className="max-w-[180px] truncate">
+                            {source.title || source.source_file}
+                          </span>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}

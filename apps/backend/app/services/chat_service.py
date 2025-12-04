@@ -457,6 +457,23 @@ ENTITY_PATTERNS: Dict[str, List[str]] = {
 }
 
 
+# ============================================================================
+# Location Context Patterns (Module-level for performance)
+# CONSERVATIVE: Only generic location phrases that don't specify a RUSH entity or department
+# DO NOT strip: RUMC, RUMG, Oak Park, Copley, ED, ICU, OR, etc. (these may be intentional filters)
+# Uses \s* (zero or more spaces) + \b (word boundary) to match at any position including start
+# ============================================================================
+LOCATION_CONTEXT_PATTERNS: List[str] = [
+    r'\s*\bin\s+(?:a\s+)?patient\s+room(?:s)?\b',           # "in a patient room"
+    r'\s*\bat\s+the\s+bedside\b',                           # "at the bedside"
+    r'\s*\bduring\s+(?:a\s+)?(?:procedure|visit)\b',        # "during a procedure"
+    r'\s*\bon\s+the\s+(?:floor|unit|ward)\b',               # "on the floor/unit"
+    r'\s*\bin\s+(?:the\s+)?(?:clinical|hospital)\s+setting\b',  # "in the clinical setting"
+    r'\s*\bwhen\s+caring\s+for\s+(?:a\s+)?patient\b',       # "when caring for a patient" (NOT bare "when a patient")
+    r'\s*\bwhile\s+(?:treating|seeing)\s+(?:a\s+)?patient\b', # "while treating a patient"
+]
+
+
 def _extract_entity_mentions(query: str) -> Set[str]:
     """
     Extract RUSH entity codes mentioned in query.
@@ -1067,6 +1084,7 @@ def build_supporting_evidence(
                 date_updated=result.date_updated or None,
                 date_approved=result.date_approved or None,
                 source_file=source_file or None,
+                page_number=result.page_number,
                 score=round(result.score, 3) if result.score is not None else None,
                 reranker_score=round(result.reranker_score, 3) if result.reranker_score is not None else None,
                 match_type=match_type,
@@ -1619,6 +1637,7 @@ Policy excerpt:"""
         Expand user query with synonyms for better search accuracy.
 
         Handles:
+        - Location context normalization (strips generic location phrases)
         - Medical abbreviations (ED → emergency department)
         - Common misspellings (cathater → catheter)
         - Rush-specific terms (RUMC → Rush University Medical Center)
@@ -1627,6 +1646,13 @@ Policy excerpt:"""
         Returns:
             Tuple of (expanded_query, expansion_details)
         """
+        # Normalize location context first (strip generic phrases like "in a patient room")
+        # The extracted context is logged inside _normalize_location_context; we only need the query
+        query, _ = self._normalize_location_context(query)
+
+        # Normalize punctuation (possessives, smart quotes, whitespace)
+        query = self._normalize_query_punctuation(query)
+
         if not self.synonym_service:
             return query, None
 
@@ -1644,6 +1670,78 @@ Policy excerpt:"""
         except Exception as e:
             logger.warning(f"Query expansion failed: {e}")
             return query, None
+
+    def _normalize_location_context(self, query: str) -> tuple[str, Optional[str]]:
+        """
+        Normalize generic location context phrases that don't change the core question.
+
+        This helps queries like "What is the hand hygiene policy in a patient room?"
+        return results even when the policy doesn't mention "patient room" verbatim,
+        since general policies apply to all locations.
+
+        CONSERVATIVE approach: Only strips generic phrases like "in a patient room",
+        "at the bedside". Preserves entity names (Oak Park, Copley) and department
+        codes (ED, ICU, OR) which may be intentional filters.
+
+        Args:
+            query: User's search query
+
+        Returns:
+            Tuple of (normalized_query, extracted_context_or_None)
+        """
+        original = query
+        extracted = []
+
+        for pattern in LOCATION_CONTEXT_PATTERNS:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                extracted.append(match.group().strip())
+                query = re.sub(pattern, '', query, flags=re.IGNORECASE)
+
+        # Clean up extra whitespace
+        query = ' '.join(query.split())
+
+        # Remove leading/trailing punctuation and spaces (handles leftover commas)
+        query = query.strip(' ,;:')
+
+        # Remove space before punctuation (e.g., "policy ?" -> "policy?")
+        query = re.sub(r'\s+([?!.,;:])', r'\1', query)
+
+        # Ensure space after punctuation when followed by alphanumeric (not another punctuation)
+        query = re.sub(r'([?!.,;:])([a-zA-Z0-9])', r'\1 \2', query)
+
+        if extracted:
+            context = ', '.join(extracted)
+            logger.info(f"Normalized location context: '{original}' -> '{query}' (context: {context})")
+            return query, context
+
+        return query, None
+
+    def _normalize_query_punctuation(self, query: str) -> str:
+        """
+        Normalize query punctuation for consistent matching.
+
+        - Remove possessives: "RUMC's" -> "RUMC"
+        - Normalize smart quotes: " " -> " "
+        - Clean up extra whitespace
+
+        This helps queries like "RUMC's NICU" match "RUMC NICU" in the index.
+        """
+        # Remove possessives ('s and trailing ')
+        normalized = re.sub(r"(\w+)'s\b", r"\1", query)
+        normalized = re.sub(r"(\w+)'\b", r"\1", normalized)
+
+        # Normalize smart/curly quotes to standard quotes
+        normalized = normalized.replace('"', '"').replace('"', '"')
+        normalized = normalized.replace(''', "'").replace(''', "'")
+
+        # Normalize whitespace
+        normalized = ' '.join(normalized.split())
+
+        if normalized != query:
+            logger.debug(f"Query punctuation normalized: '{query}' -> '{normalized}'")
+
+        return normalized
 
     def _apply_policy_hints(self, query: str) -> Tuple[str, List[dict]]:
         """Append domain hints and collect target references for deterministic retrieval."""
@@ -1798,7 +1896,8 @@ Policy excerpt:"""
                     "reference_number": sr.reference_number,
                     "source_file": sr.source_file,
                     "section": sr.section,
-                    "applies_to": getattr(sr, 'applies_to', '')
+                    "applies_to": getattr(sr, 'applies_to', ''),
+                    "page_number": getattr(sr, 'page_number', None)
                 }
                 docs_for_rerank.append(record)
                 if sr.reference_number in forced_ref_numbers and sr.reference_number not in forced_doc_map:
@@ -1831,7 +1930,8 @@ Policy excerpt:"""
                                     "reference_number": sr.reference_number,
                                     "source_file": sr.source_file,
                                     "section": sr.section,
-                                    "applies_to": getattr(sr, 'applies_to', '')
+                                    "applies_to": getattr(sr, 'applies_to', ''),
+                                    "page_number": getattr(sr, 'page_number', None)
                                 }
                                 docs_for_rerank.append(record)
                                 forced_doc_map.setdefault(ref, record)
@@ -2024,6 +2124,7 @@ Policy excerpt:"""
                         section=rr.section,
                         applies_to=rr.applies_to,
                         source_file=rr.source_file,
+                        page_number=rr.page_number,
                         reranker_score=rr.cohere_score,
                         match_type="verified",
                     ))
@@ -2627,6 +2728,7 @@ Policy excerpt:"""
                         applies_to=applies_to,
                         date_updated=date_updated,
                         source_file=source_file,
+                        page_number=cit.page_number,
                         score=None,
                         reranker_score=cit.reranker_score,
                         match_type="verified",  # Citations come directly from search
@@ -2677,6 +2779,7 @@ Policy excerpt:"""
                                                 section=r.section,
                                                 applies_to=r.applies_to,
                                                 source_file=r.source_file,
+                                                page_number=r.page_number,
                                                 score=r.score,
                                                 reranker_score=r.reranker_score,
                                                 match_type="verified",

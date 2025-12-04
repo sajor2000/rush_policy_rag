@@ -309,6 +309,8 @@ class SearchResult:
     chunk_level: str = "semantic"
     parent_chunk_id: Optional[str] = None
     chunk_index: int = 0
+    # Page number for PDF navigation
+    page_number: Optional[int] = None
     # Enhanced metadata
     category: Optional[str] = None
     subcategory: Optional[str] = None
@@ -660,6 +662,14 @@ class PolicySearchIndex:
             SearchableField(
                 name="related_policies",
                 type=SearchFieldDataType.String
+            ),
+
+            # Page number for PDF navigation
+            SimpleField(
+                name="page_number",
+                type=SearchFieldDataType.Int32,
+                filterable=False,
+                sortable=True
             ),
 
             # Version control fields (for monthly update tracking v1 → v2 transitions)
@@ -1095,6 +1105,8 @@ class PolicySearchIndex:
                     chunk_level=result.get("chunk_level", "semantic"),
                     parent_chunk_id=result.get("parent_chunk_id"),
                     chunk_index=result.get("chunk_index", 0),
+                    # Page number for PDF navigation
+                    page_number=result.get("page_number"),
                     # Enhanced metadata
                     category=result.get("category"),
                     subcategory=result.get("subcategory"),

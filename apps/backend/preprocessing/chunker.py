@@ -132,6 +132,9 @@ class PolicyChunk:
     regulatory_citations: Optional[str] = field(default=None)
     related_policies: Optional[str] = field(default=None)
 
+    # Page number for PDF navigation
+    page_number: Optional[int] = field(default=None)  # 1-indexed page number
+
     # Version control fields (for monthly update tracking)
     version_number: str = field(default="1.0")           # Policy version (e.g., "1.0", "2.0")
     version_date: Optional[str] = field(default=None)    # ISO datetime when version was created
@@ -209,6 +212,8 @@ class PolicyChunk:
             "subcategory": self.subcategory,
             "regulatory_citations": self.regulatory_citations,
             "related_policies": self.related_policies,
+            # Page number for PDF navigation
+            "page_number": self.page_number,
             # Version control fields
             "version_number": self.version_number,
             "version_date": self.version_date,
@@ -255,6 +260,8 @@ class PolicyChunk:
             "subcategory": self.subcategory,
             "regulatory_citations": self.regulatory_citations,
             "related_policies": self.related_policies,
+            # Page number for PDF navigation
+            "page_number": self.page_number,
             # Version control fields (for monthly update tracking)
             "version_number": self.version_number,
             "version_date": self.version_date,
@@ -878,6 +885,33 @@ class PolicyChunker:
             .strip()
         )
 
+    def _extract_page_number(self, doc_chunk) -> Optional[int]:
+        """
+        Extract page number from Docling chunk metadata.
+
+        Docling chunks contain provenance info with page references.
+        Returns 1-indexed page number for PDF navigation.
+        """
+        try:
+            # Try to get page number from chunk meta/provenance
+            if hasattr(doc_chunk, 'meta') and doc_chunk.meta:
+                meta = doc_chunk.meta
+                # Check for doc_items which contain provenance info
+                if hasattr(meta, 'doc_items') and meta.doc_items:
+                    for item in meta.doc_items:
+                        if hasattr(item, 'prov') and item.prov:
+                            for prov in item.prov:
+                                if hasattr(prov, 'page_no') and prov.page_no is not None:
+                                    # Docling page_no is already 1-indexed
+                                    return prov.page_no
+                # Alternative: check for origin in some Docling versions
+                if hasattr(meta, 'origin') and meta.origin:
+                    if hasattr(meta.origin, 'page_no') and meta.origin.page_no is not None:
+                        return meta.origin.page_no
+        except Exception as e:
+            logger.debug(f"Could not extract page number: {e}")
+        return None
+
     def _chunk_document(
         self,
         doc,
@@ -911,6 +945,9 @@ class PolicyChunker:
             # Get section info from chunk metadata
             section_number, section_title = self._extract_section_info(doc_chunk)
 
+            # Extract page number for PDF navigation
+            page_number = self._extract_page_number(doc_chunk)
+
             # Determine chunk level based on content/context
             chunk_level = "section" if section_number else "semantic"
 
@@ -929,7 +966,8 @@ class PolicyChunker:
                             source_file=source_file,
                             chunk_level="semantic",  # Split chunks are semantic level
                             parent_chunk_id=parent_id if i > 0 else None,
-                            chunk_index=global_chunk_index
+                            chunk_index=global_chunk_index,
+                            page_number=page_number
                         )
                         chunks.append(chunk)
                         global_chunk_index += 1
@@ -944,7 +982,8 @@ class PolicyChunker:
                     source_file=source_file,
                     chunk_level=chunk_level,
                     parent_chunk_id=None,
-                    chunk_index=global_chunk_index
+                    chunk_index=global_chunk_index,
+                    page_number=page_number
                 )
                 chunks.append(chunk)
                 chunk_counter += 1
@@ -992,7 +1031,8 @@ class PolicyChunker:
         source_file: str,
         chunk_level: str = "semantic",
         parent_chunk_id: Optional[str] = None,
-        chunk_index: int = 0
+        chunk_index: int = 0,
+        page_number: Optional[int] = None
     ) -> PolicyChunk:
         """Create a PolicyChunk from parsed data."""
         return PolicyChunk(
@@ -1027,6 +1067,8 @@ class PolicyChunker:
             subcategory=metadata.subcategory,
             regulatory_citations=metadata.regulatory_citations,
             related_policies=metadata.related_policies,
+            # Page number for PDF navigation
+            page_number=page_number,
         )
 
     def _split_oversized(self, text: str, max_size: int) -> List[str]:
