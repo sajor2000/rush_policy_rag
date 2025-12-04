@@ -136,7 +136,10 @@ POLICY_TOPIC_KEYWORDS = [
 # critical terminology appears in the query (e.g., "verbal orders" → Ref #486)
 POLICY_HINTS = [
     {
-        "keywords": ["verbal order", "telephone order", "verbal orders", "telephone orders"],
+        "keywords": ["verbal order", "telephone order", "verbal orders", "telephone orders",
+                    "accept verbal", "accept telephone", "receive verbal", "receive telephone",
+                    "authorized to accept", "authorized to receive", "medical assistant",
+                    "unit secretary", "nursing aide", "can accept order", "can receive order"],
         "hint": "Verbal and Telephone Orders policy Ref #486",
         "reference": "486",
         "policy_query": "Verbal and Telephone Orders"
@@ -182,6 +185,27 @@ ADVERSARIAL_PATTERNS = [
     "dan mode", "developer mode", "disable restrictions", "disable your",
     "jailbreak", "jailbroken", "unrestricted mode", "no restrictions",
     "enable developer", "turn off safety", "remove restrictions",
+    # System prompt injection patterns
+    "system:", "system prompt", "reveal your prompt", "show me your prompt",
+    "what are your instructions", "what is your system prompt",
+    # Authority impersonation patterns
+    "i'm a rush administrator", "i am a rush administrator",
+    "i'm an administrator", "i am an administrator",
+    "override your restrictions", "full system access", "give me access",
+    "grant me access", "unlock your", "as an admin",
+    # Completion/fill-in attacks
+    "[mask]", "fill in", "complete this:", "complete the following",
+    "fill in the blank", "finish this sentence",
+    # Security/exploit probe patterns
+    "security audit", "exploited", "could be exploited", "how to exploit",
+    "vulnerability in", "vulnerabilities", "how could someone abuse",
+    "how to abuse", "how could this be abused", "how to hack",
+    # Confidential data extraction
+    "confidential patient data", "confidential information", "patient data",
+    "private data", "sensitive data", "personal information",
+    "tell me confidential", "reveal confidential", "show me confidential",
+    # Translation-based bypass
+    "translate this to", "translate the following",
 ]
 
 ADVERSARIAL_REFUSAL_MESSAGE = (
@@ -2017,6 +2041,27 @@ Policy excerpt:"""
             )
             logger.info(f"Cohere reranked {len(docs_for_rerank)} docs → top {dynamic_top_n} results")
 
+            # FIX: Check if forced refs are missing from reranked results (sparse retrieval fallback)
+            # This handles cases like "unit secretary" where the canonical policy doesn't score well
+            if forced_ref_numbers and reranked:
+                reranked_refs = {rr.reference_number for rr in reranked if rr.reference_number}
+                missing_forced = forced_ref_numbers - reranked_refs
+                if missing_forced:
+                    logger.warning(f"Forced refs {missing_forced} not in reranked results; retrying with min_score=0.05")
+                    reranked_with_lower_threshold = await self.cohere_rerank_service.rerank_async(
+                        query=request.message,
+                        documents=docs_for_rerank,
+                        top_n=dynamic_top_n * 2,  # Expand result set
+                        min_score=0.05  # Lower threshold for sparse queries
+                    )
+                    if reranked_with_lower_threshold:
+                        # Check if retry found the missing forced refs
+                        retry_refs = {rr.reference_number for rr in reranked_with_lower_threshold if rr.reference_number}
+                        found_forced = missing_forced & retry_refs
+                        if found_forced:
+                            logger.info(f"Sparse fallback found forced refs: {found_forced}")
+                            reranked = reranked_with_lower_threshold
+
             if not reranked:
                 logger.warning("Cohere rerank returned no results at calibrated threshold; retrying with min_score=0.0")
                 reranked = await self.cohere_rerank_service.rerank_async(
@@ -2044,6 +2089,32 @@ Policy excerpt:"""
                 )
 
             if forced_ref_numbers:
+                # FIX: Boost scores of forced refs that ARE in results but ranked low
+                # This ensures canonical policies like Ref #486 rank in top 3 for verbal order queries
+                boosted_reranked = []
+                for rr in reranked:
+                    if rr.reference_number in forced_ref_numbers:
+                        # Boost score to ensure canonical policy ranks high (1.5x, min 0.5)
+                        boosted_score = max(rr.cohere_score * 1.5, 0.5)
+                        boosted_reranked.append(RerankResult(
+                            content=rr.content,
+                            title=rr.title,
+                            reference_number=rr.reference_number,
+                            source_file=rr.source_file,
+                            section=rr.section,
+                            applies_to=rr.applies_to,
+                            page_number=rr.page_number,
+                            cohere_score=boosted_score,
+                            original_index=rr.original_index
+                        ))
+                        logger.info(f"Boosted forced ref #{rr.reference_number}: {rr.cohere_score:.3f} → {boosted_score:.3f}")
+                    else:
+                        boosted_reranked.append(rr)
+
+                # Re-sort by boosted scores
+                reranked = sorted(boosted_reranked, key=lambda r: r.cohere_score, reverse=True)
+
+                # Append any missing forced refs (existing logic)
                 reranked_refs = {rr.reference_number for rr in reranked if rr.reference_number}
                 for ref in forced_ref_numbers:
                     if not ref or ref in reranked_refs or ref not in forced_doc_map:

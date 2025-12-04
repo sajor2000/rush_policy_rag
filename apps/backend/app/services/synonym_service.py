@@ -104,6 +104,21 @@ COMPOUND_EXPANSIONS = {
     # Diagnostic imaging
     ('computed', 'tomography'): 'CT scan CAT scan imaging radiology',
     ('magnetic', 'resonance'): 'MRI magnetic resonance imaging scan radiology',
+    # Verbal orders - help retrieve when asking about specific roles
+    ('verbal', 'order'): 'verbal order telephone order VO TO accept receive authorized personnel not authorized scope',
+    ('telephone', 'order'): 'telephone order verbal order TO VO accept receive authorized personnel not authorized scope',
+    ('medical', 'assistant'): 'medical assistant MA verbal order telephone order authorized personnel not authorized scope of practice accept receive orders',
+    ('unit', 'secretary'): 'unit secretary verbal order telephone order authorized personnel not authorized accept receive orders scope',
+    ('nursing', 'aide'): 'nursing aide CNA certified nursing assistant verbal order telephone order authorized personnel not authorized scope',
+    ('accept', 'order'): 'accept order receive verbal telephone authorized personnel not authorized RN nurse pharmacist LPN',
+    ('can', 'accept'): 'accept verbal order telephone order authorized personnel not authorized RN LPN physician pharmacist nurse practitioner',
+    ('authorized', 'personnel'): 'authorized personnel verbal order telephone order accept receive RN LPN physician pharmacist not authorized',
+    # Hand-off communication
+    ('hand', 'off'): 'handoff hand-off SBAR shift report patient handoff communication transfer',
+    ('communication', 'framework'): 'SBAR handoff hand-off shift report communication transfer',
+    ('shift', 'report'): 'shift report handoff SBAR communication patient status',
+    # Oak Park specific
+    ('oak', 'park'): 'Oak Park ROPH Rush Oak Park Hospital Rush Oak Park',
 }
 
 # Single-term expansions for key clinical terms
@@ -141,6 +156,10 @@ SINGLE_TERM_EXPANSIONS = {
     'unilateral': 'unilateral do-not-resuscitate DNR',
     'end-of-life': 'end of life DNR advance care planning comfort care hospice',
     'comfort': 'comfort care end-of-life palliative hospice',
+    # Hand-off communication single terms
+    'handoff': 'hand-off handoff SBAR shift report patient communication transfer',
+    'hand-off': 'handoff hand-off SBAR shift report patient communication transfer',
+    'sbar': 'SBAR Situation Background Assessment Recommendation handoff hand-off shift report',
     # Tubes/Lines (common nursing equipment)
     'ngt': 'nasogastric tube NG tube feeding tube',
     'ogt': 'orogastric tube OG tube feeding tube',
