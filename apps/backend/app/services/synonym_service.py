@@ -119,6 +119,28 @@ COMPOUND_EXPANSIONS = {
     ('shift', 'report'): 'shift report handoff SBAR communication patient status',
     # Oak Park specific
     ('oak', 'park'): 'Oak Park ROPH Rush Oak Park Hospital Rush Oak Park',
+    # Research recruitment/advertising
+    ('research', 'poster'): 'research poster advertisement recruitment IRB approval study flyer participant',
+    ('research', 'recruit'): 'research recruitment participant enrollment IRB approval advertisement study subject',
+    ('research', 'advertisement'): 'research advertisement poster recruitment IRB approval study flyer',
+    ('research', 'study'): 'research study clinical trial IRB protocol participant subject',
+    ('irb', 'recruitment'): 'IRB recruitment advertisement poster study participant enrollment approval',
+    ('irb', 'poster'): 'IRB poster advertisement recruitment study approval flyer',
+    ('hang', 'poster'): 'hang poster advertisement recruitment IRB approval study flyer',
+    ('advertise', 'study'): 'advertise study recruitment poster IRB approval participant',
+    # Adverse events
+    ('adverse', 'event'): 'adverse event AE unanticipated problem safety event incident reporting',
+    ('adverse', 'report'): 'adverse event report AE reporting safety incident unanticipated problem',
+    ('health', 'episode'): 'health episode adverse event AE incident safety event unanticipated problem',
+    ('report', 'adverse'): 'report adverse event AE safety incident unanticipated problem reporting',
+    ('clinical', 'trial'): 'clinical trial research study IRB protocol adverse event participant',
+    # Consent documentation
+    ('consent', 'sign'): 'consent signature sign form documentation witness mark X',
+    ('consent', 'signature'): 'consent signature sign form documentation witness mark X',
+    ('can', 'sign'): 'sign signature mark X consent form witness documentation',
+    ('subject', 'sign'): 'subject sign signature consent form mark X witness documentation',
+    ('research', 'consent'): 'research consent informed consent form signature documentation IRB subject participant',
+    ('consent', 'form'): 'consent form signature sign mark X witness documentation informed',
 }
 
 # Single-term expansions for key clinical terms
@@ -287,6 +309,19 @@ SINGLE_TERM_EXPANSIONS = {
     # Research/Compliance
     'ctms': 'clinical trial management system CTMS research study',
     'irb': 'institutional review board IRB research ethics human subjects',
+    # Research recruitment/advertising
+    'poster': 'poster advertisement flyer recruitment IRB research study',
+    'advertisement': 'advertisement poster flyer recruitment IRB research study',
+    'recruit': 'recruit recruitment participant enrollment study research subject',
+    'recruitment': 'recruitment participant enrollment study research advertisement poster',
+    'participant': 'participant subject research study enrollment recruitment',
+    # Consent documentation
+    'signature': 'signature sign mark X consent form documentation witness',
+    'sign': 'sign signature mark X consent form documentation',
+    # Adverse events
+    'adverse': 'adverse event AE safety incident unanticipated problem',
+    'unanticipated': 'unanticipated problem adverse event AE safety incident',
+    'episode': 'episode event incident adverse safety unanticipated problem',
     # Payment/Financial Compliance
     'pci': 'payment card industry PCI compliance credit card security',
     'fwa': 'fraud waste abuse FWA compliance Medicare Medicaid',
@@ -432,6 +467,8 @@ class SynonymService:
         - "pediatric pain policy" -> adds "PICU child Wong-Baker"
         """
         query_lower = query.lower()
+        all_expansions = []
+        matched = False
 
         for (term1, term2), expansion in COMPOUND_EXPANSIONS.items():
             if term1 in query_lower and term2 in query_lower:
@@ -440,7 +477,19 @@ class SynonymService:
                     'expansion': expansion
                 })
                 logger.info(f"Compound expansion: {term1}+{term2} -> {expansion}")
-                return f"{query} {expansion}", True  # Return tuple with match flag
+                all_expansions.append(expansion)
+                matched = True
+
+        if matched:
+            # Combine all expansions, deduplicating terms
+            combined_terms = set()
+            for exp in all_expansions:
+                combined_terms.update(exp.split())
+            # Remove terms already in query
+            new_terms = [t for t in combined_terms if t.lower() not in query_lower]
+            if new_terms:
+                return f"{query} {' '.join(new_terms)}", True
+            return query, True  # Matched but no new terms to add
 
         return query, False  # No compound match
 

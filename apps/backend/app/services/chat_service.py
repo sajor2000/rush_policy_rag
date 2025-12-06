@@ -17,6 +17,7 @@ from app.services.corrective_rag import get_corrective_rag_service, CorrectiveRA
 from app.services.self_reflective_rag import get_self_reflective_service, SelfReflectiveRAGService
 from app.services.query_decomposer import get_query_decomposer, QueryDecomposer
 from app.core.config import settings
+
 from openai import AzureOpenAI
 import httpx
 import os
@@ -2231,7 +2232,7 @@ Policy excerpt:"""
                 evidence_items = ordered_evidence
                 sources = ordered_sources
 
-            # Step 4: Call Azure OpenAI Chat Completions
+            # Step 4: Call Azure OpenAI Chat Completions with RISEN prompt
             messages = [
                 {"role": "system", "content": RISEN_PROMPT},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.message}"}
@@ -2239,7 +2240,7 @@ Policy excerpt:"""
 
             # Dynamic max_tokens: multi-policy queries need more space for comprehensive answers
             max_tokens = 800 if is_multi_policy else 500
-            
+
             response = await asyncio.to_thread(
                 self._openai_client.chat.completions.create,
                 model=settings.AOAI_CHAT_DEPLOYMENT,
@@ -2379,11 +2380,16 @@ Policy excerpt:"""
             )
             confidence_level = self._confidence_level_from_score(confidence_score)
 
+            # CRITICAL: Format answer with citations BEFORE safety validation
+            # This ensures the safety validator sees the response with properly formatted citations
+            # Without this, NO_CITATION flag triggers even when we have evidence (citations added later)
+            formatted_answer = _format_answer_with_citations(answer_text, evidence_items)
+
             # Safety validation for healthcare
             try:
                 safety_validator = get_safety_validator(strict_mode=True)
                 safety_result = safety_validator.validate(
-                    response_text=answer_text,
+                    response_text=formatted_answer,  # Use formatted answer with citations
                     contexts=contexts,
                     confidence_score=confidence_score,
                     has_evidence=bool(evidence_items)
