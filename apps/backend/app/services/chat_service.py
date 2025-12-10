@@ -168,6 +168,95 @@ POLICY_HINTS = [
 ]
 
 # ============================================================================
+# Instance Search Query Patterns - "find X in policy Y" type queries
+# ============================================================================
+# These patterns detect when users want to find specific text/sections within
+# a known policy document, rather than asking a general Q&A question.
+INSTANCE_SEARCH_PATTERNS = [
+    # "show me X in policy Y" patterns
+    r"show\s+(?:me\s+)?(?:all\s+)?(?:instances?\s+of\s+)?['\"]?(.+?)['\"]?\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)(?:\s+policy)?$",
+    r"find\s+(?:all\s+)?(?:mentions?\s+of\s+)?['\"]?(.+?)['\"]?\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)(?:\s+policy)?$",
+    r"where\s+(?:does|is|are)\s+['\"]?(.+?)['\"]?\s+(?:appear|mentioned|discussed|covered)\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)$",
+    r"search\s+(?:for\s+)?['\"]?(.+?)['\"]?\s+(?:within|in)\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)$",
+    r"locate\s+(?:the\s+)?(?:section\s+(?:about|on|for)\s+)?['\"]?(.+?)['\"]?\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)$",
+    # "what does policy X say about Y" patterns
+    r"what\s+does\s+(?:the\s+)?(.+?)\s+(?:policy\s+)?say\s+about\s+['\"]?(.+?)['\"]?$",
+    # "in policy X, find Y" patterns (reversed order)
+    r"in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?),?\s+(?:find|show|locate|search\s+for)\s+['\"]?(.+?)['\"]?$",
+]
+
+# Common policy name variations for matching
+POLICY_NAME_PATTERNS = {
+    "hipaa": ["hipaa", "hipaa privacy", "privacy policy", "528"],
+    "verbal orders": ["verbal", "verbal orders", "telephone orders", "486"],
+    "hand off": ["hand off", "handoff", "hand-off", "communication", "1206"],
+    "rapid response": ["rapid response", "rrt", "code blue", "346"],
+    "latex": ["latex", "latex management", "228"],
+}
+
+
+def _detect_instance_search_intent(query: str) -> Optional[Tuple[str, str]]:
+    """
+    Detect if query is requesting to find specific text/sections within a policy.
+
+    Returns:
+        Tuple of (search_term, policy_identifier) if detected, None otherwise.
+        policy_identifier could be a ref number or policy name.
+    """
+    query_clean = query.strip().lower()
+
+    for pattern in INSTANCE_SEARCH_PATTERNS:
+        match = re.search(pattern, query_clean, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            if len(groups) >= 2:
+                # Determine which group is the search term vs policy
+                # Usually first group is search term, second is policy
+                search_term = groups[0].strip().strip("'\"")
+                policy_id = groups[1].strip().strip("'\"")
+
+                # Clean up policy identifier
+                policy_id = re.sub(r'^ref\s*#?\s*', '', policy_id, flags=re.IGNORECASE).strip()
+                policy_id = re.sub(r'\s+policy$', '', policy_id, flags=re.IGNORECASE).strip()
+
+                if search_term and policy_id:
+                    logger.info(f"Instance search detected: term='{search_term}', policy='{policy_id}'")
+                    return (search_term, policy_id)
+
+    return None
+
+
+def _resolve_policy_identifier(policy_id: str) -> Optional[str]:
+    """
+    Resolve a policy name/description to a reference number.
+
+    Args:
+        policy_id: Could be "528", "HIPAA", "HIPAA Privacy Policy", etc.
+
+    Returns:
+        Reference number if resolved, original ID otherwise
+    """
+    policy_id_lower = policy_id.lower().strip()
+
+    # If it's already a reference number (digits only or digits with prefix)
+    ref_match = re.match(r'^(?:ref\s*#?\s*)?(\d+(?:\.\d+)?(?:-[a-z]+)?)$', policy_id_lower, re.IGNORECASE)
+    if ref_match:
+        return ref_match.group(1)
+
+    # Check known policy name patterns
+    for canonical, variations in POLICY_NAME_PATTERNS.items():
+        for var in variations:
+            if var in policy_id_lower:
+                # Return the reference number for known policies
+                for hint in POLICY_HINTS:
+                    if any(kw in canonical for kw in hint["keywords"]):
+                        return hint["reference"]
+
+    # Return original ID - it might be a title match
+    return policy_id
+
+
+# ============================================================================
 # FIX 6: Adversarial query detection (bypass/circumvent safety protocols)
 # ============================================================================
 ADVERSARIAL_PATTERNS = [
@@ -308,6 +397,23 @@ def _truncate_verbatim(text: str, max_chars: int = 3000) -> str:
     if " " in truncated:
         truncated = truncated.rsplit(" ", 1)[0]
     return truncated.rstrip() + "…"
+
+
+# Canonicalize common vendor/brand spellings that show up in PDFs/OCR
+TITLE_NORMALIZATION_RULES = [
+    (re.compile(r"\\bpyis\\b", re.IGNORECASE), "Pyxis"),
+    (re.compile(r"\\bmedstations\\b", re.IGNORECASE), "MedStations"),
+]
+
+
+def _normalize_policy_title(title: Optional[str]) -> str:
+    if not title:
+        return ""
+
+    normalized = title.strip()
+    for pattern, replacement in TITLE_NORMALIZATION_RULES:
+        normalized = pattern.sub(replacement, normalized)
+    return normalized
 
 
 def _apply_mmr_diversification(
@@ -1090,6 +1196,7 @@ def build_supporting_evidence(
     for result in results[:limit]:
         snippet = _truncate_verbatim(result.content or "")
         reference = result.reference_number or _extract_reference_identifier(result.citation)
+        title = _normalize_policy_title(result.title)
 
         source_file = result.source_file
         if not source_file:
@@ -1101,7 +1208,7 @@ def build_supporting_evidence(
             EvidenceItem(
                 snippet=snippet,
                 citation=result.citation,
-                title=result.title,
+                title=title,
                 reference_number=reference,
                 section=result.section,
                 applies_to=result.applies_to,
@@ -1781,16 +1888,152 @@ Policy excerpt:"""
             return f"{query} {' '.join(hints_to_add)}", forced_entries
         return query, forced_entries
 
+    # ========================================================================
+    # Instance Search Handler - "find X in policy Y" queries
+    # ========================================================================
+    async def _handle_instance_search(
+        self,
+        search_term: str,
+        policy_id: str
+    ) -> ChatResponse:
+        """
+        Handle queries that want to find specific text/sections within a policy.
+
+        Examples:
+        - "show me where employee is mentioned in HIPAA policy"
+        - "find the section about employee access in ref 528"
+        - "locate training requirements in verbal orders policy"
+        """
+        from app.services.instance_search_service import InstanceSearchService
+
+        # Resolve policy name to reference number if needed
+        resolved_policy = _resolve_policy_identifier(policy_id)
+        logger.info(f"Instance search: term='{search_term}', policy='{policy_id}' -> resolved='{resolved_policy}'")
+
+        # Create service and search
+        service = InstanceSearchService(self.search_index.get_search_client())
+        result = await asyncio.to_thread(
+            service.search_within_policy,
+            policy_ref=resolved_policy,
+            query=search_term
+        )
+
+        # Handle no results
+        if result.total_instances == 0:
+            # Try to find if the policy exists at all
+            policy_exists = len(service._get_policy_chunks(resolved_policy)) > 0
+
+            if not policy_exists:
+                response_text = (
+                    f"I could not find a policy with reference '{policy_id}'. "
+                    f"Please check the policy reference number and try again."
+                )
+            else:
+                response_text = (
+                    f"I searched **{result.policy_title}** (Ref #{resolved_policy}) "
+                    f"but could not find any sections matching '{search_term}'.\n\n"
+                    f"Try using different keywords or a more specific phrase."
+                )
+
+            return ChatResponse(
+                response=response_text,
+                summary=response_text,
+                evidence=[],
+                sources=[],
+                found=False,
+                confidence="high",
+                chunks_used=0
+            )
+
+        # Format response with instance list
+        response_parts = [
+            f"Found **{result.total_instances} section(s)** matching '{search_term}' "
+            f"in **{result.policy_title}** (Ref #{resolved_policy}):\n"
+        ]
+
+        # Show first 10 instances in chat
+        for i, instance in enumerate(result.instances[:10], 1):
+            page_info = f"Page {instance.page_number}" if instance.page_number else "N/A"
+            section_info = ""
+            if instance.section:
+                section_info = f"Section {instance.section}"
+                if instance.section_title:
+                    section_info += f": {instance.section_title}"
+
+            location = f"**{page_info}**"
+            if section_info:
+                location += f" - {section_info}"
+
+            # Clean and truncate context
+            context = instance.context.replace("\n", " ").strip()
+            if len(context) > 150:
+                context = context[:150] + "..."
+
+            response_parts.append(f"\n{i}. {location}\n   _{context}_")
+
+        if result.total_instances > 10:
+            response_parts.append(f"\n\n_...and {result.total_instances - 10} more sections. Use the Search button on the policy card to explore all results._")
+
+        response_text = "\n".join(response_parts)
+
+        # Build evidence items from instances
+        evidence_items = []
+        for instance in result.instances[:5]:
+            section_str = ""
+            if instance.section:
+                section_str = instance.section
+                if instance.section_title:
+                    section_str += f". {instance.section_title}"
+
+            evidence_items.append(EvidenceItem(
+                snippet=instance.context,
+                citation=f"{result.policy_title} (Ref: {resolved_policy})",
+                title=result.policy_title,
+                reference_number=resolved_policy,
+                section=section_str,
+                page_number=instance.page_number,
+                source_file=result.source_file,
+                match_type="verified"
+            ))
+
+        sources = []
+        if result.source_file:
+            sources.append({
+                "citation": f"{result.policy_title} (Ref: {resolved_policy})",
+                "source_file": result.source_file,
+                "title": result.policy_title,
+                "reference_number": resolved_policy
+            })
+
+        return ChatResponse(
+            response=response_text,
+            summary=response_text,
+            evidence=evidence_items,
+            sources=sources,
+            found=True,
+            confidence="high",
+            chunks_used=result.total_instances
+        )
+
     async def process_chat(self, request: ChatRequest) -> ChatResponse:
         """
         Process a chat message using the best available search pipeline.
 
         Pipeline priority:
+        0. Instance Search - "find X in policy Y" type queries (bypass normal RAG)
         1. Cohere Rerank (cross-encoder) - best for negation-aware queries
         2. Azure "On Your Data" (vectorSemanticHybrid) - good general quality
         3. Standard retrieval (fallback)
         """
         from app.core.config import settings
+
+        # Priority 0: Detect "find X in policy Y" queries
+        # These bypass normal RAG and use direct policy search
+        instance_intent = _detect_instance_search_intent(request.message)
+        if instance_intent:
+            search_term, policy_id = instance_intent
+            logger.info(f"Instance search query detected: '{search_term}' in policy '{policy_id}'")
+            return await self._handle_instance_search(search_term, policy_id)
 
         # Build safe filter expression
         filter_expr = build_applies_to_filter(request.filter_applies_to)
@@ -2180,9 +2423,10 @@ Policy excerpt:"""
             seen_refs = set()
 
             for rr in reranked:
+                title = _normalize_policy_title(rr.title)
                 # Build context string
                 context_parts.append(
-                    f"[{rr.title} (Ref #{rr.reference_number})] "
+                    f"[{title} (Ref #{rr.reference_number})] "
                     f"Section: {rr.section or 'N/A'}\n{rr.content}"
                 )
 
@@ -2190,8 +2434,8 @@ Policy excerpt:"""
                 if rr.reference_number not in seen_refs:
                     evidence_items.append(EvidenceItem(
                         snippet=_truncate_verbatim(rr.content),
-                        citation=f"{rr.title} (Ref #{rr.reference_number})" if rr.reference_number else rr.title,
-                        title=rr.title,
+                        citation=f"{title} (Ref #{rr.reference_number})" if rr.reference_number else title,
+                        title=title,
                         reference_number=rr.reference_number,
                         section=rr.section,
                         applies_to=rr.applies_to,
@@ -2201,7 +2445,7 @@ Policy excerpt:"""
                         match_type="verified",
                     ))
                     sources.append({
-                        "title": rr.title,
+                        "title": title,
                         "reference_number": rr.reference_number,
                         "section": rr.section,
                         "source_file": rr.source_file,
@@ -2778,14 +3022,14 @@ Policy excerpt:"""
                 applies_to = ""
                 section = ""
                 date_updated = ""
-                title = cit.title
+                title = _normalize_policy_title(cit.title)
 
                 if metadata:
                     ref_num = metadata.get("reference_number", "")
                     applies_to = metadata.get("applies_to", "")
                     section = metadata.get("section", "") or cit.section
                     date_updated = metadata.get("date_updated", "")
-                    title = metadata.get("title", "") or cit.title
+                    title = _normalize_policy_title(metadata.get("title", "") or cit.title)
                     logger.debug(f"Enriched citation {source_file}: applies_to={applies_to}")
                 else:
                     # Fallback: Try to extract ref number from filepath (e.g., "hr-001.pdf" -> "HR-001")
@@ -2847,11 +3091,12 @@ Policy excerpt:"""
                                         r.reference_number == ref['reference_number'] or
                                         ref['reference_number'] in r.reference_number
                                     ):
+                                        title = _normalize_policy_title(r.title)
                                         evidence_items.append(
                                             EvidenceItem(
                                                 snippet=_truncate_verbatim(r.content or ""),
                                                 citation=r.citation,
-                                                title=r.title,
+                                                title=title,
                                                 reference_number=r.reference_number,
                                                 section=r.section,
                                                 applies_to=r.applies_to,
@@ -2865,7 +3110,7 @@ Policy excerpt:"""
                                         sources.append({
                                             "citation": r.citation,
                                             "source_file": r.source_file,
-                                            "title": r.title,
+                                            "title": title,
                                             "reference_number": r.reference_number,
                                             "section": r.section,
                                             "applies_to": r.applies_to,

@@ -29,7 +29,7 @@ from app.core.logging_middleware import (
 from app.core.rate_limit import limiter  # Shared rate limiter with load balancer support
 from app.core.circuit_breaker import get_all_circuit_status
 from app.dependencies import lifespan, increment_requests, decrement_requests
-from app.api.routes import chat, admin, pdf
+from app.api.routes import chat, admin, pdf, search
 
 # Optional instrumentation - gracefully handle missing dependencies
 try:
@@ -132,12 +132,14 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api/v1", tags=["Chat v1"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin v1"])
 app.include_router(pdf.router, prefix="/api/v1/pdf", tags=["PDF v1"])
+app.include_router(search.router, prefix="/api/v1", tags=["Search v1"])
 
 # Legacy routes (deprecated, will be removed in v4.0)
 # These maintain backward compatibility with existing frontend deployments
 app.include_router(chat.router, prefix="/api", tags=["Chat (deprecated)"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin (deprecated)"])
 app.include_router(pdf.router, prefix="/api/pdf", tags=["PDF (deprecated)"])
+app.include_router(search.router, prefix="/api", tags=["Search (deprecated)"])
 
 @app.get("/health")
 async def health_check():

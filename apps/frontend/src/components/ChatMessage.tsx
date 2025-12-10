@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen } from "lucide-react";
+import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen, Search } from "lucide-react";
 import { Evidence, Source } from "@/lib/api";
 import { POLICYTECH_URL } from "@/lib/constants";
 
@@ -18,6 +18,7 @@ interface ChatMessageProps {
   sources?: Source[];
   found?: boolean;
   onViewPdf?: (sourceFile: string, title: string) => void;
+  onSearchInPolicy?: (policyRef: string, policyTitle: string, sourceFile?: string) => void;
 }
 
 /** Parse applies_to string into set of entity codes */
@@ -366,6 +367,7 @@ export default function ChatMessage({
   sources,
   found,
   onViewPdf,
+  onSearchInPolicy,
 }: ChatMessageProps) {
   const isUser = role === "user";
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -679,16 +681,36 @@ export default function ChatMessage({
                             )}
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyCitation(idx, item.citation)}
-                          title="Copy citation to clipboard"
-                          aria-label={copiedIndex === idx ? "Citation copied" : "Copy citation"}
-                          className="flex-shrink-0 inline-flex items-center gap-1 text-xs text-rush-legacy hover:text-rush-legacy/80 transition-colors px-2 py-1 rounded border border-rush-legacy/30 bg-white font-medium"
-                        >
-                          <Copy className="h-3 w-3" />
-                          {copiedIndex === idx ? "Copied!" : "Copy"}
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {/* Search within policy button */}
+                          {item.reference_number && onSearchInPolicy && (
+                            <button
+                              type="button"
+                              onClick={() => onSearchInPolicy(
+                                item.reference_number!,
+                                item.title,
+                                item.source_file
+                              )}
+                              title="Search within this policy"
+                              aria-label="Search within policy"
+                              className="inline-flex items-center gap-1 text-xs text-rush-legacy hover:text-rush-legacy/80 transition-colors px-2 py-1 rounded border border-rush-legacy/30 bg-white font-medium"
+                            >
+                              <Search className="h-3 w-3" />
+                              Search
+                            </button>
+                          )}
+                          {/* Copy citation button */}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyCitation(idx, item.citation)}
+                            title="Copy citation to clipboard"
+                            aria-label={copiedIndex === idx ? "Citation copied" : "Copy citation"}
+                            className="inline-flex items-center gap-1 text-xs text-rush-legacy hover:text-rush-legacy/80 transition-colors px-2 py-1 rounded border border-rush-legacy/30 bg-white font-medium"
+                          >
+                            <Copy className="h-3 w-3" />
+                            {copiedIndex === idx ? "Copied!" : "Copy"}
+                          </button>
+                        </div>
                       </div>
                     </div>
 

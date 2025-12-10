@@ -48,3 +48,36 @@ class SearchResponse(BaseModel):
     results: List[dict]
     query: str
     count: int
+
+
+# ============================================================================
+# Instance Search Models - Find all occurrences of a term within a policy
+# ============================================================================
+
+class InstanceSearchRequest(BaseModel):
+    """Request for searching term instances within a specific policy."""
+    policy_ref: str = Field(..., description="Policy reference number (e.g., '528', 'HR-B 13.00')")
+    search_term: str = Field(..., min_length=1, max_length=200, description="Term to search for")
+    case_sensitive: bool = Field(default=False, description="Whether search is case-sensitive")
+
+
+class TermInstance(BaseModel):
+    """A single instance of a term found within a policy."""
+    page_number: Optional[int] = Field(default=None, description="1-indexed page number in PDF")
+    section: str = Field(default="", description="Section number where term appears")
+    section_title: str = Field(default="", description="Section title")
+    context: str = Field(description="Surrounding text context (~200 chars)")
+    position: int = Field(description="Character position within chunk")
+    chunk_id: str = Field(description="ID of the chunk containing this instance")
+    highlight_start: int = Field(description="Start position of term within context")
+    highlight_end: int = Field(description="End position of term within context")
+
+
+class InstanceSearchResponse(BaseModel):
+    """Response containing all instances of a term within a policy."""
+    policy_title: str
+    policy_ref: str
+    search_term: str
+    total_instances: int
+    instances: List[TermInstance]
+    source_file: Optional[str] = None

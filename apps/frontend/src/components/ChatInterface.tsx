@@ -8,6 +8,7 @@ import ChatMessage from "./ChatMessage";
 import LoadingState from "./LoadingState";
 import ErrorMessage from "./ErrorMessage";
 import PDFViewer from "./PDFViewer";
+import InstanceSearchModal from "./InstanceSearchModal";
 import { sendMessage, type Source, type Evidence } from "@/lib/api";
 
 interface Message {
@@ -35,6 +36,15 @@ export default function ChatInterface() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [lastPdfSourceFile, setLastPdfSourceFile] = useState<string>("");
+  const [pdfInitialPage, setPdfInitialPage] = useState(1);
+
+  // Instance Search Modal state
+  const [instanceSearchOpen, setInstanceSearchOpen] = useState(false);
+  const [instanceSearchPolicy, setInstanceSearchPolicy] = useState<{
+    policyRef: string;
+    policyTitle: string;
+    sourceFile?: string;
+  } | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,6 +64,7 @@ export default function ChatInterface() {
     setPdfLoading(true);
     setPdfTitle(title);
     setPdfViewerOpen(true);
+    setPdfInitialPage(1); // Reset to page 1 for normal PDF viewing
 
     try {
       const response = await fetch(`/api/pdf/${encodeURIComponent(sourceFile)}`);
@@ -100,6 +111,70 @@ export default function ChatInterface() {
   const handleRetryPdf = () => {
     if (lastPdfSourceFile) {
       handleViewPdf(lastPdfSourceFile, pdfTitle);
+    }
+  };
+
+  // Handler for "Search" button on evidence cards - opens InstanceSearchModal
+  const handleSearchInPolicy = (policyRef: string, policyTitle: string, sourceFile?: string) => {
+    setInstanceSearchPolicy({ policyRef, policyTitle, sourceFile });
+    setInstanceSearchOpen(true);
+  };
+
+  // Handler for navigating to a specific page in PDF from instance search results
+  const handleNavigateToPage = async (pageNumber: number, sourceFile?: string) => {
+    // Close the instance search modal
+    setInstanceSearchOpen(false);
+
+    // Use the source file from the search, or fall back to lastPdfSourceFile
+    const fileToOpen = sourceFile || instanceSearchPolicy?.sourceFile || lastPdfSourceFile;
+    const titleToUse = instanceSearchPolicy?.policyTitle || pdfTitle;
+
+    if (!fileToOpen) {
+      console.error("No source file available to open PDF");
+      return;
+    }
+
+    // Set the initial page before opening
+    setPdfInitialPage(pageNumber);
+
+    // Reset PDF state and open viewer with loading
+    setPdfUrl(null);
+    setPdfError(null);
+    setPdfLoading(true);
+    setPdfTitle(titleToUse);
+    setPdfViewerOpen(true);
+    setLastPdfSourceFile(fileToOpen);
+
+    try {
+      const response = await fetch(`/api/pdf/${encodeURIComponent(fileToOpen)}`);
+
+      let data: Record<string, unknown>;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(`Failed to load PDF (invalid response)`);
+      }
+
+      if (!response.ok) {
+        const errorMessage =
+          (typeof data.error === 'string' ? data.error : null) ||
+          (typeof data.detail === 'string' ? data.detail : null) ||
+          `Failed to load PDF (${response.status})`;
+        throw new Error(errorMessage);
+      }
+
+      if (!data.url || typeof data.url !== 'string') {
+        throw new Error("Invalid PDF URL response from server");
+      }
+
+      setPdfUrl(data.url);
+    } catch (err) {
+      console.error("Error fetching PDF URL:", err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to load PDF";
+      setPdfError(errorMessage);
+      setPdfUrl(null);
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -220,6 +295,7 @@ export default function ChatInterface() {
                 key={index}
                 {...message}
                 onViewPdf={handleViewPdf}
+                onSearchInPolicy={handleSearchInPolicy}
               />
             ))}
             {isLoading && (
@@ -245,6 +321,17 @@ export default function ChatInterface() {
           isLoading={pdfLoading}
           error={pdfError}
           onRetry={handleRetryPdf}
+          initialPage={pdfInitialPage}
+        />
+
+        {/* Instance Search Modal */}
+        <InstanceSearchModal
+          isOpen={instanceSearchOpen}
+          onClose={() => setInstanceSearchOpen(false)}
+          policyRef={instanceSearchPolicy?.policyRef || ""}
+          policyTitle={instanceSearchPolicy?.policyTitle || ""}
+          sourceFile={instanceSearchPolicy?.sourceFile}
+          onNavigateToPage={handleNavigateToPage}
         />
 
         <div className="sticky bottom-0 bg-background py-6 border-t border-border">

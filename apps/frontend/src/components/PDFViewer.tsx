@@ -49,6 +49,7 @@ interface PDFViewerProps {
   isLoading?: boolean;  // Loading state from parent (fetching URL)
   error?: string | null; // Error from parent (URL fetch failed)
   onRetry?: () => void;  // Callback to retry loading PDF
+  initialPage?: number;  // Jump to this page when opening
 }
 
 export default function PDFViewer({
@@ -59,12 +60,22 @@ export default function PDFViewer({
   isLoading: parentLoading = false,
   error: parentError = null,
   onRetry,
+  initialPage = 1,
 }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [pdfLoading, setPdfLoading] = useState(false); // PDF document loading
   const [pdfError, setPdfError] = useState<string | null>(null); // PDF parse error
+  const handleAnnotationClick = useCallback(
+    ({ pageNumber: targetPageNumber }: { pageNumber: number }) => {
+      // PDF internal links (table of contents, related links) should navigate within the viewer
+      if (targetPageNumber && targetPageNumber !== pageNumber) {
+        setPageNumber(targetPageNumber);
+      }
+    },
+    [pageNumber]
+  );
   
   // Combined loading and error states
   const loading = parentLoading || pdfLoading;
@@ -81,11 +92,13 @@ export default function PDFViewer({
   const onDocumentLoadSuccess = useCallback(
     ({ numPages }: { numPages: number }) => {
       setNumPages(numPages);
-      setPageNumber(1);
+      // Jump to initialPage if valid, otherwise page 1
+      const targetPage = Math.max(1, Math.min(initialPage, numPages));
+      setPageNumber(targetPage);
       setPdfLoading(false);
       setPdfError(null);
     },
-    []
+    [initialPage]
   );
 
   const onDocumentLoadError = useCallback((err: Error) => {
@@ -304,6 +317,8 @@ export default function PDFViewer({
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={onDocumentLoadError}
               loading={null}
+              onItemClick={handleAnnotationClick}
+              externalLinkTarget="_blank"
               className="py-4"
             >
               <Page

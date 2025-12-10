@@ -320,3 +320,94 @@ export async function getUploadStatus(jobId: string): Promise<UploadStatus> {
     updated_at: data.updated_at as string,
   };
 }
+
+// ============================================================================
+// Instance Search API - Find text/sections within a specific policy
+// ============================================================================
+
+export interface TermInstance {
+  page_number: number | null;
+  section: string;
+  section_title: string;
+  context: string;
+  position: number;
+  chunk_id: string;
+  highlight_start: number;
+  highlight_end: number;
+}
+
+export interface InstanceSearchResponse {
+  policy_title: string;
+  policy_ref: string;
+  search_term: string;
+  total_instances: number;
+  instances: TermInstance[];
+  source_file: string | null;
+}
+
+/**
+ * Search for all instances of a term or relevant sections within a specific policy.
+ *
+ * Supports both:
+ * - Exact term search: "employee" → finds all mentions
+ * - Semantic section search: "employee access to records" → finds relevant sections
+ */
+export async function searchInstances(
+  policyRef: string,
+  searchTerm: string,
+  caseSensitive: boolean = false
+): Promise<InstanceSearchResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch("/api/search-instances", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy_ref: policyRef,
+        search_term: searchTerm,
+        case_sensitive: caseSensitive,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    let data: Record<string, unknown>;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("Invalid response from server");
+    }
+
+    if (!response.ok) {
+      const errorMessage =
+        (typeof data.detail === "string" ? data.detail : null) ||
+        (typeof data.error === "string" ? data.error : null) ||
+        `Search failed (${response.status})`;
+      throw new Error(errorMessage);
+    }
+
+    return {
+      policy_title: data.policy_title as string,
+      policy_ref: data.policy_ref as string,
+      search_term: data.search_term as string,
+      total_instances: data.total_instances as number,
+      instances: Array.isArray(data.instances)
+        ? (data.instances as TermInstance[])
+        : [],
+      source_file: (data.source_file as string) || null,
+    };
+  } catch (err) {
+    clearTimeout(timeoutId);
+
+    if (err instanceof Error) {
+      if (err.name === "AbortError") {
+        throw new Error("Search timed out. Please try again.");
+      }
+      throw err;
+    }
+    throw new Error("Search failed");
+  }
+}
