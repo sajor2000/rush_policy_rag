@@ -18,9 +18,8 @@ This enables users to ask questions like:
 
 import re
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizedQuery
 from app.models.schemas import TermInstance, InstanceSearchResponse
 
 logger = logging.getLogger(__name__)
