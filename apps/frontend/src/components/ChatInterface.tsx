@@ -19,6 +19,12 @@ interface Message {
   sources?: Source[];
   rawResponse?: string;
   found?: boolean;
+  // For Deep Search results - enables "View PDF" button
+  deepSearchPolicy?: {
+    policyRef: string;
+    policyTitle: string;
+    sourceFile?: string;
+  };
 }
 
 export default function ChatInterface() {
@@ -59,22 +65,23 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  const handleViewPdf = async (sourceFile: string, title: string) => {
-    // Store source file for retry functionality
+  // Shared helper function to fetch and display PDF
+  const fetchAndDisplayPdf = async (
+    sourceFile: string,
+    title: string,
+    initialPage: number = 1
+  ) => {
     setLastPdfSourceFile(sourceFile);
-
-    // Reset state and open viewer with loading
     setPdfUrl(null);
     setPdfError(null);
     setPdfLoading(true);
     setPdfTitle(title);
     setPdfViewerOpen(true);
-    setPdfInitialPage(1); // Reset to page 1 for normal PDF viewing
+    setPdfInitialPage(initialPage);
 
     try {
       const response = await fetch(`/api/pdf/${encodeURIComponent(sourceFile)}`);
 
-      // Parse response JSON safely
       let data: Record<string, unknown>;
       try {
         data = await response.json();
@@ -90,7 +97,6 @@ export default function ChatInterface() {
         throw new Error(errorMessage);
       }
 
-      // Validate URL field
       if (!data.url || typeof data.url !== 'string') {
         throw new Error("Invalid PDF URL response from server");
       }
@@ -98,12 +104,15 @@ export default function ChatInterface() {
       setPdfUrl(data.url);
     } catch (err) {
       console.error("Error fetching PDF URL:", err);
-      const errorMessage = err instanceof Error ? err.message : "Failed to load PDF";
-      setPdfError(errorMessage);
+      setPdfError(err instanceof Error ? err.message : "Failed to load PDF");
       setPdfUrl(null);
     } finally {
       setPdfLoading(false);
     }
+  };
+
+  const handleViewPdf = (sourceFile: string, title: string) => {
+    fetchAndDisplayPdf(sourceFile, title, 1);
   };
 
   const handleClosePdf = () => {
@@ -127,6 +136,7 @@ export default function ChatInterface() {
 
   // Handler for Deep Search Mode submissions
   const handleDeepSearch = async (searchTerm: string) => {
+    if (isLoading) return; // Prevent duplicate requests
     if (!deepSearchPolicyRef.trim()) {
       setError("Please enter a policy reference number (e.g., 528, 1515)");
       return;
@@ -150,30 +160,44 @@ export default function ChatInterface() {
         responseContent = `Found **${result.total_instances} result${result.total_instances !== 1 ? 's' : ''}** for "${searchTerm}" in **${result.policy_title}** (Ref #${result.policy_ref}):\n\n`;
 
         result.instances.slice(0, 10).forEach((instance, idx) => {
-          const pageInfo = instance.page_number ? `Page ${instance.page_number}` : "N/A";
+          // Show estimated page range (±1 page) since exact page numbers may not be available
+          let pageInfo = "N/A";
+          if (instance.page_number) {
+            const minPage = Math.max(1, instance.page_number - 1);
+            const maxPage = instance.page_number + 1;
+            pageInfo = `Pages ~${minPage}-${maxPage}`;
+          }
           const sectionInfo = instance.section ? `, Section ${instance.section}` : "";
           responseContent += `**${idx + 1}. ${pageInfo}${sectionInfo}**\n`;
-          responseContent += `"...${instance.context.slice(0, 200)}${instance.context.length > 200 ? '...' : ''}"\n\n`;
+          // Show FULL chunk content - no truncation to help users find exact text
+          responseContent += `> "${instance.context.trim()}"\n\n`;
         });
 
         if (result.total_instances > 10) {
-          responseContent += `\n_Showing first 10 of ${result.total_instances} results. Click "Search" on an evidence card to see all._`;
+          responseContent += `_Showing first 10 of ${result.total_instances} results._\n\n`;
         }
+
+        // Add helpful tip (View PDF button is rendered by ChatMessage component)
+        responseContent += `---\n_Page numbers are estimated. Use Ctrl+F in PDF to find exact text._`;
       }
+
+      // Build policy info for View PDF button
+      const policyInfo = result.source_file ? {
+        policyRef: result.policy_ref,
+        policyTitle: result.policy_title,
+        sourceFile: result.source_file
+      } : undefined;
 
       setMessages((prev) => [...prev, {
         role: "assistant",
         content: responseContent,
-        found: result.total_instances > 0
+        found: result.total_instances > 0,
+        deepSearchPolicy: policyInfo
       }]);
 
-      // If results found and source_file available, store for potential PDF viewing
-      if (result.source_file) {
-        setInstanceSearchPolicy({
-          policyRef: result.policy_ref,
-          policyTitle: result.policy_title,
-          sourceFile: result.source_file
-        });
+      // Also store for potential modal usage
+      if (policyInfo) {
+        setInstanceSearchPolicy(policyInfo);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deep search failed");
@@ -183,61 +207,18 @@ export default function ChatInterface() {
   };
 
   // Handler for navigating to a specific page in PDF from instance search results
-  const handleNavigateToPage = async (pageNumber: number, sourceFile?: string) => {
-    // Close the instance search modal
+  const handleNavigateToPage = (pageNumber: number, sourceFile?: string) => {
     setInstanceSearchOpen(false);
 
-    // Use the source file from the search, or fall back to lastPdfSourceFile
     const fileToOpen = sourceFile || instanceSearchPolicy?.sourceFile || lastPdfSourceFile;
     const titleToUse = instanceSearchPolicy?.policyTitle || pdfTitle;
 
     if (!fileToOpen) {
-      console.error("No source file available to open PDF");
+      setError("Unable to open PDF: source file not available");
       return;
     }
 
-    // Set the initial page before opening
-    setPdfInitialPage(pageNumber);
-
-    // Reset PDF state and open viewer with loading
-    setPdfUrl(null);
-    setPdfError(null);
-    setPdfLoading(true);
-    setPdfTitle(titleToUse);
-    setPdfViewerOpen(true);
-    setLastPdfSourceFile(fileToOpen);
-
-    try {
-      const response = await fetch(`/api/pdf/${encodeURIComponent(fileToOpen)}`);
-
-      let data: Record<string, unknown>;
-      try {
-        data = await response.json();
-      } catch {
-        throw new Error(`Failed to load PDF (invalid response)`);
-      }
-
-      if (!response.ok) {
-        const errorMessage =
-          (typeof data.error === 'string' ? data.error : null) ||
-          (typeof data.detail === 'string' ? data.detail : null) ||
-          `Failed to load PDF (${response.status})`;
-        throw new Error(errorMessage);
-      }
-
-      if (!data.url || typeof data.url !== 'string') {
-        throw new Error("Invalid PDF URL response from server");
-      }
-
-      setPdfUrl(data.url);
-    } catch (err) {
-      console.error("Error fetching PDF URL:", err);
-      const errorMessage = err instanceof Error ? err.message : "Failed to load PDF";
-      setPdfError(errorMessage);
-      setPdfUrl(null);
-    } finally {
-      setPdfLoading(false);
-    }
+    fetchAndDisplayPdf(fileToOpen, titleToUse, pageNumber);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -295,52 +276,6 @@ export default function ChatInterface() {
     }
   };
 
-  // Direct click handler for the submit button (backup for form submission)
-  // Also reads directly from the textarea ref in case React state wasn't updated
-  const handleButtonClick = () => {
-    // Try to get value from ref first (handles browser automation edge cases)
-    const textareaValue = textareaRef.current?.value || input;
-    if (textareaValue.trim() && !isLoading) {
-      // Update React state if it's out of sync with DOM
-      if (textareaValue !== input) {
-        setInput(textareaValue);
-      }
-      // Use the textarea value directly for submission
-      const userMessage = textareaValue.trim();
-      setInput("");
-      setError(null);
-
-      // If Deep Search mode is enabled, use the instance search API
-      if (deepSearchMode) {
-        handleDeepSearch(userMessage);
-        return;
-      }
-
-      // Normal Q&A mode
-      setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
-      setIsLoading(true);
-
-      sendMessage(userMessage)
-        .then((result) => {
-          setMessages((prev) => [...prev, {
-            role: "assistant",
-            content: result.summary || result.response,
-            summary: result.summary || result.response,
-            evidence: result.evidence || [],
-            sources: result.sources || [],
-            rawResponse: result.raw_response,
-            found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0
-          }]);
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : "An error occurred");
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    }
-  };
-
   return (
     <section className="w-full flex-1 flex flex-col">
       <div className="container max-w-4xl mx-auto px-4 flex flex-col h-full">
@@ -369,7 +304,13 @@ export default function ChatInterface() {
             {messages.map((message, index) => (
               <ChatMessage
                 key={index}
-                {...message}
+                role={message.role}
+                content={message.content}
+                summary={message.summary}
+                evidence={message.evidence}
+                sources={message.sources}
+                found={message.found}
+                deepSearchPolicy={message.deepSearchPolicy}
                 onViewPdf={handleViewPdf}
                 onSearchInPolicy={handleSearchInPolicy}
               />
@@ -411,17 +352,29 @@ export default function ChatInterface() {
         />
 
         <div className="sticky bottom-0 bg-background py-6 border-t border-border">
-          {/* Deep Search Mode Toggle */}
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          {/* Mode Toggle: Classic Q&A vs Search Within Policy */}
+          <div className="mb-3">
+            {/* Mode Indicator */}
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                !deepSearchMode
+                  ? "bg-rush-legacy text-white"
+                  : "bg-gray-100 text-gray-500"
+              }`}>
+                Classic Q&A {!deepSearchMode && <span className="text-[10px] opacity-80">(Default)</span>}
+              </span>
               <button
                 type="button"
-                onClick={() => setDeepSearchMode(!deepSearchMode)}
+                onClick={() => {
+                  setDeepSearchMode(!deepSearchMode);
+                  setError(null); // Clear error when switching modes
+                }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  deepSearchMode ? "bg-rush-legacy" : "bg-gray-300"
+                  deepSearchMode ? "bg-rush-growth" : "bg-gray-300"
                 }`}
                 role="switch"
                 aria-checked={deepSearchMode}
+                aria-label="Toggle between Classic Q&A and Search Within Policy modes"
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -429,39 +382,57 @@ export default function ChatInterface() {
                   }`}
                 />
               </button>
-              <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                <Search className="h-4 w-4" />
-                Deep Search Mode
+              <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                deepSearchMode
+                  ? "bg-rush-growth text-white"
+                  : "bg-gray-100 text-gray-500"
+              }`}>
+                Search Within Policy
               </span>
               <button
                 type="button"
                 onClick={() => setShowDeepSearchHelp(!showDeepSearchHelp)}
                 className="text-gray-400 hover:text-rush-legacy transition-colors"
-                aria-label="Learn about Deep Search Mode"
+                aria-label={showDeepSearchHelp ? "Close help" : "Learn about search modes"}
+                aria-expanded={showDeepSearchHelp}
               >
                 <HelpCircle className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Policy Reference Input (visible when Deep Search is enabled) */}
+            {/* Policy Reference Input (visible when Search Within Policy is enabled) */}
             {deepSearchMode && (
-              <div className="flex items-center gap-2">
-                <label htmlFor="policy-ref" className="text-xs text-gray-600">
-                  Policy Ref #:
-                </label>
-                <input
-                  id="policy-ref"
-                  type="text"
-                  value={deepSearchPolicyRef}
-                  onChange={(e) => setDeepSearchPolicyRef(e.target.value)}
-                  placeholder="e.g., 528"
-                  className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-rush-legacy"
-                />
+              <div className="flex flex-col items-center gap-1">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="policy-ref" className="text-xs text-gray-600 flex items-center gap-1">
+                    <Search className="h-3.5 w-3.5" />
+                    Policy Ref #:
+                  </label>
+                  <input
+                    id="policy-ref"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={deepSearchPolicyRef}
+                    onChange={(e) => {
+                      // Only allow numeric input
+                      const value = e.target.value.replace(/[^\d]/g, '');
+                      setDeepSearchPolicyRef(value);
+                    }}
+                    placeholder="e.g., 528"
+                    className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-rush-growth"
+                  />
+                </div>
+                {!deepSearchPolicyRef && (
+                  <p className="text-[10px] text-gray-500">
+                    Don&apos;t know the policy number? Switch to Classic Q&A to find it first.
+                  </p>
+                )}
               </div>
             )}
           </div>
 
-          {/* Deep Search Help Tooltip */}
+          {/* Search Modes Help Tooltip */}
           {showDeepSearchHelp && (
             <div className="mb-3 p-3 bg-rush-sage/30 border border-rush-legacy/20 rounded-lg text-sm relative">
               <button
@@ -472,23 +443,54 @@ export default function ChatInterface() {
               >
                 <X className="h-4 w-4" />
               </button>
-              <p className="font-semibold text-rush-legacy mb-2">Deep Search Mode</p>
-              <p className="text-gray-700 mb-2">
-                Search within a <strong>specific policy</strong> to find all mentions of a term or related sections.
-              </p>
-              <div className="space-y-1.5 text-gray-600">
-                <p><strong>How it works:</strong></p>
-                <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li><strong>Short terms</strong> (1-2 words): Finds exact matches - e.g., "employee"</li>
-                  <li><strong>Phrases/questions</strong>: Uses semantic search - e.g., "employee access to records"</li>
-                </ul>
-                <p className="mt-2"><strong>To use:</strong></p>
-                <ol className="list-decimal list-inside space-y-1 ml-2">
-                  <li>Enable the toggle above</li>
-                  <li>Enter the policy reference number (e.g., 528 for HIPAA)</li>
-                  <li>Type what you're looking for and press Enter</li>
-                </ol>
+              <p className="font-semibold text-rush-legacy mb-3">Two Search Modes</p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Classic Q&A Mode */}
+                <div className="bg-white/50 p-2.5 rounded border border-rush-legacy/10">
+                  <p className="font-semibold text-rush-legacy flex items-center gap-1.5 mb-1">
+                    <Send className="h-3.5 w-3.5" />
+                    Classic Q&A
+                    <span className="text-[9px] bg-rush-legacy/20 text-rush-legacy px-1.5 py-0.5 rounded font-normal">Recommended</span>
+                  </p>
+                  <p className="text-gray-600 text-xs mb-1.5">
+                    Ask any policy question. Get a summarized answer + evidence from matching policies.
+                  </p>
+                  <p className="text-gray-700 text-[10px] font-medium mb-1">Use when:</p>
+                  <ul className="text-gray-600 text-[10px] mb-1.5 space-y-0.5 ml-2">
+                    <li>• You have a question and don&apos;t know which policy covers it</li>
+                    <li>• You want a summarized answer with citations</li>
+                  </ul>
+                  <p className="text-gray-500 text-[10px] italic">
+                    Examples: "What is the visitor policy?" • "When can employees access their records?"
+                  </p>
+                </div>
+
+                {/* Search Within Policy Mode */}
+                <div className="bg-white/50 p-2.5 rounded border border-rush-growth/20">
+                  <p className="font-semibold text-rush-growth flex items-center gap-1.5 mb-1">
+                    <Search className="h-3.5 w-3.5" />
+                    Search Within Policy
+                    <span className="text-[9px] bg-rush-growth/20 text-rush-growth px-1.5 py-0.5 rounded font-normal">Advanced</span>
+                  </p>
+                  <p className="text-gray-600 text-xs mb-1.5">
+                    Find ALL instances of a word or phrase within a specific policy you already know.
+                  </p>
+                  <p className="text-gray-700 text-[10px] font-medium mb-1">Use when:</p>
+                  <ul className="text-gray-600 text-[10px] mb-1.5 space-y-0.5 ml-2">
+                    <li>• You know the policy number but need to find specific text</li>
+                    <li>• You want to see every mention of a term (e.g., "employee")</li>
+                    <li>• You need page/section numbers for a long policy</li>
+                  </ul>
+                  <p className="text-gray-500 text-[10px] italic">
+                    Examples: Find "employee" in #528 • Find "prohibited" in #1515
+                  </p>
+                </div>
               </div>
+
+              <p className="text-gray-600 text-[10px] mt-3 text-center bg-white/50 py-1.5 px-2 rounded">
+                Don&apos;t know the policy number? Use Classic Q&A first to find it, then switch to Search Within Policy.
+              </p>
             </div>
           )}
 
@@ -510,7 +512,6 @@ export default function ChatInterface() {
               type="submit"
               size="icon"
               disabled={isLoading || (deepSearchMode && !deepSearchPolicyRef.trim())}
-              onClick={handleButtonClick}
               className="bg-rush-legacy hover:bg-rush-legacy h-[60px] w-[60px] flex-shrink-0"
               data-testid="button-send"
               aria-label={isLoading ? "Sending message" : "Send message"}
@@ -529,8 +530,8 @@ export default function ChatInterface() {
           </p>
           <p className="text-[11px] text-muted-foreground mt-1 text-center">
             {deepSearchMode
-              ? "Deep Search finds all instances of your term within a specific policy document."
-              : "Every answer includes a quick summary plus the exact policy text that supports it."
+              ? "Search Within Policy: Find ALL mentions of a word or phrase in a specific policy. Shows page numbers."
+              : "Classic Q&A (Recommended): Ask any question, get a summarized answer with evidence from matching policies."
             }
           </p>
         </div>

@@ -17,6 +17,12 @@ interface ChatMessageProps {
   evidence?: Evidence[];
   sources?: Source[];
   found?: boolean;
+  // For Deep Search results - enables "View PDF" button
+  deepSearchPolicy?: {
+    policyRef: string;
+    policyTitle: string;
+    sourceFile?: string;
+  };
   onViewPdf?: (sourceFile: string, title: string) => void;
   onSearchInPolicy?: (policyRef: string, policyTitle: string, sourceFile?: string) => void;
 }
@@ -366,6 +372,7 @@ export default function ChatMessage({
   evidence,
   sources,
   found,
+  deepSearchPolicy,
   onViewPdf,
   onSearchInPolicy,
 }: ChatMessageProps) {
@@ -465,21 +472,90 @@ export default function ChatMessage({
           <p className="text-sm md:text-base">{content}</p>
         ) : !hasAnswer ? (
           <div className="rounded-2xl bg-white/95 border border-rush-legacy/20 shadow-[0_18px_40px_rgba(0,0,0,0.05)] p-5 space-y-3">
-            <p className="text-sm md:text-base leading-relaxed text-foreground">
-              {quickAnswer}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Need assistance? Visit{" "}
-              <a
-                href={POLICYTECH_URL}
-                className="text-rush-legacy underline decoration-dotted underline-offset-4"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {POLICYTECH_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-              </a>{" "}
-              or contact Policy Administration.
-            </p>
+            {/* Deep Search results: render with markdown-like formatting */}
+            {deepSearchPolicy ? (
+              <div className="space-y-3">
+                {/* Parse and render content with basic markdown support */}
+                <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                  {quickAnswer.split('\n').map((line, lineIdx) => {
+                    // Bold text: **text**
+                    if (line.includes('**')) {
+                      const parts = line.split(/(\*\*[^*]+\*\*)/g);
+                      return (
+                        <p key={lineIdx} className={line.startsWith('>') ? 'pl-3 border-l-2 border-rush-legacy/30 text-gray-600 my-2' : 'my-1'}>
+                          {parts.map((part, partIdx) => {
+                            if (part.startsWith('**') && part.endsWith('**')) {
+                              return <strong key={partIdx} className="font-semibold text-rush-legacy">{part.slice(2, -2)}</strong>;
+                            }
+                            return <span key={partIdx}>{part}</span>;
+                          })}
+                        </p>
+                      );
+                    }
+                    // Blockquote: > text
+                    if (line.startsWith('>')) {
+                      return (
+                        <p key={lineIdx} className="pl-3 border-l-2 border-rush-legacy/30 text-gray-600 my-2 text-[13px]">
+                          {line.slice(1).trim()}
+                        </p>
+                      );
+                    }
+                    // Italic: _text_
+                    if (line.startsWith('_') && line.endsWith('_')) {
+                      return (
+                        <p key={lineIdx} className="text-xs text-gray-500 italic my-2">
+                          {line.slice(1, -1)}
+                        </p>
+                      );
+                    }
+                    // Horizontal rule
+                    if (line.startsWith('---')) {
+                      return <hr key={lineIdx} className="my-3 border-rush-legacy/20" />;
+                    }
+                    // Empty lines
+                    if (!line.trim()) {
+                      return null;
+                    }
+                    // Regular text
+                    return <p key={lineIdx} className="my-1">{line}</p>;
+                  })}
+                </div>
+
+                {/* View PDF Button - only show if sourceFile available */}
+                {deepSearchPolicy.sourceFile && onViewPdf && (
+                  <div className="pt-3 border-t border-rush-legacy/20">
+                    <button
+                      onClick={() => onViewPdf(deepSearchPolicy.sourceFile!, deepSearchPolicy.policyTitle)}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-rush-legacy hover:bg-rush-legacy/90 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                    >
+                      <FileText className="h-4 w-4" />
+                      View PDF: {deepSearchPolicy.policyTitle}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Use Ctrl+F in the PDF to search for the exact text shown above.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <p className="text-sm md:text-base leading-relaxed text-foreground">
+                  {quickAnswer}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Need assistance? Visit{" "}
+                  <a
+                    href={POLICYTECH_URL}
+                    className="text-rush-legacy underline decoration-dotted underline-offset-4"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {POLICYTECH_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                  </a>{" "}
+                  or contact Policy Administration.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-3 overflow-hidden">

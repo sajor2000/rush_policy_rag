@@ -18,6 +18,8 @@ import {
   Loader2,
   ChevronRight,
   AlertCircle,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   searchInstances,
@@ -49,6 +51,27 @@ export default function InstanceSearchModal({
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<InstanceSearchResponse | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Helper to copy text to clipboard
+  const handleCopyText = useCallback(async (text: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  }, []);
+
+  // Helper to format page display - show estimated range since exact page may not be available
+  const formatPageDisplay = (pageNumber: number | null): string => {
+    if (!pageNumber) return "N/A";
+    // Show as estimated range (±1 page) since page numbers may be approximate
+    const minPage = Math.max(1, pageNumber - 1);
+    const maxPage = pageNumber + 1;
+    return `~${minPage}-${maxPage}`;
+  };
 
   // Reset state when modal opens
   useEffect(() => {
@@ -210,44 +233,61 @@ export default function InstanceSearchModal({
                 <p className="text-sm mt-1">Try a different search term or phrase.</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {results.instances.map((instance, idx) => (
-                  <button
+                  <div
                     key={`${instance.chunk_id}-${instance.position}-${idx}`}
-                    onClick={() => handleInstanceClick(instance)}
-                    disabled={!instance.page_number || !sourceFile}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                      instance.page_number && sourceFile
-                        ? "hover:bg-rush-sage/30 hover:border-rush-legacy/30 cursor-pointer"
-                        : "opacity-75 cursor-default"
-                    } bg-white border-gray-200`}
+                    className="p-3 rounded-lg border bg-white border-gray-200"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-rush-sage/40 text-rush-legacy rounded">
-                            {instance.page_number
-                              ? `Page ${instance.page_number}`
-                              : "N/A"}
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-rush-sage/40 text-rush-legacy rounded" title="Page numbers are estimated from chunk position">
+                          Pages {formatPageDisplay(instance.page_number)}
+                        </span>
+                        {instance.section && (
+                          <span className="text-xs text-muted-foreground">
+                            Section {instance.section}
+                            {instance.section_title &&
+                              `: ${instance.section_title}`}
                           </span>
-                          {instance.section && (
-                            <span className="text-xs text-muted-foreground">
-                              Section {instance.section}
-                              {instance.section_title &&
-                                `: ${instance.section_title}`}
-                            </span>
-                          )}
-                        </div>
-                        <div className="leading-relaxed break-words">
-                          {renderHighlightedContext(instance)}
-                        </div>
+                        )}
                       </div>
-                      {instance.page_number && sourceFile && (
-                        <ChevronRight className="h-4 w-4 text-rush-legacy flex-shrink-0 mt-1" />
-                      )}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyText(instance.context, idx);
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-rush-legacy hover:bg-gray-100 rounded transition-colors"
+                          title="Copy text to search in PDF (Ctrl+F)"
+                        >
+                          {copiedIndex === idx ? (
+                            <Check className="h-3.5 w-3.5 text-green-600" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        {instance.page_number && sourceFile && (
+                          <button
+                            onClick={() => handleInstanceClick(instance)}
+                            className="p-1.5 text-rush-legacy hover:bg-rush-sage/30 rounded transition-colors"
+                            title="Jump to this section in PDF"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </button>
+                    {/* Show FULL chunk content - no truncation */}
+                    <div className="leading-relaxed break-words text-sm text-gray-700 bg-gray-50 p-2 rounded border border-gray-100">
+                      {renderHighlightedContext(instance)}
+                    </div>
+                  </div>
                 ))}
+                {/* Disclaimer about page estimates */}
+                <p className="text-xs text-gray-400 text-center mt-3 italic">
+                  💡 Page numbers are estimated. Use "Copy" button to search exact text in PDF (Ctrl+F).
+                </p>
               </div>
             )}
           </div>

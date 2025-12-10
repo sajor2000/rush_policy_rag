@@ -156,8 +156,6 @@ class InstanceSearchService:
         safe_ref = policy_ref.replace("'", "''")
 
         # Use search with filter to get all chunks - filter is O(1) on indexed field
-        # Note: page_number may not exist in all index versions, so we don't include it in select
-        # and don't order by it - we'll sort by chunk_index instead if available
         results = list(self.search_client.search(
             search_text="*",
             filter=f"reference_number eq '{safe_ref}'",
@@ -246,7 +244,6 @@ class InstanceSearchService:
 
         # Use semantic hybrid search within the filtered policy
         # This combines keyword matching with Azure's semantic ranker
-        # Note: page_number may not exist in older index versions
         results = list(self.search_client.search(
             search_text=query,
             filter=f"reference_number eq '{safe_ref}'",
@@ -275,9 +272,9 @@ class InstanceSearchService:
         """
         content = chunk.get("content", "")
 
-        # Truncate content for display (first 300 chars)
-        display_content = content[:300]
-        if len(content) > 300:
+        # Truncate content for display (first 800 chars for more context)
+        display_content = content[:800]
+        if len(content) > 800:
             display_content += "..."
 
         # Try to find and highlight the search term if present
