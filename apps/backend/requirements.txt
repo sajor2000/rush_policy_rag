@@ -33,6 +33,7 @@ tenacity>=8.2.0
 
 # HTTP
 requests>=2.31.0
+httpx>=0.27.0  # Async HTTP client for adversarial testing
 # Use system certificate store (fixes Netskope/corporate proxy SSL issues on Windows/Mac)
 # truststore works at SSL level with all libraries (httpx, requests, Azure SDK)
 truststore>=0.9.0
