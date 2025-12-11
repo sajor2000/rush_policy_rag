@@ -164,6 +164,15 @@ POLICY_HINTS = [
         "hint": "Adult Rapid Response policy Ref #346",
         "reference": "346",
         "policy_query": "Adult Rapid Response"
+    },
+    {
+        "keywords": ["informed consent", "consent form", "agree to treatment",
+                    "patient agreement", "sign consent", "procedure consent",
+                    "surgical consent", "treatment consent", "patient consent",
+                    "consent process", "consent documentation"],
+        "hint": "Informed Consent policy Ref #275",
+        "reference": "275",
+        "policy_query": "Informed Consent"
     }
 ]
 

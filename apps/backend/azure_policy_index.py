@@ -200,6 +200,7 @@ latex, natural rubber latex, latex allergy, latex precautions, latex product, la
 HIPAA, privacy, patient privacy, PHI, protected health information, confidentiality
 EMTALA, emergency treatment law, anti-dumping, medical screening, stabilization requirement
 informed consent, consent, patient consent, surgical consent, procedure consent
+agree to treatment, patient agreement, treatment agreement, agree to procedure, patient authorization, informed consent
 advance directive, living will, healthcare proxy, DPOA, POLST, DNR
 DNR, do not resuscitate, no code, allow natural death, AND, comfort care
 compliance, regulatory compliance, policy compliance, accreditation

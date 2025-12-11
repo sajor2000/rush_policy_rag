@@ -141,6 +141,12 @@ COMPOUND_EXPANSIONS = {
     ('subject', 'sign'): 'subject sign signature consent form mark X witness documentation',
     ('research', 'consent'): 'research consent informed consent form signature documentation IRB subject participant',
     ('consent', 'form'): 'consent form signature sign mark X witness documentation informed',
+    # Patient consent/agreement language (addresses "agree to treatment" → informed consent gap)
+    ('agree', 'treatment'): 'agree treatment informed consent consent form patient consent authorization procedure consent',
+    ('patient', 'agree'): 'patient agree informed consent consent form authorization treatment consent patient rights',
+    ('treatment', 'consent'): 'treatment consent informed consent patient consent authorization surgical consent procedure consent',
+    ('agree', 'procedure'): 'agree procedure informed consent consent form surgical consent patient authorization',
+    ('patient', 'consent'): 'patient consent informed consent consent form authorization treatment consent procedure consent',
 }
 
 # Single-term expansions for key clinical terms
@@ -155,7 +161,8 @@ SINGLE_TERM_EXPANSIONS = {
     'medication': 'medication administration drug dispensing pharmacy',
     'infection': 'infection control infection prevention HAI',
     'transfusion': 'blood transfusion blood products blood administration',
-    'consent': 'informed consent consent form authorization',
+    'consent': 'informed consent consent form authorization patient consent',
+    'agree': 'agree consent authorization informed consent patient agreement',
     # Catheter synonyms (user requested)
     'foley': 'urinary catheter indwelling bladder Foley',
     'catheter': 'urinary catheter Foley indwelling',

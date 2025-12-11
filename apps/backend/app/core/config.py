@@ -74,7 +74,8 @@ class Settings(BaseSettings):
     # Per industry best practices: retrieve 100+ docs, rerank to top 5-10
     COHERE_RERANK_TOP_N: int = 10  # Increased for multi-policy queries (was 5)
     # Healthcare needs higher precision - calibrated for policy domain
-    COHERE_RERANK_MIN_SCORE: float = 0.15  # Increased threshold (was 0.1)
+    # Raised from 0.15 to 0.25 to reduce low-relevance "related" results (David feedback)
+    COHERE_RERANK_MIN_SCORE: float = 0.25  # Increased threshold (was 0.15)
     # Number of documents to retrieve before reranking (higher = better recall)
     COHERE_RETRIEVE_TOP_K: int = 100  # Industry standard: 100-150 candidates
     # Model name for Cohere rerank (configurable for version upgrades)
