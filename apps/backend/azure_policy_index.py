@@ -303,6 +303,11 @@ NPO, nothing by mouth, fasting, no eating or drinking
 on call, call coverage, night call, backup coverage
 
 # ============================================================================
+# EMPLOYEE ATTENDANCE
+# ============================================================================
+call off, calling off, sick employee, employee sick, sick day, unscheduled absence, attendance
+
+# ============================================================================
 # OBSTETRICS & NEONATAL
 # ============================================================================
 cesarean, c-section, cesarean section, CS, surgical delivery

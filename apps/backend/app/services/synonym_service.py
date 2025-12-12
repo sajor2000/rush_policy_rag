@@ -147,6 +147,10 @@ COMPOUND_EXPANSIONS = {
     ('treatment', 'consent'): 'treatment consent informed consent patient consent authorization surgical consent procedure consent',
     ('agree', 'procedure'): 'agree procedure informed consent consent form surgical consent patient authorization',
     ('patient', 'consent'): 'patient consent informed consent consent form authorization treatment consent procedure consent',
+    # Employee attendance/sick language (addresses "call off" → sick employee policy gap)
+    ('call', 'off'): 'call off sick employee attendance absence unscheduled absence',
+    ('calling', 'off'): 'calling off sick employee attendance absence',
+    ('call', 'sick'): 'call sick employee attendance absence call off',
 }
 
 # Single-term expansions for key clinical terms
@@ -163,6 +167,9 @@ SINGLE_TERM_EXPANSIONS = {
     'transfusion': 'blood transfusion blood products blood administration',
     'consent': 'informed consent consent form authorization patient consent',
     'agree': 'agree consent authorization informed consent patient agreement',
+    # Employee attendance
+    'calloff': 'call off sick employee attendance absence',
+    'sick': 'sick employee attendance absence call off unscheduled',
     # Catheter synonyms (user requested)
     'foley': 'urinary catheter indwelling bladder Foley',
     'catheter': 'urinary catheter Foley indwelling',
