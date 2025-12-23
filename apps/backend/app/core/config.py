@@ -100,6 +100,18 @@ class Settings(BaseSettings):
     # PolicyTech URL - official RUSH policy administration portal
     POLICYTECH_URL: str = "https://rushumc.policytech.com"
 
+    # Azure Blob Storage - used for PDF storage and audit logs
+    STORAGE_CONNECTION_STRING: Optional[str] = None
+
+    # Chat Audit - Global audit log for RAG quality monitoring
+    CHAT_AUDIT_ENABLED: bool = True
+    CHAT_AUDIT_CONTAINER: str = "chat-audit"
+    CHAT_AUDIT_BUFFER_SIZE: int = 50  # Records to buffer before flush
+    CHAT_AUDIT_FLUSH_INTERVAL_SECONDS: int = 30  # Max time between flushes
+    CHAT_AUDIT_MAX_QUESTION_LENGTH: int = 2000  # Truncate long questions
+    CHAT_AUDIT_MAX_RESPONSE_LENGTH: int = 5000  # Truncate long responses
+    CHAT_AUDIT_RETENTION_DAYS: int = 90  # Days to retain audit logs
+
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""
@@ -110,7 +122,7 @@ class Settings(BaseSettings):
         """Parse AZURE_AD_ALLOWED_CLIENT_IDS into a list."""
         return [client.strip() for client in self.AZURE_AD_ALLOWED_CLIENT_IDS.split(",") if client.strip()]
 
-    @field_validator('USE_ON_YOUR_DATA', 'USE_COHERE_RERANK', mode='before')
+    @field_validator('USE_ON_YOUR_DATA', 'USE_COHERE_RERANK', 'CHAT_AUDIT_ENABLED', mode='before')
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean from string (handles 'true', 'false', '1', '0')."""

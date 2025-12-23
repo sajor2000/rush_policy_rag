@@ -17,7 +17,9 @@ from openai import RateLimitError, APITimeoutError, APIConnectionError
 from typing import Optional
 import logging
 import asyncio
+import time
 import pybreaker
+from app.services.chat_audit_service import get_chat_audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,9 @@ async def chat(
     - BM25 + 132 synonym rules
     - L2 Semantic Reranking
     """
+    # Start timing for audit
+    start_time = time.perf_counter()
+
     try:
         validated_message = validate_query(body.message, max_length=2000)
         body.message = validated_message
@@ -103,14 +108,29 @@ async def chat(
             headers={"Retry-After": str(azure_openai_breaker.reset_timeout)}
         )
 
+    cohere_service = get_cohere_rerank_service()
     service = ChatService(
         search_index,
         on_your_data_service,
-        cohere_rerank_service=get_cohere_rerank_service()
+        cohere_rerank_service=cohere_service
     )
 
     try:
-        return await service.process_chat(body)
+        response = await service.process_chat(body)
+
+        # Non-blocking audit logging
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        pipeline = "cohere_rerank" if cohere_service else "on_your_data"
+        asyncio.create_task(
+            get_chat_audit_service().log_chat(
+                request=body,
+                response=response,
+                latency_ms=latency_ms,
+                pipeline_used=pipeline,
+            )
+        )
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RateLimitError as e:

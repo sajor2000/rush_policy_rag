@@ -7,6 +7,7 @@ from fastapi import FastAPI, Header, HTTPException, status
 from azure_policy_index import PolicySearchIndex
 from app.services.on_your_data_service import OnYourDataService
 from app.services.cohere_rerank_service import CohereRerankService
+from app.services.chat_audit_service import init_chat_audit_service, shutdown_chat_audit_service
 from app.core.config import settings
 from app.core.auth import AzureADTokenValidator, TokenValidationError
 
@@ -202,6 +203,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as e:
             logger.warning(f"Cohere Rerank service warmup error (non-critical): {e}")
 
+    # Initialize Chat Audit Service for RAG quality monitoring
+    try:
+        if settings.CHAT_AUDIT_ENABLED:
+            await init_chat_audit_service()
+            logger.info("Chat Audit Service initialized - logging to blob storage")
+        else:
+            logger.info("Chat Audit Service disabled")
+    except Exception as e:
+        # Non-critical - don't fail startup if audit service fails
+        logger.warning(f"Failed to initialize Chat Audit Service (non-critical): {e}")
+
     yield
 
     # Graceful shutdown - wait for in-flight requests to complete
@@ -249,5 +261,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.info("Search index closed")
         except Exception as e:
             logger.warning(f"Error closing search index: {e}")
+
+    # Stop Chat Audit Service and flush remaining records
+    try:
+        await shutdown_chat_audit_service()
+        logger.info("Chat Audit Service stopped - all records flushed")
+    except Exception as e:
+        logger.warning(f"Error stopping Chat Audit Service: {e}")
 
     logger.info("All resources cleaned up")

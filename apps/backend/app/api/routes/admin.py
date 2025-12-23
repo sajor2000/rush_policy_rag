@@ -1,11 +1,15 @@
 import os
 import secrets
 import asyncio
+from datetime import date
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Security, Query
 from fastapi.security import APIKeyHeader
 from app.core.config import settings
 from app.dependencies import get_search_index
+from app.services.chat_audit_service import get_chat_audit_service
+from app.models.audit_schemas import AuditQueryResponse, AuditStatsResponse
 from azure_policy_index import PolicySearchIndex
 
 router = APIRouter()
@@ -123,3 +127,130 @@ async def upload_folder(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Chat Audit Endpoints - RAG Quality Monitoring
+# ============================================================================
+
+@router.get("/audit/dates")
+async def list_audit_dates(
+    limit: int = Query(default=30, ge=1, le=365, description="Max dates to return"),
+    _: str = Depends(verify_admin_key),
+):
+    """List dates with available audit logs (most recent first)."""
+    audit_service = get_chat_audit_service()
+
+    if not audit_service.is_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat audit service is not enabled or configured"
+        )
+
+    dates = await audit_service.list_available_dates(limit=limit)
+    return {"dates": dates, "count": len(dates)}
+
+
+@router.get("/audit/records/{audit_date}")
+async def get_audit_records(
+    audit_date: str,
+    limit: int = Query(default=100, ge=1, le=1000, description="Max records to return"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    found: Optional[bool] = Query(default=None, description="Filter by found status"),
+    confidence: Optional[str] = Query(default=None, description="Filter by confidence level"),
+    needs_human_review: Optional[bool] = Query(default=None, description="Filter by review flag"),
+    _: str = Depends(verify_admin_key),
+):
+    """
+    Get audit records for a specific date.
+
+    Date format: YYYY-MM-DD (e.g., 2025-12-23)
+    """
+    audit_service = get_chat_audit_service()
+
+    if not audit_service.is_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat audit service is not enabled or configured"
+        )
+
+    # Validate date format
+    try:
+        from datetime import datetime
+        datetime.strptime(audit_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-23)"
+        )
+
+    records, total_count = await audit_service.get_records_for_date(
+        date=audit_date,
+        limit=limit,
+        offset=offset,
+        found=found,
+        confidence=confidence,
+        needs_human_review=needs_human_review,
+    )
+
+    return AuditQueryResponse(
+        records=records,
+        total_count=total_count,
+        query_date=audit_date,
+    )
+
+
+@router.get("/audit/stats/{audit_date}")
+async def get_audit_stats(
+    audit_date: str,
+    _: str = Depends(verify_admin_key),
+):
+    """
+    Get aggregated statistics for a specific date.
+
+    Returns: total queries, found rate, confidence breakdown, latency metrics.
+    """
+    audit_service = get_chat_audit_service()
+
+    if not audit_service.is_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat audit service is not enabled or configured"
+        )
+
+    # Validate date format
+    try:
+        from datetime import datetime
+        datetime.strptime(audit_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-23)"
+        )
+
+    stats = await audit_service.get_stats_for_date(audit_date)
+    return stats
+
+
+@router.get("/audit/today")
+async def get_today_audit(
+    limit: int = Query(default=50, ge=1, le=500, description="Max records to return"),
+    _: str = Depends(verify_admin_key),
+):
+    """Get today's audit records (convenience endpoint)."""
+    audit_service = get_chat_audit_service()
+
+    if not audit_service.is_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat audit service is not enabled or configured"
+        )
+
+    today = date.today().strftime("%Y-%m-%d")
+    records, total = await audit_service.get_records_for_date(today, limit=limit)
+
+    return {
+        "date": today,
+        "records": records,
+        "total_count": total,
+    }
