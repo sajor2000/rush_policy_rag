@@ -128,4 +128,19 @@ storybook-static/
 # Playwright
 playwright-report/
 test-results/
+
+# Sensitive files - API keys
+apikey
 claude
+**/apikey
+**/claude
+
+# Generated reports and outputs
+reports/
+all_files.txt
+audit_report.json
+*_report.json
+*_results.txt
+
+# Personal notes
+david.md
