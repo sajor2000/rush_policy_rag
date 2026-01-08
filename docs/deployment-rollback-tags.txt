@@ -1,0 +1,54 @@
+# Deployment Rollback Tags
+# Created: 2026-01-08
+# Deployment: melissa-feedback-v1
+
+## Pre-Deployment Production Tags
+
+**Backend (rush-policy-backend)**:
+```
+aiinnovation.azurecr.io/rush-policy-backend:latest
+```
+
+**Frontend (rush-policy-frontend)**:
+```
+aiinnovation.azurecr.io/rush-policy-frontend:latest
+```
+
+## Rollback Commands
+
+If rollback needed, use these commands:
+
+```bash
+# Backend rollback
+az containerapp update \
+  --name rush-policy-backend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-backend:latest
+
+# Frontend rollback
+az containerapp update \
+  --name rush-policy-frontend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-frontend:latest
+```
+
+## New Deployment Tags (melissa-feedback-v1)
+
+**Backend**:
+```
+aiinnovation.azurecr.io/rush-policy-backend:melissa-feedback-v1
+```
+
+**Frontend**:
+```
+aiinnovation.azurecr.io/rush-policy-frontend:melissa-feedback-v1
+```
+
+## Notes
+
+- Pre-deployment production tag: `:latest`
+- New deployment tag: `:melissa-feedback-v1`
+- Resource Group: RU-A-NonProd-AI-Innovation-RG
+- Location: East US
+- Container Registry: aiinnovation.azurecr.io
+- Phase 1 completed: 2026-01-08
