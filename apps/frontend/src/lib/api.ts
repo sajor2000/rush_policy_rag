@@ -189,6 +189,8 @@ export async function sendMessage(message: string): Promise<ChatApiResponse> {
         found: typeof data.found === 'boolean' ? data.found : undefined,
         chunks_used: typeof data.chunks_used === 'number' ? data.chunks_used : undefined,
         error: typeof data.error === 'string' ? data.error : undefined,
+        confidence: data.confidence as "high" | "medium" | "low" | "clarification_needed" | undefined,
+        clarification: data.clarification as ChatApiResponse['clarification'] | undefined,
       };
 
     } catch (err) {
