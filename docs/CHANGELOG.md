@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **melissa-feedback-v1-hotfix2** (2026-01-08): Fixed clarification UI bug in Next.js API route
+  - File: `apps/frontend/src/app/api/chat/route.ts` (lines 132-133)
+  - Issue: Next.js API route was stripping out `confidence` and `clarification` fields when proxying backend responses to frontend
+  - Impact: Clarification UI never displayed for ambiguous device queries (e.g., "how long can an IV stay in place?")
+  - Resolution: Added `confidence` and `clarification` fields to `NextResponse.json()` return statement
+  - Deployed to production as `melissa-feedback-v1-hotfix2`
+
+- **melissa-feedback-v1-hotfix1** (2026-01-08): Fixed clarification UI bug in frontend API wrapper
+  - File: `apps/frontend/src/lib/api.ts` (lines 192-193)
+  - Issue: Client-side API wrapper wasn't passing through `confidence` and `clarification` fields from server response
+  - Impact: Partial fix for clarification UI bug (hotfix2 completed the fix)
+  - Resolution: Added field mapping for `confidence` and `clarification` in `sendMessage()` return statement
+  - Note: This hotfix alone was insufficient - hotfix2 was required to fully resolve the issue
+
 ### Added
 
 - **Device Ambiguity Detection & Clarification UI** (2026-01-08): Intelligent query disambiguation for medical devices

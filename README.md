@@ -6,7 +6,8 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 |---|---|
 | **Tech Stack** | FastAPI (Python 3.12) + Next.js 14 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
-| **Deployment** | Azure Container Apps |
+| **Deployment** | Azure Container Apps (Production Only) |
+| **Current Version** | melissa-feedback-v1-hotfix2 (2026-01-08) |
 
 ---
 
@@ -19,27 +20,35 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 ```bash
 # Step 1: Build Backend
 cd apps/backend
-az acr build --registry policytechacr --image policytech-backend:latest .
+az acr build --registry aiinnovation --image policytech-backend:latest .
 
 # Step 2: Deploy Backend
-az containerapp create --name rush-policy-backend ...
+az containerapp update \
+  --name rush-policy-backend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/policytech-backend:latest
 
 # Step 3: Build Frontend
 cd apps/frontend
-az acr build --registry policytechacr --image policytech-frontend:latest .
+az acr build --registry aiinnovation --image policytech-frontend:latest .
 
 # Step 4: Deploy Frontend
-az containerapp create --name rush-policy-frontend ...
+az containerapp update \
+  --name rush-policy-frontend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/policytech-frontend:latest
 ```
 
-### After Deployment
+### Production URLs
 
 | Service | URL |
 |---------|-----|
-| **Frontend** | `https://rush-policy-frontend.<region>.azurecontainerapps.io` |
-| **Backend API** | `https://rush-policy-backend.<region>.azurecontainerapps.io` |
-| **Health Check** | `https://rush-policy-backend.<region>.azurecontainerapps.io/health` |
-| **API Docs** | `https://rush-policy-backend.<region>.azurecontainerapps.io/docs` |
+| **Frontend** | <https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io> |
+| **Backend API** | <https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io> |
+| **Health Check** | <https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/health> |
+| **API Docs** | <https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/docs> |
+
+**Note**: This project uses a **production-only deployment model**. No staging or test environments are currently configured to minimize Azure costs. All testing should be performed locally before deploying to production.
 
 ---
 
@@ -182,12 +191,22 @@ rag_pt_rush/
 
 ## Key Features
 
+### Core RAG Pipeline
+
 - **Azure OpenAI "On Your Data"**: vectorSemanticHybrid search (Vector + BM25 + L2 Reranking)
 - **Cohere Rerank 3.5**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval
 - **Production Security**: Rate limiting, input validation, CSP headers
 - **PDF Upload & Viewing**: End-to-end pipeline with async blob storage
 - **1,800+ Document Support**: top_k=50 with semantic ranker optimization
 - **Healthcare Synonyms**: 132 synonym rules for medical terminology
+
+### Recent Enhancements (melissa-feedback-v1, 2026-01-08)
+
+- **Device Ambiguity Detection**: Intelligent clarification UI for ambiguous medical device queries (IV, catheter, line, port)
+- **Three-Tier PDF Access**: Quick access buttons on each evidence card + sticky panel + bottom section
+- **Score Windowing**: Post-rerank filtering (60% threshold) reduces irrelevant results by 60-70%
+- **Collapsible Related Evidence**: Prevents users from following incorrect policies
+- **Context-Aware Synonym Expansion**: Priority-based stopping prevents cascading query noise
 
 ---
 
