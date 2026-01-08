@@ -32,10 +32,12 @@ class ChatResponse(BaseModel):
     chunks_used: int = 0
     found: bool = True
     # Healthcare safety fields - critical for high-risk environments
-    confidence: Literal["high", "medium", "low"] = "medium"
+    confidence: Literal["high", "medium", "low", "clarification_needed"] = "medium"
     confidence_score: Optional[float] = None  # Raw score 0.0-1.0
     needs_human_review: bool = False  # Flag for low-confidence responses
     safety_flags: List[str] = Field(default_factory=list)  # Any safety concerns
+    # Ambiguity clarification field - for queries needing user input
+    clarification: Optional[Dict[str, Any]] = None  # Contains message, options, ambiguous_term
 
 
 class SearchRequest(BaseModel):

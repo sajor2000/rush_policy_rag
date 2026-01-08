@@ -153,7 +153,62 @@ COMPOUND_EXPANSIONS = {
     ('call', 'sick'): 'call sick employee attendance absence call off',
 }
 
-# Single-term expansions for key clinical terms
+# ============================================================================
+# Context-Specific Expansions (PRIORITY 1) - Prevents over-broad cascading
+# ============================================================================
+# Multi-word specific phrases that should expand to precise medical terms
+CONTEXT_SPECIFIC_EXPANSIONS = {
+    # ===== PERIPHERAL IV (short-term vascular access) =====
+    'peripheral iv': 'peripheral intravenous PIV short-term venous access',
+    'piv': 'peripheral intravenous peripheral IV short-term',
+    'iv line': 'intravenous line peripheral IV PIV',
+
+    # ===== CENTRAL LINES (long-term vascular access) =====
+    'central line': 'central venous catheter CVC PICC long-term',
+    'picc': 'peripherally inserted central catheter PICC line long-term',
+    'picc line': 'peripherally inserted central catheter PICC CVC',
+    'cvc': 'central venous catheter central line TLC triple lumen',
+    'tlc': 'triple lumen catheter central venous catheter CVC',
+    'triple lumen': 'triple lumen catheter TLC central line CVC',
+
+    # ===== URINARY CATHETERS =====
+    'foley': 'urinary catheter indwelling bladder Foley catheter',
+    'urinary catheter': 'Foley indwelling bladder catheterization',
+    'foley catheter': 'urinary catheter Foley indwelling bladder',
+
+    # ===== EPIDURAL/SPINAL =====
+    'epidural': 'epidural catheter spinal anesthesia pain management',
+    'epidural catheter': 'epidural spinal catheter pain management',
+
+    # ===== DIALYSIS/APHERESIS =====
+    'dialysis catheter': 'dialysis port apheresis catheter Quinton',
+    'quinton': 'dialysis catheter Quinton apheresis',
+    'trialysis': 'central venous catheter dialysis catheter CVC central line',
+    'apheresis': 'apheresis catheter dialysis port',
+
+    # ===== IMPLANTED PORTS =====
+    'port': 'implanted port vascular access device',
+    'implanted port': 'port-a-cath chemotherapy port vascular access',
+    'port-a-cath': 'implanted port chemotherapy vascular access',
+
+    # ===== ARTERIAL LINES =====
+    'arterial line': 'A-line arterial catheter radial artery',
+    'a-line': 'arterial line arterial catheter',
+    'radial line': 'arterial line radial artery A-line',
+}
+
+# ============================================================================
+# Neutral Fallbacks (PRIORITY 3) - Don't cascade, used only if no specific match
+# ============================================================================
+NEUTRAL_FALLBACKS = {
+    'iv': 'intravenous vascular access',  # STOP - don't add 'catheter'
+    'catheter': 'vascular access tube',   # STOP - don't add specific types
+    'line': 'vascular access',            # STOP - don't add device types
+}
+
+# ============================================================================
+# Single-term expansions for non-device clinical terms (PRIORITY 2)
+# ============================================================================
 # Applied when term appears WITHOUT a compound match
 SINGLE_TERM_EXPANSIONS = {
     'neonatal': 'NICU Neonatal ICU neonatal intensive care newborn infant',
@@ -170,15 +225,8 @@ SINGLE_TERM_EXPANSIONS = {
     # Employee attendance
     'calloff': 'call off sick employee attendance absence',
     'sick': 'sick employee attendance absence call off unscheduled',
-    # Catheter synonyms (user requested)
-    'foley': 'urinary catheter indwelling bladder Foley',
-    'catheter': 'urinary catheter Foley indwelling',
-    'cvc': 'central venous catheter central line TLC PICC Quinton Trialysis',
-    'tlc': 'triple lumen catheter central venous catheter CVC central line',
-    'quinton': 'central venous catheter dialysis catheter CVC central line',
-    'trialysis': 'central venous catheter dialysis catheter CVC central line',
-    'central': 'central venous catheter central line CVC PICC TLC Quinton',
-    'iv': 'peripheral intravenous PIV catheter',
+    # REMOVED device-specific terms - now in CONTEXT_SPECIFIC_EXPANSIONS
+    # 'foley', 'catheter', 'cvc', 'tlc', 'quinton', 'trialysis', 'central', 'iv' moved above
     # Sedation synonyms (user requested)
     'sedation': 'sedation mechanical ventilation IV sedation moderate sedation',
     # Respiratory/ventilation synonyms (user requested)
@@ -513,36 +561,77 @@ class SynonymService:
         result: QueryExpansion
     ) -> str:
         """
-        Apply single-term expansions for key clinical terms.
+        Apply single-term expansions with priority-based stopping.
 
-        This catches queries like "neonatal pain policy" where the user
-        says "neonatal" but the policy title uses "Neonatal ICU".
+        Priority:
+        1. Multi-word specific phrases (e.g., "peripheral iv", "central line")
+        2. Single-word specific terms (e.g., "picc", "foley")
+        3. Single-word general terms (e.g., "pain", "visitor")
+        4. Neutral fallbacks (e.g., "iv" → "intravenous vascular access")
 
-        Only applies if the expansion term isn't already in the query.
+        NOTE: Multi-word compound phrases (e.g., "pediatric pain") are handled
+        separately by _apply_compound_expansions() which runs BEFORE this method.
+
+        CRITICAL: Stop after first match to prevent cascading expansions.
         """
         query_lower = query.lower()
-        additions = []
 
+        # Priority 1: Multi-word CONTEXT_SPECIFIC phrases (device-specific)
+        for phrase in sorted(CONTEXT_SPECIFIC_EXPANSIONS.keys(), key=len, reverse=True):
+            if len(phrase.split()) > 1 and phrase in query_lower:
+                expansion = CONTEXT_SPECIFIC_EXPANSIONS[phrase]
+                # Only add terms not already present
+                new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
+                if new_terms:
+                    addition = ' '.join(new_terms[:4])
+                    result.expansions_applied.append({
+                        'context_specific_phrase': phrase,
+                        'expansion': addition
+                    })
+                    logger.info(f"Context-specific phrase expansion: '{phrase}' → '{addition}' (STOPS HERE)")
+                    return f"{query} {addition}"  # STOP after first match
+
+        # Priority 2: Single-word specific terms (device-specific)
+        for term, expansion in CONTEXT_SPECIFIC_EXPANSIONS.items():
+            if len(term.split()) == 1 and term in query_lower:
+                new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
+                if new_terms:
+                    addition = ' '.join(new_terms[:4])
+                    result.expansions_applied.append({
+                        'context_specific_term': term,
+                        'expansion': addition
+                    })
+                    logger.info(f"Context-specific term expansion: '{term}' → '{addition}' (STOPS HERE)")
+                    return f"{query} {addition}"  # STOP after first match
+
+        # Priority 3: General clinical terms (non-device)
         for term, expansion in SINGLE_TERM_EXPANSIONS.items():
             if term in query_lower:
-                # Only add terms not already present
-                new_terms = []
-                for exp_word in expansion.split():
-                    if exp_word.lower() not in query_lower:
-                        new_terms.append(exp_word)
-
+                new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
                 if new_terms:
-                    addition = ' '.join(new_terms[:4])  # Limit to 4 new terms
-                    additions.append(addition)
+                    addition = ' '.join(new_terms[:4])
                     result.expansions_applied.append({
                         'single_term': term,
                         'expansion': addition
                     })
-                    logger.info(f"Single-term expansion: {term} -> {addition}")
+                    logger.info(f"Single-term expansion: '{term}' → '{addition}'")
+                    # Don't return yet - allow multiple general term expansions
+                    return f"{query} {addition}"
 
-        if additions:
-            return f"{query} {' '.join(additions)}"
-        return query
+        # Priority 4: Neutral fallbacks (only if no specific match)
+        for term, expansion in NEUTRAL_FALLBACKS.items():
+            if term in query_lower:
+                new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
+                if new_terms:
+                    addition = ' '.join(new_terms[:4])
+                    result.expansions_applied.append({
+                        'neutral_fallback': term,
+                        'expansion': addition
+                    })
+                    logger.info(f"Neutral fallback expansion: '{term}' → '{addition}' (NEUTRAL, STOPS CASCADE)")
+                    return f"{query} {addition}"  # STOP after neutral fallback
+
+        return query  # No expansion needed
 
     def expand_query(
         self,

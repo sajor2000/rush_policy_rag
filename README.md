@@ -211,4 +211,7 @@ Internal use only - Rush University System for Health
 
 - **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 - **Development Guide**: [CLAUDE.md](CLAUDE.md)
+- **Melissa Feedback Release**: [docs/DEPLOYMENT_GUIDE_MELISSA_FEEDBACK.md](docs/DEPLOYMENT_GUIDE_MELISSA_FEEDBACK.md)
+- **Staging Test Checklist**: [docs/STAGING_TEST_CHECKLIST.md](docs/STAGING_TEST_CHECKLIST.md)
+- **Changelog**: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 - **Policy Admin**: https://rushumc.navexone.com/

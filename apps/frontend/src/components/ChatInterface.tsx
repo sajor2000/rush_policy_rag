@@ -57,6 +57,18 @@ export default function ChatInterface() {
   const [deepSearchPolicyRef, setDeepSearchPolicyRef] = useState("");
   const [showDeepSearchHelp, setShowDeepSearchHelp] = useState(false);
 
+  // Device ambiguity clarification state
+  const [showClarification, setShowClarification] = useState<{
+    ambiguous_term: string;
+    message: string;
+    options: Array<{
+      label: string;
+      expansion: string;
+      type: string;
+    }>;
+    originalQuery: string;
+  } | null>(null);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -111,8 +123,8 @@ export default function ChatInterface() {
     }
   };
 
-  const handleViewPdf = (sourceFile: string, title: string) => {
-    fetchAndDisplayPdf(sourceFile, title, 1);
+  const handleViewPdf = (sourceFile: string, title: string, pageNumber?: number) => {
+    fetchAndDisplayPdf(sourceFile, title, pageNumber || 1);
   };
 
   const handleClosePdf = () => {
@@ -243,6 +255,19 @@ export default function ChatInterface() {
     try {
       const result = await sendMessage(userMessage);
 
+      // Check if the response needs clarification (device ambiguity detected)
+      if (result.confidence === "clarification_needed" && result.clarification) {
+        setShowClarification({
+          ...result.clarification,
+          originalQuery: userMessage
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Clear any previous clarification prompt
+      setShowClarification(null);
+
       setMessages((prev) => [...prev, {
         role: "assistant",
         content: result.summary || result.response,
@@ -266,6 +291,45 @@ export default function ChatInterface() {
       setMessages((prev) => prev.slice(0, -1));
       setInput(lastMessage);
       textareaRef.current?.focus();
+    }
+  };
+
+  const handleClarificationChoice = async (option: { label: string; expansion: string; type: string }) => {
+    if (!showClarification) return;
+
+    // Create refined query with the selected expansion
+    const refinedQuery = `${showClarification.originalQuery} ${option.expansion}`;
+
+    // Clear clarification prompt
+    setShowClarification(null);
+    setIsLoading(true);
+
+    try {
+      const result = await sendMessage(refinedQuery);
+
+      // Should not need clarification after refinement, but check anyway
+      if (result.confidence === "clarification_needed" && result.clarification) {
+        setShowClarification({
+          ...result.clarification,
+          originalQuery: refinedQuery
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        content: result.summary || result.response,
+        summary: result.summary || result.response,
+        evidence: result.evidence || [],
+        sources: result.sources || [],
+        rawResponse: result.raw_response,
+        found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0
+      }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -323,6 +387,25 @@ export default function ChatInterface() {
             {error && (
               <div role="alert" aria-live="assertive">
                 <ErrorMessage message={error} onRetry={handleRetry} />
+              </div>
+            )}
+            {/* Device Ambiguity Clarification UI */}
+            {showClarification && (
+              <div className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-lg mb-4 shadow-md">
+                <p className="text-sm font-medium text-gray-800 mb-3">
+                  {showClarification.message}
+                </p>
+                <div className="flex flex-col gap-2">
+                  {showClarification.options.map((opt, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleClarificationChoice(opt)}
+                      className="text-left px-4 py-2 bg-white border border-rush-legacy/30 rounded-md hover:bg-rush-legacy/5 transition-colors"
+                    >
+                      <span className="font-medium text-rush-legacy">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <div ref={messagesEndRef} />

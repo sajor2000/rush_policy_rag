@@ -1244,6 +1244,67 @@ class ChatService:
     - L2 Semantic Reranking
     """
 
+    # ========================================================================
+    # Ambiguous Device Term Detection
+    # ========================================================================
+    AMBIGUOUS_DEVICE_TERMS = {
+        'iv': {
+            'device_types': ['peripheral_iv', 'picc', 'cvc', 'port'],
+            'message': 'Your query mentions "IV" which could refer to different devices. Which type are you asking about?',
+            'options': [
+                {
+                    'label': 'Peripheral IV (short-term, 72-96 hours)',
+                    'expansion': 'peripheral intravenous PIV short-term',
+                    'type': 'peripheral_iv'
+                },
+                {
+                    'label': 'PICC line (long-term central line)',
+                    'expansion': 'PICC peripherally inserted central catheter long-term',
+                    'type': 'picc'
+                },
+                {
+                    'label': 'Central venous catheter (CVC, triple lumen)',
+                    'expansion': 'central venous catheter CVC TLC long-term',
+                    'type': 'cvc'
+                },
+                {
+                    'label': 'Any IV or catheter (show all results)',
+                    'expansion': 'intravenous vascular access',
+                    'type': 'all'
+                }
+            ]
+        },
+        'catheter': {
+            'device_types': ['urinary', 'peripheral_iv', 'central_line', 'epidural'],
+            'message': 'Your query mentions "catheter" which could refer to different types. Which are you asking about?',
+            'options': [
+                {'label': 'Urinary catheter (Foley)', 'expansion': 'urinary catheter Foley bladder', 'type': 'urinary'},
+                {'label': 'IV catheter (peripheral or central)', 'expansion': 'intravenous catheter vascular', 'type': 'iv'},
+                {'label': 'Epidural catheter', 'expansion': 'epidural catheter spinal', 'type': 'epidural'},
+                {'label': 'Any catheter (show all results)', 'expansion': 'catheter tube', 'type': 'all'}
+            ]
+        },
+        'line': {
+            'device_types': ['peripheral_iv', 'central_line', 'arterial'],
+            'message': 'Your query mentions "line" which could refer to different vascular access types. Which are you asking about?',
+            'options': [
+                {'label': 'Peripheral IV line', 'expansion': 'peripheral intravenous PIV', 'type': 'peripheral'},
+                {'label': 'Central line (PICC, CVC)', 'expansion': 'central venous catheter PICC CVC', 'type': 'central'},
+                {'label': 'Arterial line', 'expansion': 'arterial line A-line', 'type': 'arterial'},
+                {'label': 'Any line (show all results)', 'expansion': 'vascular access line', 'type': 'all'}
+            ]
+        },
+        'port': {
+            'device_types': ['implanted_port', 'dialysis_port'],
+            'message': 'Your query mentions "port" which could refer to different access devices. Which are you asking about?',
+            'options': [
+                {'label': 'Implanted port (chemotherapy port)', 'expansion': 'implanted port chemotherapy vascular access', 'type': 'implanted'},
+                {'label': 'Dialysis port (apheresis catheter)', 'expansion': 'dialysis port apheresis catheter', 'type': 'dialysis'},
+                {'label': 'Any port (show all results)', 'expansion': 'port vascular access', 'type': 'all'}
+            ]
+        }
+    }
+
     def __init__(
         self,
         search_index: PolicySearchIndex,
@@ -1373,8 +1434,59 @@ class ChatService:
                 return True
         except Exception as e:
             logger.debug(f"Query decomposition check failed: {e}")
-        
+
         return False
+
+    # ========================================================================
+    # Device Ambiguity Detection - Prevents noisy results from vague queries
+    # ========================================================================
+    def detect_device_ambiguity(self, query: str) -> Optional[Dict]:
+        """
+        Detect if query contains ambiguous medical device shorthand without context.
+
+        Returns clarification config if:
+        1. Query contains ambiguous term (iv, catheter, line, port)
+        2. Query lacks disambiguating modifiers (peripheral, central, urinary, etc.)
+        3. Query is device-focused (contains: dwell, stay, place, care, remove, change)
+
+        Returns:
+            Dict with 'message', 'options', 'ambiguous_term' if ambiguous
+            None if query is clear enough
+        """
+        query_lower = query.lower()
+
+        # Check for device-related context (dwell time, care, insertion, etc.)
+        device_context_keywords = [
+            'dwell', 'stay', 'place', 'long', 'care', 'change', 'remove',
+            'insertion', 'maintain', 'flush', 'dressing', 'duration', 'access'
+        ]
+        has_device_context = any(kw in query_lower for kw in device_context_keywords)
+
+        if not has_device_context:
+            return None  # Not a device-focused query
+
+        # Check each ambiguous term
+        for term, config in self.AMBIGUOUS_DEVICE_TERMS.items():
+            if term in query_lower:
+                # Check for disambiguating modifiers
+                disambiguators = [
+                    'peripheral', 'central', 'urinary', 'foley', 'epidural',
+                    'picc', 'cvc', 'tlc', 'arterial', 'implanted', 'dialysis',
+                    'apheresis', 'port-a-cath', 'chemo'
+                ]
+                has_disambiguator = any(d in query_lower for d in disambiguators)
+
+                if not has_disambiguator:
+                    # AMBIGUOUS - return clarification config
+                    logger.info(f"Ambiguous device term detected: '{term}' in query: {query[:50]}...")
+                    return {
+                        'ambiguous_term': term,
+                        'message': config['message'],
+                        'options': config['options'],
+                        'requires_clarification': True
+                    }
+
+        return None  # Query is clear enough
 
     # ========================================================================
     # FIX 7: Dynamic search parameters based on query complexity
@@ -1434,7 +1546,7 @@ class ChatService:
     def _get_cohere_top_n(self, query: str) -> int:
         """
         Dynamic top_n for Cohere reranking based on query complexity.
-        
+
         Multi-policy queries need more results to ensure comprehensive coverage.
         Simple queries can use fewer results for precision.
         """
@@ -1443,6 +1555,56 @@ class ChatService:
         if len(query.split()) <= 3:
             return 5   # Fewer for simple/short queries
         return 7       # Default for standard queries
+
+    def filter_by_score_window(
+        self,
+        reranked: List[RerankResult],
+        query: str,
+        window_threshold: float = 0.6
+    ) -> List[RerankResult]:
+        """
+        Filter reranked results to keep only docs within a relative score window.
+
+        For single-intent queries (e.g., "IV dwell time"), we want to keep only
+        results that are semantically similar to the top hit. This prevents noise
+        from related-but-different policies (e.g., PICC lines when user asked about PIV).
+
+        Args:
+            reranked: Cohere reranked results (sorted by score)
+            query: Original query
+            window_threshold: Keep docs with score >= (top_score * threshold)
+
+        Returns:
+            Filtered list of reranked results
+        """
+        if not reranked or len(reranked) <= 2:
+            return reranked  # Too few results, don't filter
+
+        top_score = reranked[0].cohere_score
+        if top_score < 0.3:
+            # Low confidence overall - don't filter (might remove valid results)
+            logger.info(f"Top score {top_score:.2f} < 0.3, skipping score windowing")
+            return reranked
+
+        # Calculate score window threshold
+        min_score = top_score * window_threshold
+
+        # Filter results
+        filtered = [r for r in reranked if r.cohere_score >= min_score]
+
+        # Ensure we keep at least 2 results (prevent over-filtering)
+        if len(filtered) < 2 and len(reranked) >= 2:
+            logger.warning(
+                f"Score windowing would reduce to {len(filtered)} results, "
+                f"keeping top 2 instead"
+            )
+            return reranked[:2]
+
+        logger.info(
+            f"Score windowing: {len(reranked)} → {len(filtered)} results "
+            f"(threshold: {min_score:.2f}, top: {top_score:.2f})"
+        )
+        return filtered
 
     # ========================================================================
     # HEALTHCARE SAFETY: Confidence Scoring for Response Routing
@@ -2113,6 +2275,23 @@ Policy excerpt:"""
                 safety_flags=["OUT_OF_SCOPE"]
             )
 
+        # Device ambiguity detection - Ask for clarification before searching
+        ambiguity_config = self.detect_device_ambiguity(request.message)
+        if ambiguity_config:
+            logger.info(f"Ambiguous device query detected: {request.message[:50]}...")
+            # Return clarification request to frontend
+            return ChatResponse(
+                response="",
+                summary="",
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="clarification_needed",
+                clarification=ambiguity_config
+            )
+
         # Adversarial query detection
         if self._is_adversarial_query(request.message):
             logger.info(f"Adversarial query detected: {request.message[:50]}...")
@@ -2314,6 +2493,15 @@ Policy excerpt:"""
                         if found_forced:
                             logger.info(f"Sparse fallback found forced refs: {found_forced}")
                             reranked = reranked_with_lower_threshold
+
+            # NEW: Apply score windowing for single-intent queries
+            # This filters out noise from related-but-different policies
+            if reranked and len(reranked) > 3:
+                reranked = self.filter_by_score_window(
+                    reranked,
+                    request.message,
+                    window_threshold=0.6  # Keep docs with score >= 60% of top score
+                )
 
             if not reranked:
                 logger.warning("Cohere rerank returned no results at calibrated threshold; retrying with min_score=0.0")

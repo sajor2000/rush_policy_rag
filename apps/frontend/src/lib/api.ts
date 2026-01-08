@@ -35,6 +35,18 @@ export interface ChatApiResponse {
   found?: boolean;
   chunks_used?: number;
   error?: string;
+  // Device ambiguity clarification
+  confidence?: "high" | "medium" | "low" | "clarification_needed";
+  clarification?: {
+    ambiguous_term: string;
+    message: string;
+    options: Array<{
+      label: string;
+      expansion: string;
+      type: string;
+    }>;
+    requires_clarification: boolean;
+  };
 }
 
 // Constants

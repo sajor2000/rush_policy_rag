@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen, Search } from "lucide-react";
+import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen, Search, ChevronRight } from "lucide-react";
 import { Evidence, Source } from "@/lib/api";
 import { POLICYTECH_URL } from "@/lib/constants";
 
@@ -23,7 +23,7 @@ interface ChatMessageProps {
     policyTitle: string;
     sourceFile?: string;
   };
-  onViewPdf?: (sourceFile: string, title: string) => void;
+  onViewPdf?: (sourceFile: string, title: string, pageNumber?: number) => void;
   onSearchInPolicy?: (policyRef: string, policyTitle: string, sourceFile?: string) => void;
 }
 
@@ -626,6 +626,32 @@ export default function ChatMessage({
               )}
             </div>
 
+            {/* Sticky Quick Access Panel - PDFs correlated with evidence */}
+            {effectiveSources.length > 0 && onViewPdf && (
+              <div className="sticky top-0 z-10 mt-3 p-3 bg-white/95 backdrop-blur-sm border border-rush-legacy/30 rounded-lg shadow-md">
+                <p className="text-[10px] uppercase tracking-wider text-gray-600 mb-2 flex items-center gap-1.5">
+                  <FileText className="h-3 w-3" />
+                  Quick Access: Source PDFs
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {effectiveSources.map((source, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => onViewPdf(source.source_file, source.title)}
+                      className="inline-flex items-center gap-1.5 text-xs bg-rush-legacy text-white hover:bg-rush-legacy/80 px-3 py-1.5 rounded-md transition-colors"
+                    >
+                      <span className="flex items-center justify-center w-5 h-5 bg-white text-rush-legacy rounded-full text-[10px] font-bold">
+                        {idx + 1}
+                      </span>
+                      <span className="font-medium max-w-[200px] truncate">
+                        {source.title || source.source_file}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Supporting Evidence Section - Compact PDF Style */}
             {evidence && evidence.length > 0 && (() => {
               // Build citation number map: first occurrence of each policy gets the display number
@@ -786,22 +812,56 @@ export default function ChatMessage({
                             <Copy className="h-3 w-3" />
                             {copiedIndex === idx ? "Copied!" : "Copy"}
                           </button>
+                          {/* View PDF button - directly correlated with this evidence */}
+                          {item.source_file && onViewPdf && (
+                            <button
+                              type="button"
+                              onClick={() => onViewPdf(item.source_file!, item.title, item.page_number)}
+                              title="View source PDF"
+                              aria-label="View source PDF"
+                              className="inline-flex items-center gap-1 text-xs text-white bg-rush-legacy hover:bg-rush-legacy/80 transition-colors px-2 py-1 rounded font-medium"
+                            >
+                              <FileText className="h-3 w-3" />
+                              PDF
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Policy Text - Cleaned with better formatting */}
-                    <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
-                      <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line break-words [overflow-wrap:anywhere]">
-                        {cleanSnippet(item.snippet)}
+                    {/* Policy Text - Collapsible for "related" evidence */}
+                    {item.match_type === "related" ? (
+                      <details className="group">
+                        <summary className="px-4 py-2 bg-amber-50/30 cursor-pointer hover:bg-amber-100/50 transition-colors text-sm text-gray-600 flex items-center gap-2">
+                          <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90 text-amber-700" />
+                          <span className="font-medium text-amber-800">Show related evidence</span>
+                          <span className="text-xs text-gray-500">(may not directly support the answer)</span>
+                        </summary>
+                        <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
+                          <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                            {cleanSnippet(item.snippet)}
+                          </div>
+                          {isSnippetTruncated(item.snippet) && (
+                            <p className="text-xs text-gray-400 italic mt-3 pt-2 border-t border-gray-100 flex items-center gap-1">
+                              <span className="inline-block w-1 h-1 bg-gray-300 rounded-full"></span>
+                              Text excerpt — view full document for complete policy
+                            </p>
+                          )}
+                        </div>
+                      </details>
+                    ) : (
+                      <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
+                        <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                          {cleanSnippet(item.snippet)}
+                        </div>
+                        {isSnippetTruncated(item.snippet) && (
+                          <p className="text-xs text-gray-400 italic mt-3 pt-2 border-t border-gray-100 flex items-center gap-1">
+                            <span className="inline-block w-1 h-1 bg-gray-300 rounded-full"></span>
+                            Text excerpt — view full document for complete policy
+                          </p>
+                        )}
                       </div>
-                      {isSnippetTruncated(item.snippet) && (
-                        <p className="text-xs text-gray-400 italic mt-3 pt-2 border-t border-gray-100 flex items-center gap-1">
-                          <span className="inline-block w-1 h-1 bg-gray-300 rounded-full"></span>
-                          Text excerpt — view full document for complete policy
-                        </p>
-                      )}
-                    </div>
+                    )}
                   </div>
                   );
                 })}

@@ -166,8 +166,6 @@ sign language, ASL, deaf services, hearing impaired
 # CLINICAL PROCEDURES & TREATMENTS
 # ============================================================================
 intubation, tube insertion, airway management, ETT placement, endotracheal intubation
-catheterization, catheter insertion, foley catheter, urinary catheter, bladder catheter
-central line placement, CVC insertion, central venous access, PICC placement
 lumbar puncture, spinal tap, LP, CSF collection
 blood transfusion, transfusion, blood administration, blood products, PRBC
 dialysis, hemodialysis, CRRT, renal replacement therapy, kidney dialysis
@@ -176,8 +174,24 @@ sedation, conscious sedation, moderate sedation, procedural sedation
 CPR, cardiopulmonary resuscitation, chest compressions, resuscitation, BLS
 defibrillation, cardioversion, AED use, electrical cardioversion
 phlebotomy, blood draw, venipuncture, blood collection
-IV, intravenous, infusion, drip, IV therapy
 restraints, physical restraints, patient restraints, limb restraints
+
+# ============================================================================
+# VASCULAR ACCESS DEVICES (Device-type specific to prevent conflation)
+# ============================================================================
+PIV, peripheral IV, peripheral intravenous catheter, short-term IV
+PICC, peripherally inserted central catheter, PICC line
+CVC, central venous catheter, central line, triple lumen catheter, TLC
+Foley, urinary catheter, indwelling catheter, bladder catheter
+epidural catheter, spinal catheter, epidural
+dialysis catheter, Quinton, Quinton catheter, apheresis catheter
+implanted port, port-a-cath, chemotherapy port, vascular access port
+arterial line, A-line, radial arterial line
+
+# NOTE: Removed generic "IV, intravenous, infusion, drip, IV therapy" line
+# This prevents "IV" from matching "infusion pump" policies
+# NOTE: Removed generic "catheterization, catheter insertion" line
+# This prevents conflation of urinary, peripheral IV, and central line catheters
 
 # ============================================================================
 # PATIENT SAFETY (Critical for compliance searches)
