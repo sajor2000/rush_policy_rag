@@ -128,7 +128,9 @@ export async function POST(request: NextRequest) {
       sources: data.sources || [],
       raw_response: data.raw_response,
       chunks_used: data.chunks_used || 0,
-      found: data.found ?? (data.evidence?.length > 0)
+      found: data.found ?? (data.evidence?.length > 0),
+      confidence: data.confidence,
+      clarification: data.clarification
     });
   } catch (error) {
     const elapsed = Date.now() - startTime;
