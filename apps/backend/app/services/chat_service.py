@@ -1749,26 +1749,10 @@ Question: {query}
 Policy excerpt:"""
             
             # HEALTHCARE SAFETY: HyDE DISABLED - uses model knowledge, not database facts
-            # This is a hallucination vector. Keeping code for reference but bypassing.
+            # This is a hallucination vector in healthcare contexts.
+            # HyDE generates hypothetical answers that could introduce fabricated medical guidance.
             logger.debug("HyDE disabled for healthcare safety - using original query")
             return query
-            
-            # Original HyDE code (disabled):
-            # response = await asyncio.to_thread(
-            #     client.chat.completions.create,
-            #     model=os.environ.get("AOAI_CHAT_DEPLOYMENT", "gpt-4.1"),
-            #     messages=[{"role": "user", "content": hyde_prompt}],
-            #     max_tokens=150,
-            #     temperature=0.0
-            # )
-            
-            hypothetical_doc = response.choices[0].message.content.strip()
-            
-            # Combine original query with hypothetical document
-            enhanced_query = f"{query} {hypothetical_doc}"
-            logger.info(f"HyDE enhanced query: '{query[:50]}...' + hypothetical ({len(hypothetical_doc)} chars)")
-            
-            return enhanced_query
             
         except asyncio.TimeoutError:
             logger.debug("HyDE generation timed out, using original query")

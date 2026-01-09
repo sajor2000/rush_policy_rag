@@ -38,9 +38,10 @@ async def decrement_requests() -> None:
         _active_requests -= 1
 
 
-def get_active_request_count() -> int:
-    """Get current number of active requests."""
-    return _active_requests
+async def get_active_request_count() -> int:
+    """Get current number of active requests (thread-safe)."""
+    async with _request_lock:
+        return _active_requests
 
 
 def get_search_index() -> PolicySearchIndex:

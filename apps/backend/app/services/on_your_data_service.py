@@ -367,7 +367,7 @@ If the information is not in the provided documents, say so."""
 
     def close(self) -> None:
         """
-        Clean up resources.
+        Clean up resources (synchronous).
 
         Should be called during application shutdown to release connections.
         """
@@ -379,7 +379,7 @@ If the information is not in the provided documents, say so."""
             except Exception as e:
                 logger.warning(f"Error closing HTTP client: {e}")
             self._http_client = None
-        
+
         if self.client is not None:
             try:
                 self.client.close()
@@ -387,3 +387,21 @@ If the information is not in the provided documents, say so."""
             except Exception as e:
                 logger.warning(f"Error closing OnYourDataService client: {e}")
             self.client = None
+
+    async def aclose(self) -> None:
+        """
+        Clean up resources (async version).
+
+        Async-friendly cleanup method for use in async contexts.
+        Wraps the synchronous close() method.
+        """
+        self.close()
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensures cleanup on context exit."""
+        await self.aclose()
+        return False  # Don't suppress exceptions
