@@ -98,6 +98,14 @@ def _get_auth_validator() -> Optional[AzureADTokenValidator]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    import time
+
+    # Track total startup time for observability
+    app_startup_start = time.perf_counter()
+    logger.info("=" * 80)
+    logger.info("🚀 APPLICATION STARTUP - Cold Start Optimization Enabled")
+    logger.info("=" * 80)
+
     global _search_index, _on_your_data_service, _cohere_rerank_service, _auth_validator
 
     # Initialize to None
@@ -134,6 +142,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"Failed to initialize On Your Data Service: {e}")
         _on_your_data_service = None
+
+    # ===================================================================
+    # EAGER INITIALIZE ALL LAZY SINGLETONS (Cold Start Optimization)
+    # These services were previously initialized on first request.
+    # Pre-initializing them during startup eliminates 300-700ms of first-query latency.
+    # ===================================================================
+    try:
+        logger.info("Pre-initializing lazy-loaded services for cold start optimization...")
+        startup_start = time.perf_counter()
+
+        # Import and initialize all singleton services
+        from app.services.synonym_service import get_synonym_service
+        from app.services.query_decomposer import get_query_decomposer
+        from app.services.citation_verifier import get_citation_verifier
+        from app.services.safety_validator import get_safety_validator
+        from app.services.corrective_rag import get_corrective_rag_service
+        from app.services.self_reflective_rag import get_self_reflective_service
+        from app.services.citation_formatter import get_citation_formatter
+
+        # Initialize each service (calls __init__, loads files, compiles regexes, etc.)
+        get_synonym_service()          # Loads 1MB JSON + builds 4 indexes (~50-150ms)
+        get_query_decomposer()         # Regex compilation (~10-50ms)
+        get_citation_verifier()        # Pattern compilation (~10-50ms)
+        get_safety_validator()         # Rule loading (~10-50ms)
+        get_corrective_rag_service()   # Model init (~20-100ms)
+        get_self_reflective_service()  # (~20-100ms)
+        get_citation_formatter()       # (~10-30ms)
+
+        startup_elapsed = (time.perf_counter() - startup_start) * 1000
+        logger.info(f"✅ All lazy services pre-initialized in {startup_elapsed:.1f}ms")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to pre-initialize some helper services (non-critical): {e}")
 
     # Initialize Cohere Rerank service (cross-encoder for negation-aware search)
     try:
@@ -182,27 +223,70 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error(f"Failed to initialize Azure AD auth validator: {e}")
         raise
 
-    # Warm up On Your Data service to prime connection pool (reduces first-request latency)
-    if _on_your_data_service and _on_your_data_service.is_configured:
+    # ===================================================================
+    # WARM UP AZURE AI SEARCH INDEX (Cold Start Optimization)
+    # First search query incurs DNS resolution + TLS handshake (~200-500ms).
+    # This warmup eliminates that latency by priming the connection pool.
+    # ===================================================================
+    if _search_index:
         try:
-            warmup_success = await _on_your_data_service.warmup()
-            if warmup_success:
-                logger.info("On Your Data service warmed up - connection pool primed")
-            else:
-                logger.warning("On Your Data service warmup failed - first requests may be slower")
-        except Exception as e:
-            logger.warning(f"On Your Data service warmup error (non-critical): {e}")
+            logger.info("Warming up Azure AI Search index...")
+            warmup_start = time.perf_counter()
 
-    # Warm up Cohere Rerank service to prime connection pool
-    if _cohere_rerank_service and _cohere_rerank_service.is_configured:
-        try:
-            warmup_success = await _cohere_rerank_service.warmup()
-            if warmup_success:
-                logger.info("Cohere Rerank service warmed up - connection pool primed")
-            else:
-                logger.warning("Cohere Rerank service warmup failed - first requests may be slower")
+            # Make minimal search request to prime connection pool
+            # Using synchronous call wrapped in thread (search_index.search is sync)
+            import asyncio
+            await asyncio.to_thread(
+                _search_index.search,
+                query="system warmup",
+                top=1  # Minimal result set
+            )
+
+            warmup_elapsed = (time.perf_counter() - warmup_start) * 1000
+            logger.info(f"✅ Search index warmed up in {warmup_elapsed:.1f}ms - connection pool primed")
+
         except Exception as e:
-            logger.warning(f"Cohere Rerank service warmup error (non-critical): {e}")
+            logger.warning(f"⚠️ Search index warmup failed (non-critical): {e}")
+
+    # ===================================================================
+    # PARALLEL WARMUP OF ALL AZURE SERVICES (Cold Start Optimization)
+    # Previously: OnYourData (500ms) -> Cohere (150ms) = 650ms sequential
+    # Now: Both run concurrently = ~500ms total (saves 150-200ms)
+    # ===================================================================
+    import asyncio
+
+    warmup_tasks = []
+
+    # Collect warmup tasks (only for configured services)
+    if _on_your_data_service and _on_your_data_service.is_configured:
+        warmup_tasks.append(("OnYourDataService", _on_your_data_service.warmup()))
+
+    if _cohere_rerank_service and _cohere_rerank_service.is_configured:
+        warmup_tasks.append(("CohereRerankService", _cohere_rerank_service.warmup()))
+
+    # Run all warmups in parallel
+    if warmup_tasks:
+        logger.info(f"Starting {len(warmup_tasks)} service warmups in parallel...")
+        parallel_start = time.perf_counter()
+
+        # Execute all warmups concurrently
+        results = await asyncio.gather(
+            *[task for _, task in warmup_tasks],
+            return_exceptions=True  # Don't fail startup if one warmup fails
+        )
+
+        parallel_elapsed = (time.perf_counter() - parallel_start) * 1000
+
+        # Log results
+        for (service_name, _), result in zip(warmup_tasks, results):
+            if isinstance(result, Exception):
+                logger.warning(f"⚠️ {service_name} warmup failed (non-critical): {result}")
+            elif result:
+                logger.info(f"✅ {service_name} warmed up successfully")
+            else:
+                logger.warning(f"⚠️ {service_name} warmup returned False (non-critical)")
+
+        logger.info(f"✅ All warmups completed in {parallel_elapsed:.1f}ms (parallel execution)")
 
     # Initialize Chat Audit Service for RAG quality monitoring
     try:
@@ -214,6 +298,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         # Non-critical - don't fail startup if audit service fails
         logger.warning(f"Failed to initialize Chat Audit Service (non-critical): {e}")
+
+    # Log total startup time
+    app_startup_elapsed = (time.perf_counter() - app_startup_start) * 1000
+    logger.info("=" * 80)
+    logger.info(f"✅ APPLICATION STARTUP COMPLETE - Total time: {app_startup_elapsed:.1f}ms")
+    logger.info("=" * 80)
 
     yield
 

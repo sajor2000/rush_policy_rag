@@ -66,7 +66,7 @@ from preprocessing.chunker import PolicyChunk
 SEARCH_ENDPOINT = os.environ.get("SEARCH_ENDPOINT", "https://policychataisearch.search.windows.net")
 SEARCH_API_KEY = os.environ.get("SEARCH_API_KEY")
 AOAI_ENDPOINT = os.environ.get("AOAI_ENDPOINT")
-AOAI_API_KEY = os.environ.get("AOAI_API")
+AOAI_API_KEY = os.environ.get("AOAI_API_KEY")
 AOAI_EMBEDDING_DEPLOYMENT = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
 
 # Index configuration
