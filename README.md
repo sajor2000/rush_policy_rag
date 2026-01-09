@@ -113,7 +113,7 @@ SEARCH_API_KEY=<key>
 
 # Azure OpenAI
 AOAI_ENDPOINT=https://<openai>.openai.azure.com/
-AOAI_API=<key>
+AOAI_API_KEY=<key>
 AOAI_CHAT_DEPLOYMENT=gpt-4.1
 AOAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
 

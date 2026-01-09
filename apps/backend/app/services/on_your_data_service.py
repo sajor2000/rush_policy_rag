@@ -74,7 +74,7 @@ class OnYourDataService:
     def __init__(self):
         # Azure OpenAI configuration
         self.endpoint = os.environ.get("AOAI_ENDPOINT")
-        self.api_key = os.environ.get("AOAI_API")
+        self.api_key = os.environ.get("AOAI_API_KEY")
         self.api_version = os.environ.get("AOAI_API_VERSION", "2024-08-01-preview")
         self.model = os.environ.get("AOAI_CHAT_DEPLOYMENT", "gpt-4.1")
 
@@ -111,7 +111,7 @@ class OnYourDataService:
         else:
             self.client = None
             self._http_client = None
-            logger.warning("Azure OpenAI credentials not configured (AOAI_ENDPOINT, AOAI_API)")
+            logger.warning("Azure OpenAI credentials not configured (AOAI_ENDPOINT, AOAI_API_KEY)")
 
         # Load system prompt
         self.system_prompt = self._load_system_prompt()
@@ -181,7 +181,7 @@ If the information is not in the provided documents, say so."""
         if not self.is_configured:
             raise RuntimeError(
                 "OnYourDataService not configured. "
-                "Check AOAI_ENDPOINT, AOAI_API, SEARCH_ENDPOINT, SEARCH_API_KEY"
+                "Check AOAI_ENDPOINT, AOAI_API_KEY, SEARCH_ENDPOINT, SEARCH_API_KEY"
             )
 
         prompt = system_prompt or self.system_prompt
