@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from app.models.schemas import ChatRequest, ChatResponse, SearchRequest, SearchResponse
+import json
 from app.dependencies import (
     get_search_index,
     get_on_your_data_service_dep,
@@ -127,6 +128,7 @@ async def chat(
                 response=response,
                 latency_ms=latency_ms,
                 pipeline_used=pipeline,
+                search_query=response.search_query,  # Expanded query for synonym analysis
             )
         )
 
@@ -195,3 +197,78 @@ async def chat(
         # Log detailed error server-side but return generic message to client
         logger.error(f"Chat processing failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred processing your request")
+
+
+# =============================================================================
+# Streaming Chat Endpoint (SSE)
+# =============================================================================
+
+def _sse_event(event_type: str, data: dict) -> str:
+    """Format a Server-Sent Event."""
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/chat/stream")
+@limiter.limit("30/minute")
+async def chat_stream(
+    request: Request,
+    body: ChatRequest,
+    search_index: PolicySearchIndex = Depends(get_search_index),
+    on_your_data_service: Optional[OnYourDataService] = Depends(get_on_your_data_service_dep),
+    _: Optional[dict] = Depends(get_current_user_claims)
+):
+    """
+    Stream chat response using Server-Sent Events (SSE).
+
+    Event types:
+    - status: Pipeline progress updates ("Searching...", "Generating...")
+    - answer_chunk: Partial answer text as it's generated
+    - evidence: Evidence items array (sent once at end)
+    - sources: Source references (sent once at end)
+    - metadata: Response metadata (confidence, chunks_used, found)
+    - done: End of stream marker
+    - error: Error during streaming
+    """
+    # Validate input
+    try:
+        validated_message = validate_query(body.message, max_length=2000)
+        body.message = validated_message
+    except ValueError as e:
+        async def error_gen():
+            yield _sse_event("error", {"type": "error", "message": str(e)})
+        return StreamingResponse(
+            error_gen(),
+            media_type="text/event-stream",
+            status_code=400
+        )
+
+    # Check circuit breaker
+    if is_circuit_open(azure_openai_breaker):
+        async def circuit_error_gen():
+            yield _sse_event("error", {
+                "type": "error",
+                "message": "Service temporarily unavailable. Please try again in a few moments.",
+                "retry_after": azure_openai_breaker.reset_timeout
+            })
+        return StreamingResponse(
+            circuit_error_gen(),
+            media_type="text/event-stream",
+            status_code=503
+        )
+
+    cohere_service = get_cohere_rerank_service()
+    service = ChatService(
+        search_index,
+        on_your_data_service,
+        cohere_rerank_service=cohere_service
+    )
+
+    return StreamingResponse(
+        service.process_chat_stream(body),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )

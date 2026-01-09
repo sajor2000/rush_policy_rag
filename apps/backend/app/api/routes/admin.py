@@ -9,6 +9,7 @@ from fastapi.security import APIKeyHeader
 from app.core.config import settings
 from app.dependencies import get_search_index
 from app.services.chat_audit_service import get_chat_audit_service
+from app.services.cache_service import get_cache_service, invalidate_caches
 from app.models.audit_schemas import AuditQueryResponse, AuditStatsResponse
 from azure_policy_index import PolicySearchIndex
 
@@ -253,4 +254,102 @@ async def get_today_audit(
         "date": today,
         "records": records,
         "total_count": total,
+    }
+
+
+# ============================================================================
+# Cache Management Endpoints - Response Time Optimization
+# ============================================================================
+
+@router.get("/cache/stats")
+async def cache_stats(
+    _: str = Depends(verify_admin_key),
+):
+    """
+    Get cache statistics for monitoring.
+
+    Returns hit rates, sizes, and memory estimates for all cache layers:
+    - Expansion cache: Query synonym expansion
+    - Response cache: Full ChatResponse objects
+    - Search cache: Azure AI Search results
+    """
+    cache_service = get_cache_service()
+    return cache_service.get_stats()
+
+
+@router.post("/cache/invalidate")
+async def invalidate_cache(
+    layer: Optional[str] = Query(
+        default=None,
+        description="Cache layer to invalidate: 'all', 'response', 'search', or 'expansion'. Default: all."
+    ),
+    _: str = Depends(verify_admin_key),
+):
+    """
+    Invalidate cache entries.
+
+    Call this after policy updates to ensure fresh data.
+
+    Layers:
+    - all: Clear all caches (default)
+    - response: Clear only full response cache (24h TTL)
+    - search: Clear only search results cache (6h TTL)
+    - expansion: Clear only query expansion cache (LRU)
+    """
+    cache_service = get_cache_service()
+
+    if layer is None or layer == "all":
+        counts = cache_service.invalidate_all()
+        return {
+            "status": "success",
+            "message": "All caches invalidated",
+            "invalidated": counts
+        }
+    elif layer == "response":
+        count = cache_service.invalidate_responses()
+        return {
+            "status": "success",
+            "message": "Response cache invalidated",
+            "invalidated": {"response": count}
+        }
+    elif layer == "search":
+        count = cache_service.invalidate_search()
+        return {
+            "status": "success",
+            "message": "Search cache invalidated",
+            "invalidated": {"search": count}
+        }
+    elif layer == "expansion":
+        # Expansion cache doesn't have a dedicated invalidation method
+        # Use full invalidation
+        counts = invalidate_caches()
+        return {
+            "status": "success",
+            "message": "All caches invalidated (expansion requires full clear)",
+            "invalidated": counts
+        }
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid layer: {layer}. Use 'all', 'response', 'search', or 'expansion'."
+        )
+
+
+@router.post("/cache/toggle")
+async def toggle_cache(
+    enabled: bool = Query(..., description="Enable or disable caching"),
+    _: str = Depends(verify_admin_key),
+):
+    """
+    Enable or disable the cache service.
+
+    Useful for debugging or when you need to ensure fresh responses.
+    """
+    cache_service = get_cache_service()
+    cache_service.enabled = enabled
+
+    return {
+        "status": "success",
+        "cache_enabled": enabled,
+        "message": f"Cache {'enabled' if enabled else 'disabled'}"
     }

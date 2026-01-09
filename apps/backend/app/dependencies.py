@@ -8,6 +8,7 @@ from azure_policy_index import PolicySearchIndex
 from app.services.on_your_data_service import OnYourDataService
 from app.services.cohere_rerank_service import CohereRerankService
 from app.services.chat_audit_service import init_chat_audit_service, shutdown_chat_audit_service
+from app.services.cache_service import CacheService, init_cache_service, get_cache_service
 from app.core.config import settings
 from app.core.auth import AzureADTokenValidator, TokenValidationError
 
@@ -175,6 +176,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     except Exception as e:
         logger.warning(f"⚠️ Failed to pre-initialize some helper services (non-critical): {e}")
+
+    # ===================================================================
+    # INITIALIZE CACHE SERVICE (Response Time Optimization)
+    # Multi-layer in-memory caching to reduce latency for repeat queries.
+    # Memory budget: ~50MB total across all cache layers.
+    # ===================================================================
+    try:
+        if settings.CACHE_ENABLED:
+            cache_start = time.perf_counter()
+            cache_service = init_cache_service(
+                expansion_cache_size=settings.CACHE_EXPANSION_SIZE,
+                response_cache_size=settings.CACHE_RESPONSE_SIZE,
+                search_cache_size=settings.CACHE_SEARCH_SIZE,
+                response_ttl=settings.CACHE_RESPONSE_TTL,
+                search_ttl=settings.CACHE_SEARCH_TTL,
+                enabled=True
+            )
+            cache_elapsed = (time.perf_counter() - cache_start) * 1000
+            logger.info(
+                f"✅ Cache service initialized in {cache_elapsed:.1f}ms - "
+                f"expansion={settings.CACHE_EXPANSION_SIZE}, "
+                f"response={settings.CACHE_RESPONSE_SIZE} (TTL={settings.CACHE_RESPONSE_TTL}s), "
+                f"search={settings.CACHE_SEARCH_SIZE} (TTL={settings.CACHE_SEARCH_TTL}s)"
+            )
+        else:
+            logger.info("Cache service disabled via CACHE_ENABLED=false")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to initialize cache service (non-critical): {e}")
 
     # Initialize Cohere Rerank service (cross-encoder for negation-aware search)
     try:

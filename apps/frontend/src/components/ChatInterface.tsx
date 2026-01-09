@@ -9,7 +9,12 @@ import LoadingState from "./LoadingState";
 import ErrorMessage from "./ErrorMessage";
 import PDFViewer from "./PDFViewer";
 import InstanceSearchModal from "./InstanceSearchModal";
-import { sendMessage, searchInstances, type Source, type Evidence, type InstanceSearchResponse } from "@/lib/api";
+import {
+  sendMessage,
+  searchInstances,
+  type Source,
+  type Evidence,
+} from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
@@ -248,35 +253,35 @@ export default function ChatInterface() {
       return;
     }
 
-    // Normal Q&A mode
+    // Normal Q&A mode (non-streaming)
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setIsLoading(true);
 
     try {
       const result = await sendMessage(userMessage);
 
-      // Check if the response needs clarification (device ambiguity detected)
+      // Check if clarification is needed (e.g., ambiguous device terms like "IV")
       if (result.confidence === "clarification_needed" && result.clarification) {
         setShowClarification({
           ...result.clarification,
-          originalQuery: userMessage
+          originalQuery: userMessage,
         });
         setIsLoading(false);
         return;
       }
 
-      // Clear any previous clarification prompt
-      setShowClarification(null);
-
-      setMessages((prev) => [...prev, {
-        role: "assistant",
-        content: result.summary || result.response,
-        summary: result.summary || result.response,
-        evidence: result.evidence || [],
-        sources: result.sources || [],
-        rawResponse: result.raw_response,
-        found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: result.summary || result.response,
+          summary: result.summary || result.response,
+          evidence: result.evidence || [],
+          sources: result.sources || [],
+          rawResponse: result.raw_response,
+          found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0,
+        },
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {

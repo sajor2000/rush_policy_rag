@@ -181,6 +181,11 @@ class ChatAuditService:
             for e in (response.evidence or [])[:10]  # Limit to top 10
         ]
 
+        # Map confidence - audit schema only allows high/medium/low
+        audit_confidence = response.confidence
+        if audit_confidence == "clarification_needed":
+            audit_confidence = "low"  # Clarification needed = low confidence
+
         return ChatAuditRecord(
             audit_id=str(uuid.uuid4()),
             timestamp=datetime.now(timezone.utc),
@@ -191,7 +196,7 @@ class ChatAuditService:
             found=response.found,
             citations=citations,
             chunks_used=response.chunks_used,
-            confidence=response.confidence,
+            confidence=audit_confidence,
             confidence_score=response.confidence_score,
             needs_human_review=response.needs_human_review,
             safety_flags=response.safety_flags or [],

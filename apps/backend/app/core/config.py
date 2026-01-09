@@ -112,6 +112,15 @@ class Settings(BaseSettings):
     CHAT_AUDIT_MAX_RESPONSE_LENGTH: int = 5000  # Truncate long responses
     CHAT_AUDIT_RETENTION_DAYS: int = 90  # Days to retain audit logs
 
+    # Cache Configuration - Multi-layer in-memory caching for latency optimization
+    # Total memory budget: ~50MB
+    CACHE_ENABLED: bool = True  # Master enable/disable for all caching
+    CACHE_EXPANSION_SIZE: int = 5000  # Query expansion cache (LRU, ~500KB)
+    CACHE_RESPONSE_SIZE: int = 1000  # Full response cache (TTL, ~20MB)
+    CACHE_SEARCH_SIZE: int = 500  # Search results cache (TTL, ~25MB)
+    CACHE_RESPONSE_TTL: int = 86400  # Response cache TTL: 24 hours
+    CACHE_SEARCH_TTL: int = 21600  # Search cache TTL: 6 hours
+
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""
@@ -122,7 +131,7 @@ class Settings(BaseSettings):
         """Parse AZURE_AD_ALLOWED_CLIENT_IDS into a list."""
         return [client.strip() for client in self.AZURE_AD_ALLOWED_CLIENT_IDS.split(",") if client.strip()]
 
-    @field_validator('USE_ON_YOUR_DATA', 'USE_COHERE_RERANK', 'CHAT_AUDIT_ENABLED', mode='before')
+    @field_validator('USE_ON_YOUR_DATA', 'USE_COHERE_RERANK', 'CHAT_AUDIT_ENABLED', 'CACHE_ENABLED', mode='before')
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean from string (handles 'true', 'false', '1', '0')."""

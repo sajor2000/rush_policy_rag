@@ -16,6 +16,7 @@ from app.services.safety_validator import get_safety_validator, ResponseSafetyVa
 from app.services.corrective_rag import get_corrective_rag_service, CorrectiveRAGService
 from app.services.self_reflective_rag import get_self_reflective_service, SelfReflectiveRAGService
 from app.services.query_decomposer import get_query_decomposer, QueryDecomposer
+from app.services.cache_service import get_cache_service, CacheService
 from app.core.config import settings
 
 from openai import AzureOpenAI
@@ -1315,6 +1316,15 @@ class ChatService:
         self.on_your_data_service = on_your_data_service
         self.cohere_rerank_service = cohere_rerank_service
 
+        # Initialize cache service for latency optimization
+        try:
+            self.cache_service = get_cache_service()
+            if self.cache_service.enabled:
+                logger.info("Cache service initialized for response caching")
+        except Exception as e:
+            logger.warning(f"Cache service unavailable: {e}")
+            self.cache_service = None
+
         # Initialize synonym service for query expansion
         try:
             self.synonym_service = get_synonym_service()
@@ -1455,10 +1465,11 @@ class ChatService:
         """
         query_lower = query.lower()
 
-        # Check for device-related context (dwell time, care, insertion, etc.)
+        # Check for device-related context (dwell time, care, insertion, policy, etc.)
         device_context_keywords = [
             'dwell', 'stay', 'place', 'long', 'care', 'change', 'remove',
-            'insertion', 'maintain', 'flush', 'dressing', 'duration', 'access'
+            'insertion', 'maintain', 'flush', 'dressing', 'duration', 'access',
+            'policy', 'guideline', 'protocol', 'procedure', 'rule'
         ]
         has_device_context = any(kw in query_lower for kw in device_context_keywords)
 
@@ -1933,6 +1944,13 @@ Policy excerpt:"""
         Returns:
             Tuple of (expanded_query, expansion_details)
         """
+        # Check expansion cache first (uses normalized query as key)
+        if self.cache_service and self.cache_service.enabled:
+            cached = self.cache_service.get_expansion(query)
+            if cached is not None:
+                logger.debug(f"[CACHE HIT] Expansion cache hit for: {query[:50]}...")
+                return cached
+
         # Normalize location context first (strip generic phrases like "in a patient room")
         # The extracted context is logged inside _normalize_location_context; we only need the query
         query, _ = self._normalize_location_context(query)
@@ -1953,7 +1971,13 @@ Policy excerpt:"""
                     f"misspellings: {len(expansion.misspellings_corrected)})"
                 )
 
-            return expansion.expanded_query, expansion
+            result = (expansion.expanded_query, expansion)
+
+            # Cache the expansion result
+            if self.cache_service and self.cache_service.enabled:
+                self.cache_service.set_expansion(query, expansion.expanded_query, expansion)
+
+            return result
         except Exception as e:
             logger.warning(f"Query expansion failed: {e}")
             return query, None
@@ -2193,20 +2217,328 @@ Policy excerpt:"""
         # Build safe filter expression
         filter_expr = build_applies_to_filter(request.filter_applies_to)
 
+        # ===================================================================
+        # RESPONSE CACHE CHECK (Cold Start Optimization)
+        # Check if we have a cached response for this exact query + filter.
+        # Cache hits return in <100ms instead of 4-6s.
+        # ===================================================================
+        if self.cache_service and self.cache_service.enabled:
+            cached_response = self.cache_service.get_response(request.message, filter_expr)
+            if cached_response is not None:
+                logger.info(f"[CACHE HIT] Response cache hit for: {request.message[:50]}...")
+                # Return cached response directly (already validated when cached)
+                return cached_response
+
         # Priority 1: Cohere Rerank (cross-encoder for negation-aware search)
         # This pipeline: Azure Search → Cohere Rerank → Regular Chat Completions
         if (settings.USE_COHERE_RERANK and
             self.cohere_rerank_service and
             self.cohere_rerank_service.is_configured and
             self._openai_client):
-            return await self._chat_with_cohere_rerank(request, filter_expr)
+            response = await self._chat_with_cohere_rerank(request, filter_expr)
+            # Cache successful responses with evidence (skip error/not-found/clarification)
+            if self.cache_service and self.cache_service.should_cache_response(response):
+                self.cache_service.set_response(request.message, response, filter_expr)
+            return response
 
         # Priority 2: Use On Your Data for full semantic hybrid search
         if self.on_your_data_service and self.on_your_data_service.is_configured:
-            return await self._chat_with_on_your_data(request, filter_expr)
+            response = await self._chat_with_on_your_data(request, filter_expr)
+            if self.cache_service and self.cache_service.should_cache_response(response):
+                self.cache_service.set_response(request.message, response, filter_expr)
+            return response
 
         # Fallback: Standard retrieval (search + basic response)
-        return await self._chat_with_standard_retrieval(request, filter_expr)
+        response = await self._chat_with_standard_retrieval(request, filter_expr)
+        if self.cache_service and self.cache_service.should_cache_response(response):
+            self.cache_service.set_response(request.message, response, filter_expr)
+        return response
+
+    # =========================================================================
+    # STREAMING CHAT RESPONSE (SSE)
+    # =========================================================================
+
+    async def process_chat_stream(self, request: ChatRequest):
+        """
+        Stream chat response using Server-Sent Events (SSE).
+
+        Yields SSE events as strings in format: "event: <type>\ndata: <json>\n\n"
+
+        Event types:
+        - status: Pipeline progress updates
+        - answer_chunk: Partial answer text
+        - evidence: Evidence items array (sent once)
+        - sources: Source references (sent once)
+        - metadata: Response metadata
+        - clarification: Device ambiguity clarification needed
+        - done: End of stream marker
+        - error: Error during streaming
+        """
+        import json
+        from openai import RateLimitError, APITimeoutError
+
+        def sse_event(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+        try:
+            # Early validations (same as non-streaming)
+            if self._is_unclear_query(request.message):
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": UNCLEAR_QUERY_MESSAGE})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "high", "found": False, "chunks_used": 0})
+                yield sse_event("done", {"type": "done"})
+                return
+
+            if self._is_out_of_scope_query(request.message):
+                out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": out_of_scope_msg})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "high", "found": False, "chunks_used": 0})
+                yield sse_event("done", {"type": "done"})
+                return
+
+            # Device ambiguity detection
+            ambiguity_config = self.detect_device_ambiguity(request.message)
+            if ambiguity_config:
+                yield sse_event("clarification", {
+                    "type": "clarification",
+                    "ambiguous_term": ambiguity_config.get("ambiguous_term", ""),
+                    "message": ambiguity_config.get("message", ""),
+                    "options": ambiguity_config.get("options", []),
+                    "requires_clarification": True
+                })
+                yield sse_event("done", {"type": "done"})
+                return
+
+            if self._is_adversarial_query(request.message):
+                adversarial_msg = "I'm a policy-only assistant and can't respond to requests that try to override my guidelines. How can I help with RUSH policies?"
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": adversarial_msg})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "high", "found": False, "chunks_used": 0, "safety_flags": ["ADVERSARIAL_BLOCKED"]})
+                yield sse_event("done", {"type": "done"})
+                return
+
+            # Build filter expression
+            filter_expr = build_applies_to_filter(request.filter_applies_to)
+
+            # Status: Searching
+            yield sse_event("status", {"type": "status", "message": "Searching policies..."})
+
+            # Expand query
+            expanded_query, expansion = self._expand_query(request.message)
+            search_query, forced_refs = self._apply_policy_hints(expanded_query)
+
+            # Search for documents
+            retrieve_top_k = settings.COHERE_RETRIEVE_TOP_K
+
+            # Check search cache
+            search_results = None
+            if self.cache_service and self.cache_service.enabled:
+                cached_results = self.cache_service.get_search_results(
+                    search_query, filter_expr, retrieve_top_k
+                )
+                if cached_results is not None:
+                    search_results = cached_results
+
+            if search_results is None:
+                search_results = await asyncio.to_thread(
+                    self.search_index.search,
+                    search_query,
+                    top=retrieve_top_k,
+                    filter_expr=filter_expr,
+                    use_semantic_ranking=True
+                )
+                if search_results and self.cache_service and self.cache_service.enabled:
+                    self.cache_service.set_search_results(
+                        search_query, search_results, filter_expr, retrieve_top_k
+                    )
+
+            if not search_results:
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": NOT_FOUND_MESSAGE})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "low", "found": False, "chunks_used": 0})
+                yield sse_event("done", {"type": "done"})
+                return
+
+            # Status: Reranking
+            yield sse_event("status", {"type": "status", "message": "Analyzing relevance..."})
+
+            # Prepare docs for reranking
+            docs_for_rerank = []
+            for sr in search_results:
+                docs_for_rerank.append({
+                    "content": sr.content,
+                    "title": sr.title,
+                    "reference_number": sr.reference_number,
+                    "source_file": sr.source_file,
+                    "section": sr.section,
+                    "applies_to": getattr(sr, 'applies_to', ''),
+                    "page_number": getattr(sr, 'page_number', None)
+                })
+
+            # Rerank with Cohere
+            if self.cohere_rerank_service and self.cohere_rerank_service.is_configured:
+                dynamic_top_n = self._get_cohere_top_n(request.message)
+                reranked = await self.cohere_rerank_service.rerank_async(
+                    query=request.message,
+                    documents=docs_for_rerank,
+                    top_n=dynamic_top_n,
+                    min_score=settings.COHERE_RERANK_MIN_SCORE
+                )
+            else:
+                # Fallback: use search results as-is (limit to top 10)
+                reranked = [
+                    RerankResult(
+                        content=doc.get('content', ''),
+                        title=doc.get('title', ''),
+                        reference_number=doc.get('reference_number', ''),
+                        source_file=doc.get('source_file', ''),
+                        section=doc.get('section', ''),
+                        applies_to=doc.get('applies_to', ''),
+                        page_number=doc.get('page_number'),
+                        cohere_score=0.5,
+                        original_index=i
+                    ) for i, doc in enumerate(docs_for_rerank[:10])
+                ]
+
+            if not reranked:
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": NOT_FOUND_MESSAGE})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "low", "found": False, "chunks_used": 0})
+                yield sse_event("done", {"type": "done"})
+                return
+
+            # Build context and evidence
+            context_parts = []
+            evidence_items = []
+            seen_refs = set()
+
+            for result in reranked:
+                # RerankResult has direct attributes, not a document dict
+                ref_num = result.reference_number or ''
+                title = result.title or 'Unknown Policy'
+                section = result.section or ''
+                content = result.content or ''
+
+                # Build context string
+                context_header = f"[{title}"
+                if ref_num:
+                    context_header += f" (Ref #{ref_num})"
+                context_header += "]"
+                if section:
+                    context_header += f" Section: {section}"
+                context_parts.append(f"{context_header}\n{content}")
+
+                # Build evidence item (dedupe by ref)
+                if ref_num and ref_num not in seen_refs:
+                    seen_refs.add(ref_num)
+                    evidence_items.append({
+                        "snippet": content[:500] if content else "",
+                        "citation": f"[{ref_num}] {title}" if ref_num else title,
+                        "title": title,
+                        "reference_number": ref_num,
+                        "section": section,
+                        "applies_to": result.applies_to or '',
+                        "source_file": result.source_file or '',
+                        "page_number": result.page_number,
+                        "match_type": "verified"
+                    })
+
+            context = "\n\n---\n\n".join(context_parts)
+
+            # Status: Generating
+            yield sse_event("status", {"type": "status", "message": "Generating answer..."})
+
+            # Build messages for OpenAI
+            messages = [
+                {"role": "system", "content": RISEN_PROMPT},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.message}"}
+            ]
+
+            # Stream from OpenAI
+            if self._openai_client:
+                try:
+                    stream = await asyncio.to_thread(
+                        self._openai_client.chat.completions.create,
+                        model=settings.AOAI_CHAT_DEPLOYMENT,
+                        messages=messages,
+                        temperature=0.0,
+                        max_tokens=500,
+                        stream=True
+                    )
+
+                    full_answer = ""
+                    for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            content = chunk.choices[0].delta.content
+                            full_answer += content
+                            yield sse_event("answer_chunk", {"type": "answer_chunk", "content": content})
+
+                    # Check if response indicates not found
+                    is_not_found = self._is_not_found_response(full_answer)
+                    if is_not_found:
+                        yield sse_event("evidence", {"type": "evidence", "items": []})
+                        yield sse_event("sources", {"type": "sources", "items": []})
+                        yield sse_event("metadata", {
+                            "type": "metadata",
+                            "confidence": "low",
+                            "found": False,
+                            "chunks_used": 0
+                        })
+                    else:
+                        # Build sources from evidence
+                        sources = []
+                        for ev in evidence_items:
+                            sources.append({
+                                "citation": ev["citation"],
+                                "source_file": ev.get("source_file", ""),
+                                "title": ev["title"],
+                                "reference_number": ev.get("reference_number"),
+                                "section": ev.get("section"),
+                                "applies_to": ev.get("applies_to"),
+                                "match_type": ev.get("match_type", "verified")
+                            })
+
+                        yield sse_event("evidence", {"type": "evidence", "items": evidence_items})
+                        yield sse_event("sources", {"type": "sources", "items": sources})
+
+                        # Calculate confidence
+                        avg_score = sum(r.cohere_score for r in reranked[:3]) / min(3, len(reranked))
+                        confidence = "high" if avg_score > 0.7 else "medium" if avg_score > 0.4 else "low"
+
+                        yield sse_event("metadata", {
+                            "type": "metadata",
+                            "confidence": confidence,
+                            "confidence_score": round(avg_score, 3),
+                            "found": True,
+                            "chunks_used": len(reranked)
+                        })
+
+                except RateLimitError as e:
+                    retry_after = 60
+                    if hasattr(e, 'response') and e.response:
+                        retry_after = int(e.response.headers.get('Retry-After', 60))
+                    yield sse_event("error", {
+                        "type": "error",
+                        "message": "Too many requests. Please wait before trying again.",
+                        "retry_after": retry_after
+                    })
+                    return
+                except APITimeoutError:
+                    yield sse_event("error", {
+                        "type": "error",
+                        "message": "Request timed out. Please try again.",
+                        "retry_after": 5
+                    })
+                    return
+            else:
+                # No OpenAI client - return basic response
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": "LLM service is not configured."})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "low", "found": False, "chunks_used": 0})
+
+            yield sse_event("done", {"type": "done"})
+
+        except Exception as e:
+            logger.error(f"Streaming chat failed: {e}", exc_info=True)
+            yield sse_event("error", {
+                "type": "error",
+                "message": "An error occurred processing your request"
+            })
 
     async def _chat_with_cohere_rerank(
         self,
@@ -2304,13 +2636,32 @@ Policy excerpt:"""
             # Per industry best practices: retrieve 100+ docs for reranking
             # Research shows Cohere can move relevant docs from position 273 → 5
             retrieve_top_k = settings.COHERE_RETRIEVE_TOP_K  # Default: 100
-            search_results = await asyncio.to_thread(
-                self.search_index.search,
-                search_query,
-                top=retrieve_top_k,
-                filter_expr=filter_expr,
-                use_semantic_ranking=True
-            )
+
+            # Check search cache first (saves 1-2.5s on cache hit)
+            search_results = None
+            if self.cache_service and self.cache_service.enabled:
+                cached_results = self.cache_service.get_search_results(
+                    search_query, filter_expr, retrieve_top_k
+                )
+                if cached_results is not None:
+                    logger.info(f"[CACHE HIT] Search cache hit: {len(cached_results)} results")
+                    search_results = cached_results
+
+            # Cache miss - execute search
+            if search_results is None:
+                search_results = await asyncio.to_thread(
+                    self.search_index.search,
+                    search_query,
+                    top=retrieve_top_k,
+                    filter_expr=filter_expr,
+                    use_semantic_ranking=True
+                )
+                # Cache the results for future queries
+                if search_results and self.cache_service and self.cache_service.enabled:
+                    self.cache_service.set_search_results(
+                        search_query, search_results, filter_expr, retrieve_top_k
+                    )
+
             logger.info(f"Retrieved {len(search_results) if search_results else 0} candidates for Cohere reranking")
 
             if not search_results:
@@ -2935,7 +3286,8 @@ Policy excerpt:"""
                 confidence=confidence_level,
                 confidence_score=confidence_score,
                 needs_human_review=needs_review,
-                safety_flags=all_flags
+                safety_flags=all_flags,
+                search_query=search_query  # Expanded query for audit/synonym analysis
             )
 
         except Exception as e:

@@ -38,6 +38,8 @@ class ChatResponse(BaseModel):
     safety_flags: List[str] = Field(default_factory=list)  # Any safety concerns
     # Ambiguity clarification field - for queries needing user input
     clarification: Optional[Dict[str, Any]] = None  # Contains message, options, ambiguous_term
+    # Audit field - expanded query after synonym expansion (for RAG improvement analysis)
+    search_query: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
