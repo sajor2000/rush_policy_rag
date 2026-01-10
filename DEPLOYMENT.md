@@ -56,8 +56,8 @@ az --version
 # Login to Azure
 az login
 
-# Set the subscription (if you have multiple)
-az account set --subscription "Rush-Subscription-Name"
+# IMPORTANT: Set the correct subscription (NonProd)
+az account set --subscription "RU-Azure-NonProd"
 
 # Clone the repo (if not already done)
 git clone https://github.com/sajor2000/rush_policy_rag.git
@@ -72,11 +72,12 @@ Run these commands to set variables used throughout the deployment:
 
 ```bash
 # Copy and paste this entire block
-export RESOURCE_GROUP="rg-policytech-prod"
+# IMPORTANT: These are the ACTUAL deployed resource names in RU-Azure-NonProd subscription
+export RESOURCE_GROUP="RU-A-NonProd-AI-Innovation-RG"
 export LOCATION="eastus"
-export ACR_NAME="policytechacr"
+export ACR_NAME="aiinnovation"
 export SEARCH_NAME="policychataisearch"
-export OPENAI_NAME="policytech-openai"
+export OPENAI_NAME="rua-nonprod-ai-innovation"
 export STORAGE_NAME="policytechrush"
 export ENV_NAME="rush-policy-env-production"
 
@@ -88,9 +89,9 @@ echo "ACR: $ACR_NAME"
 
 **Expected output:**
 ```
-Resource Group: rg-policytech-prod
+Resource Group: RU-A-NonProd-AI-Innovation-RG
 Location: eastus
-ACR: policytechacr
+ACR: aiinnovation
 ```
 
 ---
@@ -106,9 +107,9 @@ az group create \
 **Expected output:**
 ```json
 {
-  "id": "/subscriptions/.../resourceGroups/rg-policytech-prod",
+  "id": "/subscriptions/.../resourceGroups/RU-A-NonProd-AI-Innovation-RG",
   "location": "eastus",
-  "name": "rg-policytech-prod",
+  "name": "RU-A-NonProd-AI-Innovation-RG",
   "properties": { "provisioningState": "Succeeded" }
 }
 ```

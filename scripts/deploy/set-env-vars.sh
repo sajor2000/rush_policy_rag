@@ -22,8 +22,8 @@ if [[ $# -lt 3 ]]; then
   echo "  env-file          Path to .env file (default: .env in project root)" >&2
   echo "" >&2
   echo "Examples:" >&2
-  echo "  $0 container-apps rush-rg rush-policy-api" >&2
-  echo "  $0 webapp-containers rush-rg rush-policy-backend .env.production" >&2
+  echo "  $0 container-apps RU-A-NonProd-AI-Innovation-RG rush-policy-backend" >&2
+  echo "  $0 webapp-containers RU-A-NonProd-AI-Innovation-RG rush-policy-backend .env.production" >&2
   exit 1
 fi
 

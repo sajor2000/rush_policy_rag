@@ -425,8 +425,8 @@ To update environment variables for an existing deployment without redeploying:
 ./scripts/deploy/set-env-vars.sh webapp-containers <resource-group> <app-name> [env-file]
 
 # Examples:
-./scripts/deploy/set-env-vars.sh container-apps rush-rg rush-policy-api
-./scripts/deploy/set-env-vars.sh webapp-containers rush-rg rush-policy-backend .env.production
+./scripts/deploy/set-env-vars.sh container-apps RU-A-NonProd-AI-Innovation-RG rush-policy-backend
+./scripts/deploy/set-env-vars.sh webapp-containers RU-A-NonProd-AI-Innovation-RG rush-policy-backend .env.production
 ```
 
 ### How It Works

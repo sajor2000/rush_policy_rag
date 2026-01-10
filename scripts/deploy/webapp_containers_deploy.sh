@@ -6,12 +6,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Configuration variables
-RESOURCE_GROUP=${RESOURCE_GROUP:-rush-rg}
+# Azure Resource Defaults - RU-A-NonProd-AI-Innovation-RG (NonProd subscription)
+RESOURCE_GROUP=${RESOURCE_GROUP:-RU-A-NonProd-AI-Innovation-RG}
 APP_NAME=${APP_NAME:-rush-policy-backend}
 APP_SERVICE_PLAN=${APP_SERVICE_PLAN:-asp-rush-policy-prod}
-ACR_NAME=${ACR_NAME:-rushacr}
-IMAGE_NAME=${IMAGE_NAME:-rush-policy-api}
+ACR_NAME=${ACR_NAME:-aiinnovation}
+IMAGE_NAME=${IMAGE_NAME:-rush-policy-backend}
 IMAGE_TAG=${IMAGE_TAG:-latest}
 TARGET_PORT=${TARGET_PORT:-8000}
 ENV_FILE=${ENV_FILE:-"$PROJECT_ROOT/.env"}

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RESOURCE_GROUP=${RESOURCE_GROUP:-rush-rg}
-CONTAINER_APP_NAME=${CONTAINER_APP_NAME:-rush-policy-api}
+# Azure Resource Defaults - RU-A-NonProd-AI-Innovation-RG (NonProd subscription)
+RESOURCE_GROUP=${RESOURCE_GROUP:-RU-A-NonProd-AI-Innovation-RG}
+CONTAINER_APP_NAME=${CONTAINER_APP_NAME:-rush-policy-backend}
 STORAGE_SCOPE=${STORAGE_SCOPE:-}
 SEARCH_SCOPE=${SEARCH_SCOPE:-}
 

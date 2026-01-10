@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RESOURCE_GROUP=${RESOURCE_GROUP:-rush-rg}
-ACR_NAME=${ACR_NAME:-rushacr}
-IMAGE_NAME=${IMAGE_NAME:-rush-policy-api}
+# Azure Resource Defaults - RU-A-NonProd-AI-Innovation-RG (NonProd subscription)
+RESOURCE_GROUP=${RESOURCE_GROUP:-RU-A-NonProd-AI-Innovation-RG}
+ACR_NAME=${ACR_NAME:-aiinnovation}
+IMAGE_NAME=${IMAGE_NAME:-rush-policy-backend}
 IMAGE_TAG=${IMAGE_TAG:-latest}
 CONTEXT_PATH=${CONTEXT_PATH:-apps/backend}
 DOCKERFILE=${DOCKERFILE:-apps/backend/Dockerfile}

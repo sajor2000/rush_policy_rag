@@ -26,11 +26,15 @@ docker run --env-file .env -p 8000:8000 rush-policy-api:latest
 ./scripts/deploy/aca_deploy.sh
 ```
 
-Configuration via environment variables:
+Configuration via environment variables (defaults are already set correctly):
 ```bash
-RESOURCE_GROUP="rush-rg" \
-CONTAINER_APP_NAME="rush-policy-api" \
-ACR_NAME="rushacr" \
+# Uses defaults: RU-A-NonProd-AI-Innovation-RG, rush-policy-backend, aiinnovation
+./scripts/deploy/aca_deploy.sh
+
+# Or override if needed:
+RESOURCE_GROUP="RU-A-NonProd-AI-Innovation-RG" \
+CONTAINER_APP_NAME="rush-policy-backend" \
+ACR_NAME="aiinnovation" \
 ./scripts/deploy/aca_deploy.sh
 ```
 
@@ -43,9 +47,9 @@ ACR_NAME="rushacr" \
 
 Configuration via environment variables:
 ```bash
-RESOURCE_GROUP="rush-rg" \
+RESOURCE_GROUP="RU-A-NonProd-AI-Innovation-RG" \
 APP_NAME="rush-policy-backend" \
-ACR_NAME="rushacr" \
+ACR_NAME="aiinnovation" \
 ./scripts/deploy/webapp_containers_deploy.sh
 ```
 
@@ -59,7 +63,7 @@ ACR_NAME="rushacr" \
 ./scripts/deploy/set-env-vars.sh webapp-containers <resource-group> <app-name>
 
 # With custom .env file
-./scripts/deploy/set-env-vars.sh container-apps rush-rg rush-policy-api .env.production
+./scripts/deploy/set-env-vars.sh container-apps RU-A-NonProd-AI-Innovation-RG rush-policy-backend .env.production
 ```
 
 ---

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RESOURCE_GROUP=${RESOURCE_GROUP:-rush-rg}
+# Azure Resource Defaults - RU-A-NonProd-AI-Innovation-RG (NonProd subscription)
+RESOURCE_GROUP=${RESOURCE_GROUP:-RU-A-NonProd-AI-Innovation-RG}
 LOCATION=${LOCATION:-eastus}
-ACA_ENVIRONMENT=${ACA_ENVIRONMENT:-rush-aca-env}
+ACA_ENVIRONMENT=${ACA_ENVIRONMENT:-rush-policy-env-production}
 
 echo "Ensuring Azure CLI login..."
 if ! az account show >/dev/null 2>&1; then

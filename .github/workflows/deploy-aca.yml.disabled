@@ -15,11 +15,12 @@ on:
           - production
 
 env:
-  RESOURCE_GROUP: rush-rg
-  ACA_ENVIRONMENT: rush-aca-env
-  CONTAINER_APP_NAME: rush-policy-api
-  ACR_NAME: rushacr
-  IMAGE_NAME: rush-policy-api
+  # Azure Resource Defaults - RU-A-NonProd-AI-Innovation-RG (NonProd subscription)
+  RESOURCE_GROUP: RU-A-NonProd-AI-Innovation-RG
+  ACA_ENVIRONMENT: rush-policy-env-production
+  CONTAINER_APP_NAME: rush-policy-backend
+  ACR_NAME: aiinnovation
+  IMAGE_NAME: rush-policy-backend
   IMAGE_TAG: ${{ github.sha }}
   CONTEXT_PATH: apps/backend
   DOCKERFILE: apps/backend/Dockerfile
