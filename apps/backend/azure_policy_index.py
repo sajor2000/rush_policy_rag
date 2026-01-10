@@ -14,6 +14,9 @@ Usage:
     index.create_index()  # One-time setup
     index.upload_chunks(chunks)  # Batch upload
     results = index.search("chaperone duties")  # Hybrid search
+
+Note: SearchResult, SYNONYMS, and format_rag_context have been extracted to
+separate modules but are re-exported here for backward compatibility.
 """
 
 import os
@@ -21,7 +24,6 @@ import hashlib
 import logging
 import time
 from typing import List, Optional, Dict, Any, Tuple
-from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -61,6 +63,16 @@ from openai import AzureOpenAI
 # Import our chunker
 from preprocessing.chunker import PolicyChunk
 
+# Import extracted modules for backward compatibility
+# These were extracted as part of tech debt refactoring
+from app.services.search_result import SearchResult, format_rag_context
+from app.services.search_synonyms import (
+    SYNONYMS,
+    SYNONYM_MAP_NAME,
+    get_synonym_rules,
+    get_synonyms_text,
+)
+
 
 # Configuration from environment
 SEARCH_ENDPOINT = os.environ.get("SEARCH_ENDPOINT", "https://policychataisearch.search.windows.net")
@@ -72,328 +84,7 @@ AOAI_EMBEDDING_DEPLOYMENT = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-em
 # Index configuration
 INDEX_NAME = "rush-policies"
 EMBEDDING_DIMENSIONS = 3072  # text-embedding-3-large
-SYNONYM_MAP_NAME = "rush-policy-synonyms"
-
-# Comprehensive healthcare synonyms for Azure AI Search
-# Format: comma-separated terms on each line are treated as equivalent (bidirectional)
-# These complement query-time expansion by handling cases where documents use different terms
-SYNONYMS = """
-# ============================================================================
-# RUSH INSTITUTION TERMS (Critical for multi-entity searches)
-# ============================================================================
-RUMC, Rush University Medical Center, Rush Medical Center, Rush Hospital, the hospital
-RUMG, Rush University Medical Group, Rush Medical Group, physician group, medical group
-ROPH, Rush Oak Park Hospital, Oak Park Hospital, Rush Oak Park
-RCMC, Rush Copley Medical Center, Copley Medical Center, Rush Copley, Copley hospital
-RCH, Rush Childrens Hospital, Rush Children's Hospital, pediatric hospital
-ROPPG, Rush Oak Park Physicians Group, Oak Park Physicians Group
-RCMG, Rush Copley Medical Group, Copley Medical Group
-RU, Rush University, the university
-RAB, Rush Ambulatory Building, Rubschlager Building, ambulatory building, outpatient building
-
-# ============================================================================
-# EMERGENCY & HOSPITAL CODES (Life-critical - must match perfectly)
-# ============================================================================
-code blue, cardiac arrest, cardiopulmonary arrest, resuscitation, medical emergency
-code pink, missing infant, infant abduction, child abduction, missing baby
-code gold, patient elopement, missing patient, patient wandering, AWOL
-code gray, combative patient, violent patient, aggressive behavior, behavioral emergency
-code silver, active shooter, person with weapon, armed individual, weapon threat, armed intruder
-code orange, hazmat, hazardous materials, chemical spill, decontamination
-code red, fire emergency, fire alarm, smoke, evacuation fire
-code stroke, stroke alert, brain attack, CVA, cerebrovascular accident
-code STEMI, heart attack, myocardial infarction, STEMI alert
-code sepsis, sepsis alert, severe infection, septic shock
-code trauma, trauma alert, major injury, trauma activation
-rapid response, RRT, rapid response team, medical emergency team, MET
-code triage, disaster plan, mass casualty, surge capacity
-
-# ============================================================================
-# CLINICAL COLLOQUIALISMS & BRAND NAMES (Bridge nurse speak to policy)
-# ============================================================================
-sitter, safety assistant, patient observer, one-to-one, 1:1, suicide precautions
-tube system, pneumatic tube system, 6-inch tube, transport system
-late viewing, death of a patient, morgue viewing, family viewing
-fire watch, impairment of fire protection, fire system downtime
-wound vac, negative pressure wound therapy, NPWT, vacuum assisted closure
-chemical restraint, emergency medication management, behavioral restraint
-frequent flyer, high utilizer, care plan, complex care management
-flexing, reallocation of nursing personnel, staffing, floating
-call-off, absenteeism, attendance policy, sick call
-Ceribell, rapid EEG, seizure monitoring, electroencephalogram
-Vashe, hypochlorous acid, wound cleanser
-Veletri, Flolan, epoprostenol, prostacyclin, pulmonary hypertension
-Remodulin, treprostinil, prostacyclin
-Licox, brain oxygen monitoring, cerebral oxygenation
-Shingrix, zoster vaccine, herpes zoster, shingles vaccine
-Bear Hugger, warming blanket, patient warming, thermoregulation
-Cholestech, lipid profile, cholesterol testing, POCT
-Glucostabilizer, insulin drip, insulin infusion, glycemic control
-Agiloft, contract management system, CMS
-Kronos, timekeeping, time and attendance
-Vocera, communication badge, hands-free communication
-
-# ============================================================================
-# DEPARTMENTS & UNITS (High-frequency searches)
-# ============================================================================
-ED, ER, emergency department, emergency room, trauma center, emergency services
-ICU, intensive care unit, critical care, CCU, MICU, SICU
-NICU, neonatal intensive care unit, newborn ICU, neonatal ICU, special care nursery
-PICU, pediatric intensive care unit, pediatric ICU, childrens ICU
-OR, operating room, surgery suite, surgical suite, operating theater, perioperative
-PACU, post anesthesia care unit, recovery room, post-op, post operative
-L&D, LD, labor and delivery, maternity, birthing, obstetrics delivery
-postpartum, mother baby, mother-baby, maternity ward
-ambulatory, outpatient, clinic, outpatient clinic, ambulatory care
-radiology, diagnostic imaging, imaging services, x-ray, CT, MRI, ultrasound
-laboratory, lab, pathology, clinical lab, blood lab, diagnostic lab
-pharmacy, medication services, pharmaceutical services, drug dispensing
-respiratory care, respiratory therapy, RT, pulmonary services
-food and nutrition, dietary, food services, nutrition services, FNS
-environmental services, housekeeping, EVS, cleaning services, janitorial
-patient access, registration, admissions, patient registration
-revenue cycle, billing, patient accounting, charge capture, coding
-infection prevention, infection control, epidemiology
-
-# ============================================================================
-# PATIENT SERVICES & SUPPORT
-# ============================================================================
-interpreter, translator, language services, medical interpreter, language assistance
-LEP, limited english proficient, non-english speaking, language barrier
-sign language, ASL, deaf services, hearing impaired
-
-# ============================================================================
-# CLINICAL PROCEDURES & TREATMENTS
-# ============================================================================
-intubation, tube insertion, airway management, ETT placement, endotracheal intubation
-lumbar puncture, spinal tap, LP, CSF collection
-blood transfusion, transfusion, blood administration, blood products, PRBC
-dialysis, hemodialysis, CRRT, renal replacement therapy, kidney dialysis
-ventilation, mechanical ventilation, ventilator support, respiratory support
-sedation, conscious sedation, moderate sedation, procedural sedation
-CPR, cardiopulmonary resuscitation, chest compressions, resuscitation, BLS
-defibrillation, cardioversion, AED use, electrical cardioversion
-phlebotomy, blood draw, venipuncture, blood collection
-restraints, physical restraints, patient restraints, limb restraints
-
-# ============================================================================
-# VASCULAR ACCESS DEVICES (Device-type specific to prevent conflation)
-# ============================================================================
-PIV, peripheral IV, peripheral intravenous catheter, short-term IV
-PICC, peripherally inserted central catheter, PICC line
-CVC, central venous catheter, central line, triple lumen catheter, TLC
-Foley, urinary catheter, indwelling catheter, bladder catheter
-epidural catheter, spinal catheter, epidural
-dialysis catheter, Quinton, Quinton catheter, apheresis catheter
-implanted port, port-a-cath, chemotherapy port, vascular access port
-arterial line, A-line, radial arterial line
-
-# NOTE: Removed generic "IV, intravenous, infusion, drip, IV therapy" line
-# This prevents "IV" from matching "infusion pump" policies
-# NOTE: Removed generic "catheterization, catheter insertion" line
-# This prevents conflation of urinary, peripheral IV, and central line catheters
-
-# ============================================================================
-# PATIENT SAFETY (Critical for compliance searches)
-# ============================================================================
-fall prevention, fall risk, fall precautions, falls protocol, patient falls
-patient identification, patient ID, two patient identifiers, ID verification
-hand hygiene, handwashing, hand washing, hand sanitizing
-medication reconciliation, med rec, medication review, reconciling medications
-medication error, drug error, dosing error, dispensing error, wrong medication
-adverse event, adverse drug event, ADE, adverse reaction, medication reaction
-sentinel event, serious reportable event, never event, SRE
-near miss, close call, good catch, prevented error
-time out, surgical time out, universal protocol, pre-procedure verification, safety pause
-pressure injury, pressure ulcer, bedsore, decubitus ulcer, skin breakdown
-latex, natural rubber latex, latex allergy, latex precautions, latex product, latex sensitivity, NRL
-
-# ============================================================================
-# COMPLIANCE & REGULATORY
-# ============================================================================
-HIPAA, privacy, patient privacy, PHI, protected health information, confidentiality
-EMTALA, emergency treatment law, anti-dumping, medical screening, stabilization requirement
-informed consent, consent, patient consent, surgical consent, procedure consent
-agree to treatment, patient agreement, treatment agreement, agree to procedure, patient authorization, informed consent
-advance directive, living will, healthcare proxy, DPOA, POLST, DNR
-DNR, do not resuscitate, no code, allow natural death, AND, comfort care
-compliance, regulatory compliance, policy compliance, accreditation
-Joint Commission, TJC, JCAHO, accreditation, CMS certification
-IRB, Institutional Review Board, research ethics, human subjects committee
-
-# ============================================================================
-# DOCUMENTATION & RECORDS
-# ============================================================================
-medical record, chart, patient record, health record, EHR, EMR
-progress note, clinical note, physician note, provider note
-discharge summary, discharge note, DC summary, hospital summary
-verbal orders, telephone orders, phone orders, read back
-CPOE, computerized physician order entry, order entry, order placement
-
-# ============================================================================
-# COMMUNICATION & HANDOFF (Fix for gen-004, gen-006)
-# ============================================================================
-SBAR, Situation Background Assessment Recommendation, handoff communication, patient handoff, handoff report
-shift report, change of shift report, hand-off report, bedside report, nursing handoff, shift change report
-hand-off, handoff, patient handoff, nursing handoff, care transition
-
-# ============================================================================
-# EQUIPMENT & DEVICES
-# ============================================================================
-ventilator, vent, breathing machine, respirator, mechanical ventilator
-infusion pump, IV pump, smart pump, medication pump, PCA pump
-monitor, cardiac monitor, bedside monitor, patient monitor, telemetry
-defibrillator, defib, AED, automated external defibrillator
-crash cart, code cart, emergency cart, resuscitation cart
-pyxis, medication cabinet, ADC, automated dispensing cabinet, med dispenser
-oxygen equipment, O2, nasal cannula, face mask, high flow, BiPAP, CPAP
-
-# ============================================================================
-# STAFF ROLES
-# ============================================================================
-physician, doctor, MD, DO, attending, hospitalist, provider
-nurse, RN, registered nurse, staff nurse, bedside nurse
-nurse practitioner, NP, APRN, advanced practice nurse, APN
-physician assistant, PA, PA-C, physician associate
-CNA, certified nursing assistant, nursing assistant, nurse aide, patient care tech, PCT
-respiratory therapist, RT, respiratory care practitioner, RCP
-pharmacist, PharmD, clinical pharmacist, staff pharmacist
-charge nurse, shift supervisor, unit supervisor, nurse in charge
-
-# ============================================================================
-# CONDITIONS & DIAGNOSES (Common search terms)
-# ============================================================================
-heart attack, myocardial infarction, MI, STEMI, NSTEMI, acute coronary syndrome
-stroke, CVA, cerebrovascular accident, brain attack, TIA
-sepsis, septicemia, blood infection, systemic infection, septic shock
-pneumonia, lung infection, respiratory infection, CAP, HAP, VAP
-diabetes, DM, diabetes mellitus, hyperglycemia, blood sugar
-hypertension, high blood pressure, HTN, elevated BP
-DVT, deep vein thrombosis, blood clot, venous thrombosis
-PE, pulmonary embolism, lung clot, pulmonary thromboembolism
-UTI, urinary tract infection, bladder infection
-CHF, congestive heart failure, heart failure, HF, fluid overload
-
-# ============================================================================
-# MEDICATIONS & DRUGS
-# ============================================================================
-antibiotic, antibacterial, anti-infective, antimicrobial
-narcotic, opioid, controlled substance, pain medication
-anticoagulant, blood thinner, warfarin, heparin, coumadin
-insulin, diabetic medication, blood sugar medication
-chemotherapy, chemo, antineoplastic, cancer treatment
-controlled substance, scheduled medication, DEA controlled, C-II, CII
-high alert medication, high risk medication, LASA, look alike sound alike
-
-# ============================================================================
-# INFECTION CONTROL
-# ============================================================================
-standard precautions, universal precautions, basic precautions
-isolation, contact isolation, droplet isolation, airborne isolation, transmission precautions
-sterile technique, aseptic technique, sterile procedure, surgical asepsis
-PPE, personal protective equipment, gown, gloves, mask, face shield
-N95, respirator, N95 mask, particulate respirator
-bloodborne pathogen, BBP, blood exposure, needle stick, sharps injury
-HAI, healthcare associated infection, hospital acquired infection, nosocomial infection
-CLABSI, central line associated bloodstream infection, line infection
-CAUTI, catheter associated UTI, catheter infection, foley infection
-SSI, surgical site infection, wound infection, post-operative infection
-
-# ============================================================================
-# SOFTWARE SYSTEMS
-# ============================================================================
-Epic, electronic health record, EHR, EMR, electronic medical record
-Pyxis, automated dispensing cabinet, ADC, medication cabinet
-MyChart, patient portal, my chart, online portal
-Workday, HR system, human resources system, payroll system
-Kronos, timekeeping system, time clock, time tracking
-
-# ============================================================================
-# TIME & SCHEDULING
-# ============================================================================
-STAT, immediately, urgent, emergent, right away, priority
-PRN, as needed, as necessary, when needed
-NPO, nothing by mouth, fasting, no eating or drinking
-on call, call coverage, night call, backup coverage
-
-# ============================================================================
-# EMPLOYEE ATTENDANCE
-# ============================================================================
-call off, calling off, sick employee, employee sick, sick day, unscheduled absence, attendance
-
-# ============================================================================
-# OBSTETRICS & NEONATAL
-# ============================================================================
-cesarean, c-section, cesarean section, CS, surgical delivery
-epidural, labor epidural, epidural anesthesia
-fetal monitoring, FHR monitoring, electronic fetal monitoring, EFM
-newborn, neonate, infant, baby, newborn infant
-breastfeeding, nursing, lactation, breast milk
-preterm, premature, preemie, premature infant
-"""
-
-
-@dataclass
-class SearchResult:
-    """A search result with chunk content and metadata."""
-    content: str
-    citation: str
-    title: str
-    section: str
-    applies_to: str
-    date_updated: str
-    score: float
-    reference_number: str = ""
-    reranker_score: Optional[float] = None
-    source_file: str = ""
-    document_owner: str = ""
-    date_approved: str = ""
-    # Entity-specific booleans
-    applies_to_rumc: bool = False
-    applies_to_rumg: bool = False
-    applies_to_rmg: bool = False
-    applies_to_roph: bool = False
-    applies_to_rcmc: bool = False
-    applies_to_rch: bool = False
-    applies_to_roppg: bool = False
-    applies_to_rcmg: bool = False
-    applies_to_ru: bool = False
-    # Hierarchical fields
-    chunk_level: str = "semantic"
-    parent_chunk_id: Optional[str] = None
-    chunk_index: int = 0
-    # Page number for PDF navigation
-    page_number: Optional[int] = None
-    # Enhanced metadata
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
-    regulatory_citations: Optional[str] = None
-    related_policies: Optional[str] = None
-
-    def format_for_rag(self) -> str:
-        """Format result for RAG prompt context with full metadata."""
-        # Extract reference from citation for cleaner display
-        ref_part = "N/A"
-        if '(' in self.citation and ')' in self.citation:
-            try:
-                ref_part = self.citation.split('(')[1].split(')')[0]
-            except (IndexError, AttributeError):
-                ref_part = "N/A"
-
-        reference_display = self.reference_number or ref_part
-
-        return f"""┌────────────────────────────────────────────────────────────┐
-│ POLICY: {self.title}
-│ Reference: {reference_display}
-│ Section: {self.section}
-│ Applies To: {self.applies_to}
-│ Document Owner: {self.document_owner or 'N/A'}
-│ Updated: {self.date_updated} | Approved: {self.date_approved or 'N/A'}
-│ Source: {self.source_file}
-└────────────────────────────────────────────────────────────┘
-
-{self.content}
-"""
+# Note: SYNONYM_MAP_NAME and SYNONYMS are now imported from app.services.search_synonyms
 
 
 class PolicySearchIndex:
@@ -1325,36 +1016,6 @@ class PolicySearchIndex:
                 logger.info("PolicySearchIndex index client closed")
             except Exception as e:
                 logger.warning(f"Error closing index client: {e}")
-
-
-def format_rag_context(results: List[SearchResult]) -> str:
-    """
-    Format search results as context for RAG prompt with relevance indicators.
-
-    This creates a context block that encourages literal retrieval:
-    - Each chunk is clearly delimited with relevance score
-    - Citations are prominently displayed
-    - No synthesis encouraged
-    """
-    if not results:
-        return "No relevant policy documents found."
-
-    context_parts = []
-    for i, result in enumerate(results, 1):
-        # Show relevance score to help LLM prioritize
-        if result.reranker_score:
-            confidence = f"Relevance: {result.reranker_score:.2f}"
-        else:
-            confidence = f"Score: {result.score:.2f}"
-
-        context_parts.append(f"""
-═══════════════════════════════════════════════════════════════
- POLICY CHUNK {i} ({confidence})
-═══════════════════════════════════════════════════════════════
-{result.format_for_rag()}
-""")
-
-    return "\n".join(context_parts)
 
 
 # CLI for testing
