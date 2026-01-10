@@ -25,6 +25,38 @@ This application **requires** the following Azure services to function:
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step Azure resource creation commands.
 
+## Azure Infrastructure (Deployed)
+
+**IMPORTANT**: All resources are deployed in the following location:
+
+| Setting | Value |
+|---------|-------|
+| **Subscription** | `RU-Azure-NonProd` (ID: `e5282183-61c9-4c17-a58a-9442db9594d5`) |
+| **Resource Group** | `RU-A-NonProd-AI-Innovation-RG` |
+| **Location** | `eastus` |
+
+**Deployed Resources:**
+
+| Resource | Name | Type |
+|----------|------|------|
+| Container Apps Environment | `rush-policy-env-production` | Microsoft.App/managedEnvironments |
+| Backend Container App | `rush-policy-backend` | Microsoft.App/containerApps |
+| Frontend Container App | `rush-policy-frontend` | Microsoft.App/containerApps |
+| Container Registry | `aiinnovation` | Microsoft.ContainerRegistry/registries |
+| AI Search | `policychataisearch` | Microsoft.Search/searchServices |
+| Blob Storage | `policytechrush` | Microsoft.Storage/storageAccounts |
+| Cognitive Services | `rua-nonprod-ai-innovation` | Microsoft.CognitiveServices/accounts |
+
+**Live URLs:**
+- Backend: `https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
+- Frontend: `https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
+
+**Before deploying**, ensure you're logged into the correct subscription:
+```bash
+az account set --subscription "RU-Azure-NonProd"
+az account show  # Verify: should show "RU-Azure-NonProd"
+```
+
 ## End-to-End Data Pipeline
 
 ```
@@ -255,44 +287,99 @@ python scripts/test_checkbox_extraction.py
 ```
 rag_pt_rush/
 ├── apps/
-│   ├── backend/                           # FastAPI backend
-│   │   ├── main.py                        # API entrypoint
+│   ├── backend/                              # FastAPI backend
+│   │   ├── main.py                           # API entrypoint with middleware stack
 │   │   ├── app/
-│   │   │   ├── services/
-│   │   │   │   ├── on_your_data_service.py  # Azure OpenAI "On Your Data"
-│   │   │   │   ├── chat_service.py          # Chat orchestration
-│   │   │   │   ├── cohere_rerank_service.py # Cohere Rerank 3.5 cross-encoder
-│   │   │   │   ├── upload_service.py        # PDF upload & indexing
-│   │   │   │   └── synonym_service.py       # Query-time synonym expansion
-│   │   │   ├── api/routes/                # API endpoints
-│   │   │   └── core/
-│   │   │       ├── config.py              # Pydantic settings
-│   │   │       ├── rate_limit.py          # slowapi rate limiting
-│   │   │       ├── auth.py                # Azure AD authentication
-│   │   │       └── logging_middleware.py  # Request logging
-│   │   ├── preprocessing/
-│   │   │   ├── chunker.py                 # Docling + PyMuPDF PDF chunker
-│   │   │   └── archive/                   # Legacy code (deprecated)
-│   │   ├── scripts/
-│   │   │   ├── ingest_all_policies.py     # Full ingestion pipeline
-│   │   │   └── setup_azure_infrastructure.py
-│   │   ├── azure_policy_index.py          # Azure AI Search + 132 synonym rules
-│   │   ├── policy_sync.py                 # Differential sync (content hashing)
-│   │   └── policytech_prompt.txt          # RISEN prompt framework
-│   └── frontend/                          # Next.js 14 app
-│       ├── src/app/                       # App Router
-│       ├── src/components/                # UI components (RUSH branding)
-│       └── next.config.js                 # Security headers (CSP, HSTS)
+│   │   │   ├── api/routes/                   # API endpoints
+│   │   │   │   ├── chat.py                   # /api/chat, /api/chat/stream
+│   │   │   │   ├── search.py                 # /api/search-instances
+│   │   │   │   ├── pdf.py                    # /api/pdf/{filename}
+│   │   │   │   └── admin.py                  # /api/admin/* (protected)
+│   │   │   ├── core/                         # Cross-cutting concerns
+│   │   │   │   ├── config.py                 # Pydantic settings
+│   │   │   │   ├── auth.py                   # Azure AD JWT validation
+│   │   │   │   ├── security.py               # Input validation, OData injection prevention
+│   │   │   │   ├── rate_limit.py             # slowapi (30/min per IP)
+│   │   │   │   ├── circuit_breaker.py        # pybreaker for Azure services
+│   │   │   │   └── logging_middleware.py     # Structured request logging
+│   │   │   ├── services/                     # Business logic (see Services below)
+│   │   │   ├── models/                       # Pydantic request/response schemas
+│   │   │   └── dependencies.py               # FastAPI dependency injection
+│   │   ├── preprocessing/                    # PDF processing module
+│   │   │   ├── __init__.py                   # Exports: PolicyChunker, PolicyChunk
+│   │   │   ├── chunker.py                    # Main chunker (Docling + PyMuPDF)
+│   │   │   ├── policy_chunk.py               # PolicyChunk dataclass
+│   │   │   ├── rush_metadata.py              # ProcessingStatus enum, constants
+│   │   │   ├── checkbox_extractor.py         # "Applies To" checkbox detection
+│   │   │   ├── metadata_extractor.py         # Title, ref#, date extraction
+│   │   │   └── archive/                      # Legacy code (deprecated)
+│   │   ├── azure_policy_index.py             # Azure AI Search client
+│   │   ├── pdf_service.py                    # SAS URL generation for PDFs
+│   │   ├── policy_sync.py                    # Differential sync (SHA-256)
+│   │   └── policytech_prompt.txt             # RISEN prompt framework
+│   │
+│   └── frontend/                             # Next.js 14 application
+│       ├── src/
+│       │   ├── app/                          # App Router pages
+│       │   │   ├── page.tsx                  # Main chat interface
+│       │   │   ├── layout.tsx                # Root layout with providers
+│       │   │   └── api/                      # Route handlers (proxy to backend)
+│       │   ├── components/                   # React components
+│       │   │   ├── ChatInterface.tsx         # Main chat container
+│       │   │   ├── ChatMessage.tsx           # Message rendering
+│       │   │   ├── chat/                     # Chat sub-components
+│       │   │   │   ├── index.ts              # Barrel exports
+│       │   │   │   └── FormattedQuickAnswer.tsx
+│       │   │   └── ...                       # Other UI components
+│       │   └── lib/                          # Utilities
+│       │       ├── api.ts                    # Backend API client
+│       │       ├── chatMessageFormatting.ts  # Citation parsing utilities
+│       │       ├── constants.ts              # App-wide constants
+│       │       └── utils.ts                  # cn() and helpers
+│       └── next.config.js                    # Security headers (CSP, HSTS)
+│
 ├── scripts/
-│   └── upload_pdfs_to_blob.py             # PDF upload to Azure Blob Storage
+│   ├── deploy/                               # Azure deployment scripts
+│   └── upload_pdfs_to_blob.py                # PDF upload utility
 ├── docs/
-│   ├── SINGLE_BACKEND_SIMPLIFICATION.md   # Architecture decision (COMPLETED)
-│   └── CHANGELOG.md                       # Release notes
-├── semantic-search-synonyms.json          # 24 synonym groups, 155 abbrevs, 56 misspellings
-├── start_backend.sh                       # Backend launcher
-├── start_frontend.sh                      # Frontend launcher
-└── .env                                   # Environment variables
+│   ├── TECHNICAL_ARCHITECTURE_PWC.md         # Architecture overview for review
+│   ├── DEPLOYMENT.md                         # Step-by-step deployment guide
+│   └── CHANGELOG.md                          # Release notes
+├── semantic-search-synonyms.json             # 24 synonym groups, 155+ rules
+├── start_backend.sh                          # Backend launcher
+├── start_frontend.sh                         # Frontend launcher
+└── .env                                      # Environment variables (not in git)
 ```
+
+### Backend Services (`apps/backend/app/services/`)
+
+| Service | File | Purpose |
+|---------|------|---------|
+| **ChatService** | `chat_service.py` | Main RAG orchestrator |
+| **OnYourDataService** | `on_your_data_service.py` | Azure OpenAI "On Your Data" integration |
+| **CohereRerankService** | `cohere_rerank_service.py` | Cross-encoder reranking (negation-aware) |
+| **SynonymService** | `synonym_service.py` | Query-time synonym expansion (1MB JSON) |
+| **CacheService** | `cache_service.py` | Multi-layer in-memory caching |
+| **ChatAuditService** | `chat_audit_service.py` | Query logging to blob storage |
+| **InstanceSearchService** | `instance_search_service.py` | Within-policy search |
+
+**Query Processing Modules** (extracted from chat_service.py):
+| Module | Purpose |
+|--------|---------|
+| `query_processor.py` | Intent detection, policy resolution |
+| `query_validation.py` | Input validation, entity extraction |
+| `query_enhancer.py` | Query expansion and refinement |
+| `confidence_calculator.py` | Response confidence scoring |
+| `device_disambiguator.py` | Medical device term disambiguation |
+| `entity_ranking.py` | Location-based policy prioritization |
+| `ranking_utils.py` | Scoring utilities |
+| `response_formatter.py` | Output formatting |
+
+**Search Infrastructure**:
+| Module | Purpose |
+|--------|---------|
+| `search_result.py` | SearchResult dataclass |
+| `search_synonyms.py` | SYNONYMS constant for Azure AI Search |
 
 ## Key Technical Details
 

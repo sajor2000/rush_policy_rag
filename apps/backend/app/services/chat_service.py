@@ -19,1220 +19,103 @@ from app.services.query_decomposer import get_query_decomposer, QueryDecomposer
 from app.services.cache_service import get_cache_service, CacheService
 from app.core.config import settings
 
+# Extracted modules (tech debt refactoring)
+# Aliased with underscore prefix for backward compatibility
+from app.services.query_processor import (
+    detect_instance_search_intent as _detect_instance_search_intent,
+    resolve_policy_identifier as _resolve_policy_identifier,
+    strip_references_from_negative_response as _strip_references_from_negative_response,
+    is_refusal_response as _is_refusal_response,
+    truncate_verbatim as _truncate_verbatim,
+    normalize_policy_title as _normalize_policy_title,
+    get_policy_hint,
+    POLICY_HINTS,
+)
+from app.services.ranking_utils import (
+    apply_mmr_diversification as _apply_mmr_diversification,
+    is_surge_capacity_policy as _is_surge_capacity_policy,
+    apply_surge_capacity_penalty as _apply_surge_capacity_penalty,
+    apply_mmr_to_rerank_results as _apply_mmr_to_rerank_results,
+)
+from app.services.entity_ranking import (
+    extract_entity_mentions as _extract_entity_mentions,
+    apply_location_boost as _apply_location_boost,
+    detect_pediatric_context as _detect_pediatric_context,
+    is_pediatric_policy as _is_pediatric_policy,
+    apply_population_ranking as _apply_population_ranking,
+    get_all_entity_codes,
+    is_entity_specific_query,
+    ENTITY_PATTERNS,
+    PEDIATRIC_KEYWORD_PATTERNS,
+    LOCATION_CONTEXT_PATTERNS,
+)
+from app.services.response_formatter import (
+    extract_reference_identifier as _extract_reference_identifier,
+    derive_source_file as _derive_source_file,
+    extract_quick_answer as _extract_quick_answer,
+    format_answer_with_citations as _format_answer_with_citations,
+    build_supporting_evidence,
+)
+from app.services.query_validation import (
+    is_not_found_response as _is_not_found_response_standalone,
+    is_out_of_scope_query as _is_out_of_scope_query_standalone,
+    is_multi_policy_query as _is_multi_policy_query_standalone,
+    is_adversarial_query as _is_adversarial_query_standalone,
+    is_unclear_query as _is_unclear_query_standalone,
+    NOT_FOUND_PHRASES,
+    ALWAYS_OUT_OF_SCOPE,
+    MULTI_POLICY_INDICATORS,
+    POLICY_TOPIC_KEYWORDS,
+    ADVERSARIAL_PATTERNS,
+    ADVERSARIAL_REFUSAL_MESSAGE,
+    UNCLEAR_QUERY_MESSAGE,
+)
+from app.services.device_disambiguator import (
+    detect_device_ambiguity as _detect_device_ambiguity_standalone,
+    AMBIGUOUS_DEVICE_TERMS,
+)
+from app.services.query_enhancer import (
+    generate_query_variants as _generate_query_variants_standalone,
+    reciprocal_rank_fusion as _reciprocal_rank_fusion_standalone,
+    normalize_location_context as _normalize_location_context_standalone,
+    normalize_query_punctuation as _normalize_query_punctuation_standalone,
+    apply_policy_hints as _apply_policy_hints_standalone,
+)
+from app.services.confidence_calculator import (
+    filter_by_score_window as _filter_by_score_window_standalone,
+    calculate_response_confidence as _calculate_response_confidence_standalone,
+    confidence_level_from_score as _confidence_level_from_score_standalone,
+    boost_confidence_with_grounding as _boost_confidence_with_grounding_standalone,
+    should_return_not_found as _should_return_not_found_standalone,
+)
+
 from openai import AzureOpenAI
 import httpx
 import os
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# FIX 1: Expanded "not found" detection phrases
-# ============================================================================
-NOT_FOUND_PHRASES = [
-    "i don't have",
-    "i do not have",
-    "no information",
-    "could not find",
-    "couldn't find",
-    "cannot find",
-    "can't find",
-    "unable to find",
-    "unable to locate",
-    "no policies",
-    "no policy",
-    "not covered",
-    "not addressed",
-    "outside my scope",
-    "outside the scope",
-    "not within",
-    "beyond my knowledge",
-    "i cannot answer",
-    "i can't answer",
-    "don't have access",
-    "no relevant",
-    "not in my knowledge",
-    "not available in",
-    "i'm not able to",
-    "i am not able to",
-    "no specific policy",
-    "not included in",
-    # REMOVED: "does not contain" and "doesn't contain" - too broad, triggers
-    # false positives when legitimate content discusses what products contain.
-    # E.g., "does not contain latex" was matching in latex allergy policies.
-    # The "I could not find" phrase is sufficient for actual not-found cases.
-]
-
-# ============================================================================
-# FIX 2: Out-of-scope topic keywords (DATA-DRIVEN from policy metadata analysis)
-# ============================================================================
-# ALWAYS out of scope - Verified NO policies exist for these topics
-# (Analyzed 329 policies in Azure AI Search index on 2024-12-01)
-ALWAYS_OUT_OF_SCOPE = [
-    # Facilities - No policies found
-    "parking", "parking validation", "parking permit", "parking garage",
-    "cafeteria hours", "cafeteria menu", "food court",
-    "gym access", "fitness center hours", "wellness center",
-    "wifi password", "internet access",
-
-    # HR Benefits not in clinical policy database
-    # Note: HR-B 13.00 PTO policy EXISTS but is about policy, not balance inquiries
-    "pto balance", "vacation balance", "how many days do i have",
-    "401k", "retirement contributions", "pension",
-    "benefits enrollment deadline", "open enrollment dates",
-    "salary", "pay raise", "compensation",
-
-    # Social/Personal - No policies found
-    "birthday", "potluck", "team party", "celebration",
-
-    # Specific non-policy topics
-    "jury duty",  # No jury duty policy found in index
-
-    # General conversation - NOT policy questions (FIX: weather query bug)
-    # These trigger false positive retrieval based on keyword matches (e.g., "Chicago")
-    "what is the weather", "what's the weather", "weather in",
-    "tell me a joke", "tell me about yourself",
-    "who are you", "what are you",
-    "good morning", "good afternoon", "good evening",
-    "how are you", "how's it going",
-    "sports score", "football", "basketball", "baseball",
-    "stock price", "stock market",
-    "recipe for", "how to cook",
-    "movie recommendation", "what movie",
-    "music recommendation", "what song",
-    "travel advice", "flight to", "hotel in",
-    "news about", "current events",
-]
-
-# Topics where policies MAY exist but context matters
-# These will pass through to LLM for nuanced handling
-# Examples found: Dress code (Ref 704, 847), PTO (HR-B 13.00), Leave (HR-B 14.00)
-# REMOVED: dress code, vacation, time off, leave - policies exist for these!
-
-# ============================================================================
-# FIX 5: Multi-policy query indicators (Enhanced for better detection)
-# ============================================================================
-MULTI_POLICY_INDICATORS = [
-    # Explicit multi-policy indicators
-    "across", "different policies", "multiple policies", "various policies",
-    "all policies", "any policy", "which policies", "what policies",
-    "several", "compare", "both policies",
-    
-    # Implicit multi-topic indicators
-    "and also", "as well as", "in addition to",
-    "what are all the", "comprehensive", "overview",
-    
-    # Cross-cutting concern patterns (queries that span multiple policies)
-    "communication methods", "safety precautions", "documentation required",
-    "patient identification", "emergency procedures", "during emergencies",
-    "staff responsibilities", "compliance requirements", "regulatory",
-]
-
-# Policy topic keywords for detecting implicit multi-policy queries
-POLICY_TOPIC_KEYWORDS = [
-    "verbal order", "hand-off", "hand off", "handoff", "rapid response",
-    "latex", "sbar", "epic", "communication", "rrt", "code blue",
-    "patient safety", "medication", "documentation", "authentication",
-]
-
-# Domain-specific hints to bias retrieval toward canonical policies when
-# critical terminology appears in the query (e.g., "verbal orders" → Ref #486)
-POLICY_HINTS = [
-    {
-        "keywords": ["verbal order", "telephone order", "verbal orders", "telephone orders",
-                    "accept verbal", "accept telephone", "receive verbal", "receive telephone",
-                    "authorized to accept", "authorized to receive", "medical assistant",
-                    "unit secretary", "nursing aide", "can accept order", "can receive order"],
-        "hint": "Verbal and Telephone Orders policy Ref #486",
-        "reference": "486",
-        "policy_query": "Verbal and Telephone Orders"
-    },
-    {
-        "keywords": ["hand off", "handoff", "sbar", "change of shift"],
-        "hint": "Communication Of Patient Status - Hand Off Communication Ref #1206",
-        "reference": "1206",
-        "policy_query": "Communication Of Patient Status - Hand Off Communication"
-    },
-    {
-        "keywords": ["latex"],
-        "hint": "Latex Management policy Ref #228",
-        "reference": "228",
-        "policy_query": "Latex Management"
-    },
-    {
-        "keywords": ["rapid response", "rrt", "cardiac arrest", "code blue",
-                    "emergency number", "call for help", "patient deteriorating",
-                    "mews score", "vital signs", "clinical signs"],
-        "hint": "Adult Rapid Response policy Ref #346",
-        "reference": "346",
-        "policy_query": "Adult Rapid Response"
-    },
-    {
-        "keywords": ["informed consent", "consent form", "agree to treatment",
-                    "patient agreement", "sign consent", "procedure consent",
-                    "surgical consent", "treatment consent", "patient consent",
-                    "consent process", "consent documentation"],
-        "hint": "Informed Consent policy Ref #275",
-        "reference": "275",
-        "policy_query": "Informed Consent"
-    }
-]
-
-# ============================================================================
-# Instance Search Query Patterns - "find X in policy Y" type queries
-# ============================================================================
-# These patterns detect when users want to find specific text/sections within
-# a known policy document, rather than asking a general Q&A question.
-INSTANCE_SEARCH_PATTERNS = [
-    # "show me X in policy Y" patterns
-    r"show\s+(?:me\s+)?(?:all\s+)?(?:instances?\s+of\s+)?['\"]?(.+?)['\"]?\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)(?:\s+policy)?$",
-    r"find\s+(?:all\s+)?(?:mentions?\s+of\s+)?['\"]?(.+?)['\"]?\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)(?:\s+policy)?$",
-    r"where\s+(?:does|is|are)\s+['\"]?(.+?)['\"]?\s+(?:appear|mentioned|discussed|covered)\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)$",
-    r"search\s+(?:for\s+)?['\"]?(.+?)['\"]?\s+(?:within|in)\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)$",
-    r"locate\s+(?:the\s+)?(?:section\s+(?:about|on|for)\s+)?['\"]?(.+?)['\"]?\s+in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?)$",
-    # "what does policy X say about Y" patterns
-    r"what\s+does\s+(?:the\s+)?(.+?)\s+(?:policy\s+)?say\s+about\s+['\"]?(.+?)['\"]?$",
-    # "in policy X, find Y" patterns (reversed order)
-    r"in\s+(?:the\s+)?(?:policy\s+)?(?:ref\s*#?\s*)?(.+?),?\s+(?:find|show|locate|search\s+for)\s+['\"]?(.+?)['\"]?$",
-]
-
-# Common policy name variations for matching
-POLICY_NAME_PATTERNS = {
-    "hipaa": ["hipaa", "hipaa privacy", "privacy policy", "528"],
-    "verbal orders": ["verbal", "verbal orders", "telephone orders", "486"],
-    "hand off": ["hand off", "handoff", "hand-off", "communication", "1206"],
-    "rapid response": ["rapid response", "rrt", "code blue", "346"],
-    "latex": ["latex", "latex management", "228"],
-}
-
-
-def _detect_instance_search_intent(query: str) -> Optional[Tuple[str, str]]:
-    """
-    Detect if query is requesting to find specific text/sections within a policy.
-
-    Returns:
-        Tuple of (search_term, policy_identifier) if detected, None otherwise.
-        policy_identifier could be a ref number or policy name.
-    """
-    query_clean = query.strip().lower()
-
-    for pattern in INSTANCE_SEARCH_PATTERNS:
-        match = re.search(pattern, query_clean, re.IGNORECASE)
-        if match:
-            groups = match.groups()
-            if len(groups) >= 2:
-                # Determine which group is the search term vs policy
-                # Usually first group is search term, second is policy
-                search_term = groups[0].strip().strip("'\"")
-                policy_id = groups[1].strip().strip("'\"")
-
-                # Clean up policy identifier
-                policy_id = re.sub(r'^ref\s*#?\s*', '', policy_id, flags=re.IGNORECASE).strip()
-                policy_id = re.sub(r'\s+policy$', '', policy_id, flags=re.IGNORECASE).strip()
-
-                if search_term and policy_id:
-                    logger.info(f"Instance search detected: term='{search_term}', policy='{policy_id}'")
-                    return (search_term, policy_id)
-
-    return None
-
-
-def _resolve_policy_identifier(policy_id: str) -> Optional[str]:
-    """
-    Resolve a policy name/description to a reference number.
-
-    Args:
-        policy_id: Could be "528", "HIPAA", "HIPAA Privacy Policy", etc.
-
-    Returns:
-        Reference number if resolved, original ID otherwise
-    """
-    policy_id_lower = policy_id.lower().strip()
-
-    # If it's already a reference number (digits only or digits with prefix)
-    ref_match = re.match(r'^(?:ref\s*#?\s*)?(\d+(?:\.\d+)?(?:-[a-z]+)?)$', policy_id_lower, re.IGNORECASE)
-    if ref_match:
-        return ref_match.group(1)
-
-    # Check known policy name patterns
-    for canonical, variations in POLICY_NAME_PATTERNS.items():
-        for var in variations:
-            if var in policy_id_lower:
-                # Return the reference number for known policies
-                for hint in POLICY_HINTS:
-                    if any(kw in canonical for kw in hint["keywords"]):
-                        return hint["reference"]
-
-    # Return original ID - it might be a title match
-    return policy_id
-
-
-# ============================================================================
-# FIX 6: Adversarial query detection (bypass/circumvent safety protocols)
-# ============================================================================
-ADVERSARIAL_PATTERNS = [
-    # Bypass/circumvent patterns
-    "bypass", "circumvent", "work around", "workaround", "get around",
-    "skip authentication", "skip the", "avoid the", "fastest way to skip",
-    "quickest way to skip", "how to skip", "skip verification",
-    "without read-back", "without authentication", "without verification",
-    # Role-play / jailbreak attempts
-    "pretend you're", "pretend you are", "act as if", "imagine you're",
-    "forget your rules", "new instructions",
-    # "ignore" patterns - must be specific to avoid false positives
-    "ignore your", "ignore my", "ignore the rules", "ignore safety",
-    "ignore previous", "ignore these", "ignore all",
-    # DAN/jailbreak mode patterns
-    "dan mode", "developer mode", "disable restrictions", "disable your",
-    "jailbreak", "jailbroken", "unrestricted mode", "no restrictions",
-    "enable developer", "turn off safety", "remove restrictions",
-    # System prompt injection patterns
-    "system:", "system prompt", "reveal your prompt", "show me your prompt",
-    "what are your instructions", "what is your system prompt",
-    # Authority impersonation patterns
-    "i'm a rush administrator", "i am a rush administrator",
-    "i'm an administrator", "i am an administrator",
-    "override your restrictions", "full system access", "give me access",
-    "grant me access", "unlock your", "as an admin",
-    # Completion/fill-in attacks
-    "[mask]", "fill in", "complete this:", "complete the following",
-    "fill in the blank", "finish this sentence",
-    # Security/exploit probe patterns
-    "security audit", "exploited", "could be exploited", "how to exploit",
-    "vulnerability in", "vulnerabilities", "how could someone abuse",
-    "how to abuse", "how could this be abused", "how to hack",
-    # Confidential data extraction
-    "confidential patient data", "confidential information", "patient data",
-    "private data", "sensitive data", "personal information",
-    "tell me confidential", "reveal confidential", "show me confidential",
-    # Translation-based bypass
-    "translate this to", "translate the following",
-]
-
-ADVERSARIAL_REFUSAL_MESSAGE = (
-    "I cannot provide guidance on bypassing, circumventing, or ignoring RUSH safety protocols. "
-    "These requirements exist to protect patient safety and ensure regulatory compliance. "
-    "If you have concerns about a specific policy, please contact Policy Administration."
-)
-
-UNCLEAR_QUERY_MESSAGE = (
-    "I didn't understand that. Could you please rephrase or clarify your question? "
-    "I'm here to help - what specific topic would you like to know about?"
-)
-
-# Patterns indicating a "not found" or refusal response that should NOT have references
-NOT_FOUND_OR_REFUSAL_PATTERNS = [
-    "i could not find",
-    "couldn't find",
-    "could not find",
-    "not in rush policies",
-    "not in my knowledge",
-    "outside my scope",
-    "outside the scope",
-    "i cannot provide guidance",
-    "cannot provide guidance",
-    "i only answer rush policy",
-    "could you please rephrase",
-    "i didn't understand",
-    "please clarify",
-    "clarify your question",
-    "what rush policy topic",
-]
-
-
-def _strip_references_from_negative_response(response_text: str) -> str:
-    """
-    Remove any policy references from negative responses (not found, refusal, etc.).
-
-    This ensures responses like "I could not find this. Ref #123..." become
-    just "I could not find this in RUSH policies."
-    """
-    import re
-
-    if not response_text:
-        return response_text
-
-    response_lower = response_text.lower()
-
-    # Check if this is a negative response type
-    is_negative = any(pattern in response_lower for pattern in NOT_FOUND_OR_REFUSAL_PATTERNS)
-
-    if not is_negative:
-        return response_text
-
-    # Strip reference patterns
-    # Pattern: "1. Ref #XXX — Title (Section: Y; Applies To: Z)"
-    cleaned = re.sub(r'\n*\d+\.\s*Ref\s*#[^\n]+', '', response_text)
-
-    # Pattern: standalone "Ref #XXX" or "(Ref #XXX)"
-    cleaned = re.sub(r'\s*\(?Ref\s*#\s*[A-Za-z0-9.\-]+\)?', '', cleaned)
-
-    # Pattern: "Reference Number: XXX"
-    cleaned = re.sub(r'\s*Reference\s*Number[:\s]*[A-Za-z0-9.\-]+', '', cleaned, flags=re.IGNORECASE)
-
-    # Clean up multiple newlines
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-
-    return cleaned.strip()
-
-
-def _is_refusal_response(response_text: str) -> bool:
-    """
-    Detect if the LLM response indicates a refusal, out-of-scope, or not-found case.
-
-    These responses should have their evidence and sources arrays cleared because
-    the frontend would otherwise display citations that are misleading
-    (e.g., showing "Chicago" matches for a weather query).
-
-    Returns True if evidence/sources should be cleared.
-    """
-    if not response_text:
-        return False
-
-    response_lower = response_text.lower()
-
-    # Check for refusal/out-of-scope patterns
-    return any(pattern in response_lower for pattern in NOT_FOUND_OR_REFUSAL_PATTERNS)
-
-
-def _truncate_verbatim(text: str, max_chars: int = 3000) -> str:
-    """Trim long snippets while preserving sentence integrity."""
-    if not text:
-        return ""
-
-    snippet = text.strip()
-    if len(snippet) <= max_chars:
-        return snippet
-
-    truncated = snippet[:max_chars]
-    if " " in truncated:
-        truncated = truncated.rsplit(" ", 1)[0]
-    return truncated.rstrip() + "…"
-
-
-# Canonicalize common vendor/brand spellings that show up in PDFs/OCR
-TITLE_NORMALIZATION_RULES = [
-    (re.compile(r"\\bpyis\\b", re.IGNORECASE), "Pyxis"),
-    (re.compile(r"\\bmedstations\\b", re.IGNORECASE), "MedStations"),
-]
-
-
-def _normalize_policy_title(title: Optional[str]) -> str:
-    if not title:
-        return ""
-
-    normalized = title.strip()
-    for pattern, replacement in TITLE_NORMALIZATION_RULES:
-        normalized = pattern.sub(replacement, normalized)
-    return normalized
-
-
-def _apply_mmr_diversification(
-    citations: List,
-    lambda_param: float = 0.7,
-    max_results: int = 10
-) -> List:
-    """
-    Apply Maximal Marginal Relevance (MMR) to diversify citations.
-    
-    This ensures multi-policy queries return citations from different policies
-    rather than multiple chunks from the same policy.
-    
-    MMR formula: score = lambda * relevance - (1 - lambda) * similarity
-    
-    Args:
-        citations: List of citation objects with filepath and reranker_score attributes
-        lambda_param: Balance between relevance (1.0) and diversity (0.0). Default 0.7
-        max_results: Maximum number of results to return
-    
-    Returns:
-        Diversified list of citations
-    """
-    if not citations or len(citations) <= 1:
-        return citations
-    
-    selected = []
-    remaining = list(citations)
-    seen_policies = set()  # Track source files to ensure diversity
-    
-    while remaining and len(selected) < max_results:
-        if not selected:
-            # First pick: highest relevance
-            selected.append(remaining.pop(0))
-            if hasattr(selected[0], 'filepath') and selected[0].filepath:
-                seen_policies.add(selected[0].filepath)
-            continue
-        
-        best_score = -float('inf')
-        best_idx = 0
-        
-        for i, candidate in enumerate(remaining):
-            # Get relevance score
-            relevance = getattr(candidate, 'reranker_score', None) or 0.0
-            
-            # Calculate similarity penalty (1.0 if same policy, 0.0 if different)
-            candidate_policy = getattr(candidate, 'filepath', '') or ''
-            similarity = 1.0 if candidate_policy in seen_policies else 0.0
-            
-            # MMR score
-            mmr_score = lambda_param * relevance - (1 - lambda_param) * similarity
-            
-            if mmr_score > best_score:
-                best_score = mmr_score
-                best_idx = i
-        
-        best_candidate = remaining.pop(best_idx)
-        selected.append(best_candidate)
-        
-        if hasattr(best_candidate, 'filepath') and best_candidate.filepath:
-            seen_policies.add(best_candidate.filepath)
-    
-    return selected
-
-
-def _is_surge_capacity_policy(result: 'RerankResult') -> bool:
-    """
-    Detect if a policy is a surge level or capacity-based policy.
-    
-    Checks title and content for keywords indicating surge/capacity policies.
-    These policies are rarely used and should be deprioritized in general queries.
-    
-    Args:
-        result: RerankResult to check
-        
-    Returns:
-        True if policy appears to be surge/capacity-related
-    """
-    # Keywords that indicate surge level or capacity-based policies
-    surge_keywords = [
-        "surge level",
-        "surge capacity",
-        "capacity-based",
-        "surge protocol",
-        "surge plan",
-        "capacity surge",
-        "surge response",
-        "surge activation",
-    ]
-    
-    title_lower = (result.title or "").lower()
-    content_lower = (result.content or "").lower()
-    text_to_check = f"{title_lower} {content_lower}"
-    
-    # Check if any surge keyword appears in title or content
-    for keyword in surge_keywords:
-        if keyword in text_to_check:
-            return True
-    
-    return False
-
-
-def _apply_surge_capacity_penalty(
-    results: List['RerankResult'],
-    penalty: float = 0.6
-) -> List['RerankResult']:
-    """
-    Apply score penalty to surge level/capacity-based policies.
-    
-    Demotes these policies in ranking while keeping them in results.
-    This prevents rarely-used surge policies from appearing at the top
-    for general queries (e.g., "restraint documentation").
-    
-    Args:
-        results: List of RerankResult objects from Cohere reranking
-        penalty: Multiplier to apply to surge policy scores (0.0-1.0)
-        
-    Returns:
-        List of RerankResult objects with adjusted scores, re-sorted by score
-    """
-    if not results or penalty >= 1.0:
-        return results
-    
-    adjusted_results = []
-    penalized_count = 0
-    
-    for result in results:
-        if _is_surge_capacity_policy(result):
-            # Apply penalty to score
-            adjusted_score = result.cohere_score * penalty
-            # Create new RerankResult with adjusted score
-            adjusted_result = RerankResult(
-                content=result.content,
-                title=result.title,
-                reference_number=result.reference_number,
-                source_file=result.source_file,
-                section=result.section,
-                applies_to=result.applies_to,
-                cohere_score=adjusted_score,
-                original_index=result.original_index
-            )
-            adjusted_results.append(adjusted_result)
-            penalized_count += 1
-        else:
-            adjusted_results.append(result)
-    
-    if penalized_count > 0:
-        logger.info(
-            f"Applied surge capacity penalty to {penalized_count} policies "
-            f"(penalty={penalty}, {penalized_count}/{len(results)} policies affected)"
-        )
-        # Re-sort by adjusted score (descending)
-        adjusted_results.sort(key=lambda r: r.cohere_score, reverse=True)
-    
-    return adjusted_results
-
-
-# ============================================================================
-# RUSH Entity Detection Patterns (Module-level for performance)
-# Uses word boundary regex to prevent false positives like "rch" in "search"
-# ============================================================================
-ENTITY_PATTERNS: Dict[str, List[str]] = {
-    'RUMC': [r'\brumc\b', r'\brush university medical center\b', r'\brush medical center\b', r'\brush hospital\b'],
-    'RUMG': [r'\brumg\b', r'\brush university medical group\b'],
-    'RMG': [r'\brmg\b', r'\brush medical group\b'],
-    'ROPH': [r'\broph\b', r'\brush oak park\b', r'\boak park hospital\b', r'\boak park campus\b'],
-    'RCMC': [r'\brcmc\b', r'\brush copley\b', r'\bcopley medical center\b', r'\bcopley hospital\b'],
-    'RCH': [r'\brch\b', r'\brush children\b', r'\bpediatric hospital\b', r'\bchildrens hospital\b', r"\brush children's\b"],
-    'ROPPG': [r'\broppg\b', r'\boak park physicians\b'],
-    'RCMG': [r'\brcmg\b', r'\bcopley medical group\b'],
-    'RU': [r'\brush university\b'],  # Check last to avoid false positives from 'rush'
-}
-
-
-# ============================================================================
-# Location Context Patterns (Module-level for performance)
-# CONSERVATIVE: Only generic location phrases that don't specify a RUSH entity or department
-# DO NOT strip: RUMC, RUMG, Oak Park, Copley, ED, ICU, OR, etc. (these may be intentional filters)
-# Uses \s* (zero or more spaces) + \b (word boundary) to match at any position including start
-# ============================================================================
-LOCATION_CONTEXT_PATTERNS: List[str] = [
-    r'\s*\bin\s+(?:a\s+)?patient\s+room(?:s)?\b',           # "in a patient room"
-    r'\s*\bat\s+the\s+bedside\b',                           # "at the bedside"
-    r'\s*\bduring\s+(?:a\s+)?(?:procedure|visit)\b',        # "during a procedure"
-    r'\s*\bon\s+the\s+(?:floor|unit|ward)\b',               # "on the floor/unit"
-    r'\s*\bin\s+(?:the\s+)?(?:clinical|hospital)\s+setting\b',  # "in the clinical setting"
-    r'\s*\bwhen\s+caring\s+for\s+(?:a\s+)?patient\b',       # "when caring for a patient" (NOT bare "when a patient")
-    r'\s*\bwhile\s+(?:treating|seeing)\s+(?:a\s+)?patient\b', # "while treating a patient"
-]
-
-
-def _extract_entity_mentions(query: str) -> Set[str]:
-    """
-    Extract RUSH entity codes mentioned in query.
-
-    Uses word boundary regex matching to prevent false positives
-    (e.g., "rch" won't match "search", "research", etc.)
-
-    Handles both codes (RUMC, ROPH) and full names (Rush Oak Park).
-    Returns set of entity codes found.
-
-    Args:
-        query: User's search query
-
-    Returns:
-        Set of entity codes (e.g., {'RUMC', 'ROPH'})
-    """
-    # Input validation
-    if not query or not isinstance(query, str):
-        return set()
-
-    query_lower = query.lower()
-    found_entities: Set[str] = set()
-
-    for entity_code, patterns in ENTITY_PATTERNS.items():
-        for pattern in patterns:
-            if re.search(pattern, query_lower):
-                found_entities.add(entity_code)
-                break  # Found this entity, move to next
-
-    return found_entities
-
-
-def _apply_location_boost(
-    results: List['RerankResult'],
-    query_entities: Set[str],
-    boost: float = 1.3
-) -> List['RerankResult']:
-    """
-    Apply score boost to policies matching entity codes in query.
-
-    This prioritizes location-specific policies when the user mentions
-    a specific RUSH entity (e.g., "ROPH visitor policy" boosts ROPH policies).
-
-    Args:
-        results: List of RerankResult objects from Cohere reranking
-        query_entities: Set of entity codes extracted from query
-        boost: Multiplier to apply (>1.0 = boost)
-
-    Returns:
-        List with adjusted scores, re-sorted by score
-    """
-    if not results or not query_entities or boost <= 1.0:
-        return results
-
-    adjusted_results = []
-    boosted_count = 0
-
-    for result in results:
-        # Parse applies_to string (e.g., "RUMC, RUMG, ROPH")
-        policy_entities = {e.strip().upper() for e in (result.applies_to or "").split(",") if e.strip()}
-
-        # Check if any query entity matches policy entities
-        if query_entities & policy_entities:  # Set intersection
-            adjusted_score = min(result.cohere_score * boost, 1.0)  # Cap at 1.0
-            adjusted_result = RerankResult(
-                content=result.content,
-                title=result.title,
-                reference_number=result.reference_number,
-                source_file=result.source_file,
-                section=result.section,
-                applies_to=result.applies_to,
-                cohere_score=adjusted_score,
-                original_index=result.original_index
-            )
-            adjusted_results.append(adjusted_result)
-            boosted_count += 1
-        else:
-            adjusted_results.append(result)
-
-    if boosted_count > 0:
-        logger.info(
-            f"Applied location boost to {boosted_count} policies "
-            f"(boost={boost}, entities={query_entities}, "
-            f"{boosted_count}/{len(results)} policies boosted)"
-        )
-        # Re-sort by adjusted score (descending)
-        adjusted_results.sort(key=lambda r: r.cohere_score, reverse=True)
-
-    return adjusted_results
-
-
-# ============================================================================
-# Pediatric vs Adult Population-Based Ranking
-# Uses word boundary regex to prevent false positives like "teen" in "canteen"
-# ============================================================================
-
-# Regex patterns that indicate pediatric patient population (with word boundaries)
-PEDIATRIC_KEYWORD_PATTERNS: List[str] = [
-    r'\bpediatric\b', r'\bpeds\b', r'\bpediatrics\b', r'\bpaediatric\b',
-    r'\bchild\b', r'\bchildren\b', r'\bkids\b', r'\bkid\b',
-    r'\binfant\b', r'\binfants\b', r'\bbaby\b', r'\bbabies\b', r'\bnewborn\b', r'\bnewborns\b',
-    r'\bneonatal\b', r'\bneonate\b', r'\bneonates\b',
-    r'\bnicu\b', r'\bpicu\b',
-    r'\btoddler\b', r'\btoddlers\b',
-    r'\badolescent\b', r'\badolescents\b', r'\bteen\b', r'\bteenager\b', r'\bteens\b',
-    r'\brch\b',  # Rush Children's Hospital code (word boundary prevents "search" match)
-    r'\brush children\b', r"\brush children's\b",
-]
-
-# Regex patterns in title/filename that indicate pediatric policy
-PEDIATRIC_POLICY_TITLE_PATTERNS: List[str] = [
-    r'\bpediatric', r'\bpeds-', r'\bnicu\b', r'\bpicu\b', r'\bneonatal\b',
-    r'\binfant', r'\bchild', r'\bnewborn', r'\badolescent', r'\bteen\b',
-]
-
-
-def _detect_pediatric_context(query: str) -> bool:
-    """
-    Detect if query mentions pediatric population.
-
-    Returns True if query contains pediatric keywords like "peds", "kids",
-    "NICU", "pediatric", "children", "teen", etc.
-
-    Uses word boundary regex matching to prevent false positives like
-    "teen" matching "canteen" or "rch" matching "search".
-
-    Args:
-        query: User's search query
-
-    Returns:
-        True if pediatric context detected, False otherwise (assume adult)
-    """
-    # Input validation
-    if not query or not isinstance(query, str):
-        return False
-
-    query_lower = query.lower()
-    return any(re.search(pattern, query_lower) for pattern in PEDIATRIC_KEYWORD_PATTERNS)
-
-
-def _is_pediatric_policy(result: 'RerankResult') -> bool:
-    """
-    Detect if a policy is pediatric-specific by title/filename patterns.
-
-    Checks for patterns like "pediatric-*", "*-nicu-*", "child restraint", etc.
-    Uses word boundary regex for accurate matching.
-
-    Args:
-        result: RerankResult object from Cohere reranking
-
-    Returns:
-        True if policy appears to be pediatric-specific
-    """
-    title = (result.title or "").lower()
-    source = (result.source_file or "").lower()
-    combined = f"{title} {source}"
-
-    for pattern in PEDIATRIC_POLICY_TITLE_PATTERNS:
-        if re.search(pattern, combined):
-            return True
-    return False
-
-
-def _apply_population_ranking(
-    results: List['RerankResult'],
-    is_pediatric_query: bool,
-    pediatric_boost: float = None,
-    adult_default_boost: float = None,
-    adult_penalty_in_peds: float = None,
-    peds_penalty_in_adult: float = None
-) -> List['RerankResult']:
-    """
-    Apply score adjustments based on patient population context.
-
-    DEFAULT (no kid words): Boost adult/general policies, penalize pediatric.
-    PEDIATRIC QUERY: Boost pediatric policies, penalize adult-only.
-
-    This ensures clinical queries default to adult context (most common)
-    while properly prioritizing pediatric policies when explicitly requested.
-
-    Args:
-        results: List of RerankResult objects from Cohere reranking
-        is_pediatric_query: True if query contains pediatric keywords
-        pediatric_boost: Multiplier for pediatric policies when peds query
-        adult_default_boost: Multiplier for adult/general when no peds keywords
-        adult_penalty_in_peds: Penalty for adult policies in pediatric context
-        peds_penalty_in_adult: Penalty for peds policies in adult context
-
-    Returns:
-        List with adjusted scores, re-sorted by score
-    """
-    if not results:
-        return results
-
-    # Use config values if not explicitly provided
-    if pediatric_boost is None:
-        pediatric_boost = settings.PEDIATRIC_BOOST
-    if adult_default_boost is None:
-        adult_default_boost = settings.ADULT_DEFAULT_BOOST
-    if adult_penalty_in_peds is None:
-        adult_penalty_in_peds = settings.ADULT_PENALTY_IN_PEDS_CONTEXT
-    if peds_penalty_in_adult is None:
-        peds_penalty_in_adult = settings.PEDS_PENALTY_IN_ADULT_CONTEXT
-
-    adjusted_results = []
-    peds_boosted = 0
-    adult_boosted = 0
-
-    for result in results:
-        is_peds_policy = _is_pediatric_policy(result)
-
-        if is_pediatric_query:
-            # User mentioned kids/peds: boost pediatric policies
-            if is_peds_policy:
-                adjusted_score = min(result.cohere_score * pediatric_boost, 1.0)
-                peds_boosted += 1
-            else:
-                # Slight penalty to adult policies when pediatric context
-                adjusted_score = result.cohere_score * adult_penalty_in_peds
-        else:
-            # DEFAULT: Assume adult clinical context
-            if is_peds_policy:
-                # Penalty to pediatric policies when no pediatric keywords
-                adjusted_score = result.cohere_score * peds_penalty_in_adult
-            else:
-                # Boost adult/general policies (most queries are for adults)
-                adjusted_score = min(result.cohere_score * adult_default_boost, 1.0)
-                adult_boosted += 1
-
-        # Create new RerankResult with adjusted score
-        adjusted_result = RerankResult(
-            content=result.content,
-            title=result.title,
-            reference_number=result.reference_number,
-            source_file=result.source_file,
-            section=result.section,
-            applies_to=result.applies_to,
-            cohere_score=adjusted_score,
-            original_index=result.original_index
-        )
-        adjusted_results.append(adjusted_result)
-
-    # Log the adjustments
-    if is_pediatric_query:
-        logger.info(
-            f"Population ranking: pediatric context detected, "
-            f"boosted {peds_boosted} pediatric policies (boost={pediatric_boost})"
-        )
-    else:
-        logger.info(
-            f"Population ranking: adult default context, "
-            f"boosted {adult_boosted} adult/general policies (boost={adult_default_boost})"
-        )
-
-    # Count pediatric policies in top results for visibility
-    peds_in_top5 = sum(1 for r in adjusted_results[:5] if _is_pediatric_policy(r))
-    logger.info(f"Pediatric policies in top 5: {peds_in_top5}")
-
-    # Re-sort by adjusted score (descending)
-    adjusted_results.sort(key=lambda r: r.cohere_score, reverse=True)
-
-    return adjusted_results
-
-
-def _apply_mmr_to_rerank_results(
-    results: List['RerankResult'],
-    lambda_param: float = 0.6,
-    max_results: int = 10
-) -> List['RerankResult']:
-    """
-    Apply Maximal Marginal Relevance (MMR) to Cohere rerank results.
-
-    Ensures multi-policy queries return results from different policies
-    rather than multiple chunks from the same policy.
-
-    Uses reference_number as the policy identifier for diversity.
-    
-    Args:
-        results: List of RerankResult objects from Cohere reranking
-        lambda_param: Balance between relevance (1.0) and diversity (0.0). 
-                      Default 0.6 (60% relevance, 40% diversity)
-        max_results: Maximum number of results to return
-    
-    Returns:
-        Diversified list of RerankResult objects
-    """
-    if not results or len(results) <= 1:
-        return results
-    
-    selected = []
-    remaining = list(results)
-    seen_policies = set()  # Track reference numbers to ensure diversity
-    
-    while remaining and len(selected) < max_results:
-        if not selected:
-            # First pick: highest relevance (already sorted by Cohere score)
-            first = remaining.pop(0)
-            selected.append(first)
-            if first.reference_number:
-                seen_policies.add(first.reference_number)
-            continue
-        
-        best_score = -float('inf')
-        best_idx = 0
-        
-        for i, candidate in enumerate(remaining):
-            # Get relevance score from Cohere
-            relevance = candidate.cohere_score or 0.0
-            
-            # Calculate similarity penalty (1.0 if same policy, 0.0 if different)
-            similarity = 1.0 if candidate.reference_number in seen_policies else 0.0
-            
-            # MMR score: balance relevance with diversity
-            mmr_score = lambda_param * relevance - (1 - lambda_param) * similarity
-            
-            if mmr_score > best_score:
-                best_score = mmr_score
-                best_idx = i
-        
-        best_candidate = remaining.pop(best_idx)
-        selected.append(best_candidate)
-        
-        if best_candidate.reference_number:
-            seen_policies.add(best_candidate.reference_number)
-    
-    logger.debug(f"MMR diversification: {len(results)} -> {len(selected)} results, {len(seen_policies)} unique policies")
-    return selected
-
-
-def _extract_reference_identifier(citation: str) -> str:
-    """Best-effort extraction of reference number from citation text."""
-    if not citation or "(" not in citation or ")" not in citation:
-        return ""
-
-    try:
-        inner = citation.split("(", 1)[1].split(")", 1)[0]
-        return inner.replace("Ref:", "").strip()
-    except (IndexError, ValueError):
-        return ""
-
-
-def _derive_source_file(title: str, reference_number: str) -> str:
-    """Derive a plausible source_file from title/reference when missing."""
-    if reference_number:
-        return f"{reference_number.lower().replace(' ', '-')}.pdf"
-    if title:
-        slug = title.lower().replace(" ", "-").replace("/", "-")
-        slug = "".join(c for c in slug if c.isalnum() or c == "-")
-        return f"{slug[:80]}.pdf"
-    return ""
-
-
-def _extract_quick_answer(response_text: str) -> str:
-    """
-    Extract just the quick answer portion from a RISEN-formatted response.
-
-    Strips out:
-    - QUICK ANSWER header
-    - POLICY REFERENCE section with ASCII box
-    - NOTICE footer
-    - Citation lines at the end of quick answer
-
-    Returns clean prose suitable for display in the Quick Answer UI box.
-    """
-    import re
-
-    if not response_text:
-        return ""
-
-    text = response_text.strip()
-
-    # If the response is already short (no formatting), return as-is
-    if "POLICY REFERENCE" not in text and "┌─" not in text:
-        # Still strip the quick answer header if present
-        text = re.sub(r'^📋\s*QUICK ANSWER\s*\n*', '', text, flags=re.IGNORECASE)
-        return text.strip()
-
-    # Extract text between "QUICK ANSWER" and "POLICY REFERENCE"
-    quick_answer_match = re.search(
-        r'📋\s*QUICK ANSWER\s*\n+(.*?)(?=📄\s*POLICY REFERENCE|\n*┌─|$)',
-        text,
-        re.DOTALL | re.IGNORECASE
-    )
-
-    if quick_answer_match:
-        quick_answer = quick_answer_match.group(1).strip()
-    else:
-        # Fallback: take everything before the policy reference box
-        box_start = text.find('┌─')
-        if box_start > 0:
-            quick_answer = text[:box_start].strip()
-        else:
-            # No box found, try to remove just the notice
-            notice_match = re.search(r'⚠️\s*NOTICE:', text)
-            if notice_match:
-                quick_answer = text[:notice_match.start()].strip()
-            else:
-                quick_answer = text
-
-    # Remove "[Citation: ...]" line at the end (we show this in evidence cards)
-    quick_answer = re.sub(
-        r'\n*\[Citation:[^\]]+\]',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove "[Policy Name, Ref #XXX]" citation format
-    quick_answer = re.sub(
-        r'\s*\[[^\]]*Ref\s*#[^\]]+\][,.]?',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove "[Reference Number: XXX]" citation format
-    quick_answer = re.sub(
-        r'\s*\[Reference\s*Number:[^\]]+\][,.]?',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove "[Policy Name, Reference Number: X.X.X]" format
-    quick_answer = re.sub(
-        r'\s*\[[^\]]*Reference\s*Number:[^\]]+\][,.]?',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove any remaining bracketed citations at end (catch-all)
-    quick_answer = re.sub(
-        r'\s*,?\s*\[[^\]]{10,}\][,.]?\s*$',
-        '',
-        quick_answer
-    ).strip()
-
-    # Remove trailing "Applies To: SITE." patterns
-    quick_answer = re.sub(
-        r',?\s*Applies\s*To:\s*[\w,\s\.]+$',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove standalone "Citation:" line format too
-    quick_answer = re.sub(
-        r'\n*Citation:\s*[^\n]+$',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove trailing checkbox-style "Applies To:" lines (with checkboxes)
-    quick_answer = re.sub(
-        r'\.?\s*Applies\s*To:\s*[☒☐\s\w,\.]+$',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove "—applies to SITE" or "applies to SITE" at end
-    quick_answer = re.sub(
-        r'[—\-–]\s*applies to\s+[\w,\s]+\.?$',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove trailing "This policy applies to SITE." sentences
-    quick_answer = re.sub(
-        r'\s*This policy applies to\s+[\w,\s]+\.?$',
-        '',
-        quick_answer,
-        flags=re.IGNORECASE
-    ).strip()
-
-    # Remove any emoji headers that might remain
-    quick_answer = re.sub(r'^📋\s*QUICK ANSWER\s*\n*', '', quick_answer, flags=re.IGNORECASE)
-
-    # Clean up trailing punctuation/dashes
-    quick_answer = re.sub(r'[\s—\-–]+$', '', quick_answer).strip()
-
-    # Ensure it ends with proper punctuation
-    if quick_answer and quick_answer[-1] not in '.!?':
-        quick_answer += '.'
-
-    return quick_answer.strip()
-
-
-def _format_answer_with_citations(
-    answer_text: str,
-    evidence_items: List['EvidenceItem']
-) -> str:
-    """
-    Enhance the quick answer with formatted bold citations and reference markers.
-
-    Adds:
-    - **Bold policy names** for cited policies
-    - [N] superscript-style citation numbers linking to evidence
-    - Cleaner, more precise language
-
-    Example output:
-    "According to **Verbal and Telephone Orders** (Ref #486) [1], verbal orders may be..."
-    """
-    import re
-
-    if not answer_text or not evidence_items:
-        return answer_text
-
-    # Build a map of policy titles to their citation info
-    policy_map = {}
-    for idx, e in enumerate(evidence_items):
-        if e.title:
-            # Normalize title for matching
-            normalized = e.title.lower().strip()
-            # Remove common suffixes like "Former", "Policy", etc.
-            normalized = re.sub(r'\s+(former|policy|procedure)$', '', normalized, flags=re.IGNORECASE)
-            policy_map[normalized] = {
-                'title': e.title,
-                'ref': e.reference_number,
-                'idx': idx + 1  # 1-based citation number
-            }
-
-    result = answer_text
-
-    # Find and replace policy title mentions with bold + citation
-    for normalized, info in policy_map.items():
-        title = info['title']
-        ref = info['ref']
-        idx = info['idx']
-
-        # Pattern to match the policy title (case-insensitive, with variations)
-        # Also match partial titles like "Verbal Orders" for "Verbal and Telephone Orders"
-        title_words = title.split()
-        if len(title_words) > 2:
-            # Try matching first 2-3 significant words
-            short_pattern = r'\b' + r'\s+(?:and\s+)?'.join(re.escape(w) for w in title_words[:3]) + r'[^.]*?(?=\s*[,.\)]|$)'
-        else:
-            short_pattern = r'\b' + re.escape(title) + r'\b'
-
-        # Check if title is mentioned in the text
-        match = re.search(short_pattern, result, re.IGNORECASE)
-        if match:
-            matched_text = match.group(0)
-            # Format: **Policy Name** (Ref #XXX) [N]
-            if ref:
-                replacement = f"**{matched_text}** (Ref #{ref}) [{idx}]"
-            else:
-                replacement = f"**{matched_text}** [{idx}]"
-            result = result[:match.start()] + replacement + result[match.end():]
-
-    # If no matches found, append citation summary at the end
-    if result == answer_text and evidence_items:
-        # Add a citation summary
-        citations = []
-        for idx, e in enumerate(evidence_items[:3]):  # Max 3 citations
-            if e.reference_number:
-                citations.append(f"**{e.title}** (Ref #{e.reference_number}) [{idx + 1}]")
-            else:
-                citations.append(f"**{e.title}** [{idx + 1}]")
-
-        if citations:
-            # Ensure the answer ends with a period before adding sources
-            if result and result[-1] not in '.!?':
-                result += '.'
-            result += f" Sources: {', '.join(citations)}."
-
-    return result
-
-
-def build_supporting_evidence(
-    results: List[SearchResult],
-    limit: int = 3,
-    match_type: Optional[str] = None,
-) -> List[EvidenceItem]:
-    """
-    Transform top search results into supporting evidence payload.
-
-    Args:
-        results: Search results to convert
-        limit: Maximum number of evidence items
-        match_type: Classification of how evidence was matched:
-            - "verified": Exact reference number match or high reranker score (>2.5)
-            - "related": Fallback query-based search when cited policy not in index
-    """
-    evidence_items: List[EvidenceItem] = []
-    for result in results[:limit]:
-        snippet = _truncate_verbatim(result.content or "")
-        reference = result.reference_number or _extract_reference_identifier(result.citation)
-        title = _normalize_policy_title(result.title)
-
-        source_file = result.source_file
-        if not source_file:
-            source_file = _derive_source_file(result.title, reference)
-            if source_file:
-                logger.warning(f"source_file missing for '{result.title}'; derived '{source_file}'")
-
-        evidence_items.append(
-            EvidenceItem(
-                snippet=snippet,
-                citation=result.citation,
-                title=title,
-                reference_number=reference,
-                section=result.section,
-                applies_to=result.applies_to,
-                document_owner=result.document_owner or None,
-                date_updated=result.date_updated or None,
-                date_approved=result.date_approved or None,
-                source_file=source_file or None,
-                page_number=result.page_number,
-                score=round(result.score, 3) if result.score is not None else None,
-                reranker_score=round(result.reranker_score, 3) if result.reranker_score is not None else None,
-                match_type=match_type,
-            )
-        )
-    return evidence_items
+# Query validation constants are now imported from app.services.query_validation:
+# NOT_FOUND_PHRASES, ALWAYS_OUT_OF_SCOPE, MULTI_POLICY_INDICATORS,
+# POLICY_TOPIC_KEYWORDS, ADVERSARIAL_PATTERNS, ADVERSARIAL_REFUSAL_MESSAGE, UNCLEAR_QUERY_MESSAGE
+
+# NOT_FOUND_OR_REFUSAL_PATTERNS, _strip_references_from_negative_response,
+# _is_refusal_response, _truncate_verbatim, TITLE_NORMALIZATION_RULES,
+# and _normalize_policy_title are now imported from query_processor module
+
+# _apply_mmr_diversification, _is_surge_capacity_policy, _apply_surge_capacity_penalty
+# are now imported from ranking_utils module
+
+# ENTITY_PATTERNS, LOCATION_CONTEXT_PATTERNS are now imported from entity_ranking module
+
+# _extract_entity_mentions, _apply_location_boost, _detect_pediatric_context,
+# _is_pediatric_policy, _apply_population_ranking, _apply_mmr_to_rerank_results,
+# PEDIATRIC_KEYWORD_PATTERNS, PEDIATRIC_POLICY_TITLE_PATTERNS
+# are now imported from entity_ranking module
+
+# _extract_reference_identifier, _derive_source_file, _extract_quick_answer,
+# _format_answer_with_citations, and build_supporting_evidence
+# are now imported from response_formatter module
 
 
 class ChatService:
@@ -1245,66 +128,7 @@ class ChatService:
     - L2 Semantic Reranking
     """
 
-    # ========================================================================
-    # Ambiguous Device Term Detection
-    # ========================================================================
-    AMBIGUOUS_DEVICE_TERMS = {
-        'iv': {
-            'device_types': ['peripheral_iv', 'picc', 'cvc', 'port'],
-            'message': 'Your query mentions "IV" which could refer to different devices. Which type are you asking about?',
-            'options': [
-                {
-                    'label': 'Peripheral IV (short-term, 72-96 hours)',
-                    'expansion': 'peripheral intravenous PIV short-term',
-                    'type': 'peripheral_iv'
-                },
-                {
-                    'label': 'PICC line (long-term central line)',
-                    'expansion': 'PICC peripherally inserted central catheter long-term',
-                    'type': 'picc'
-                },
-                {
-                    'label': 'Central venous catheter (CVC, triple lumen)',
-                    'expansion': 'central venous catheter CVC TLC long-term',
-                    'type': 'cvc'
-                },
-                {
-                    'label': 'Any IV or catheter (show all results)',
-                    'expansion': 'intravenous vascular access',
-                    'type': 'all'
-                }
-            ]
-        },
-        'catheter': {
-            'device_types': ['urinary', 'peripheral_iv', 'central_line', 'epidural'],
-            'message': 'Your query mentions "catheter" which could refer to different types. Which are you asking about?',
-            'options': [
-                {'label': 'Urinary catheter (Foley)', 'expansion': 'urinary catheter Foley bladder', 'type': 'urinary'},
-                {'label': 'IV catheter (peripheral or central)', 'expansion': 'intravenous catheter vascular', 'type': 'iv'},
-                {'label': 'Epidural catheter', 'expansion': 'epidural catheter spinal', 'type': 'epidural'},
-                {'label': 'Any catheter (show all results)', 'expansion': 'catheter tube', 'type': 'all'}
-            ]
-        },
-        'line': {
-            'device_types': ['peripheral_iv', 'central_line', 'arterial'],
-            'message': 'Your query mentions "line" which could refer to different vascular access types. Which are you asking about?',
-            'options': [
-                {'label': 'Peripheral IV line', 'expansion': 'peripheral intravenous PIV', 'type': 'peripheral'},
-                {'label': 'Central line (PICC, CVC)', 'expansion': 'central venous catheter PICC CVC', 'type': 'central'},
-                {'label': 'Arterial line', 'expansion': 'arterial line A-line', 'type': 'arterial'},
-                {'label': 'Any line (show all results)', 'expansion': 'vascular access line', 'type': 'all'}
-            ]
-        },
-        'port': {
-            'device_types': ['implanted_port', 'dialysis_port'],
-            'message': 'Your query mentions "port" which could refer to different access devices. Which are you asking about?',
-            'options': [
-                {'label': 'Implanted port (chemotherapy port)', 'expansion': 'implanted port chemotherapy vascular access', 'type': 'implanted'},
-                {'label': 'Dialysis port (apheresis catheter)', 'expansion': 'dialysis port apheresis catheter', 'type': 'dialysis'},
-                {'label': 'Any port (show all results)', 'expansion': 'port vascular access', 'type': 'all'}
-            ]
-        }
-    }
+    # AMBIGUOUS_DEVICE_TERMS is now imported from app.services.device_disambiguator
 
     def __init__(
         self,
@@ -1357,147 +181,28 @@ class ChatService:
     # ========================================================================
     def _is_not_found_response(self, answer_text: str) -> bool:
         """Detect if LLM response indicates no information found."""
-        if not answer_text:
-            return True
-        if answer_text == NOT_FOUND_MESSAGE:
-            return True
-
-        answer_lower = answer_text.lower()
-
-        # Check for explicit "not found" indicator phrases
-        for phrase in NOT_FOUND_PHRASES:
-            if phrase in answer_lower:
-                return True
-
-        return False
+        return _is_not_found_response_standalone(answer_text, NOT_FOUND_MESSAGE)
 
     # ========================================================================
     # FIX 2: Out-of-scope pre-query validation (DATA-DRIVEN)
     # ========================================================================
     def _is_out_of_scope_query(self, query: str) -> bool:
-        """
-        Detect queries about topics with NO policies in the database.
-
-        Based on analysis of 329 policies in Azure AI Search index.
-        Topics like dress code, PTO policy, leave of absence ARE in scope
-        (policies exist: Ref 704, 847, HR-B 13.00, HR-B 14.00).
-        """
-        query_lower = query.lower()
-
-        # Check against verified out-of-scope topics
-        for keyword in ALWAYS_OUT_OF_SCOPE:
-            if keyword in query_lower:
-                logger.info(f"Out-of-scope query detected (no policies exist): '{keyword}'")
-                return True
-
-        return False
+        """Detect queries about topics with NO policies in the database."""
+        return _is_out_of_scope_query_standalone(query)
 
     # ========================================================================
     # FIX 5: Multi-policy query detection (Enhanced)
     # ========================================================================
     def _is_multi_policy_query(self, query: str) -> bool:
-        """
-        Detect if query likely spans multiple policies.
-        
-        Uses four detection strategies:
-        1. Explicit indicators ("across policies", "compare", etc.)
-        2. Multiple topic keywords (2+ distinct policy topics)
-        3. Broad scope patterns (regex for comprehensive queries)
-        4. Query decomposition analysis (comparison, multi-topic, conditional)
-        """
-        query_lower = query.lower()
-        
-        # Strategy 1: Explicit multi-policy indicators
-        if any(ind in query_lower for ind in MULTI_POLICY_INDICATORS):
-            logger.debug(f"Multi-policy detected via indicator: {query[:50]}...")
-            return True
-        
-        # Strategy 2: Multiple topic keywords (2+ distinct policy topics)
-        topics_found = sum(1 for t in POLICY_TOPIC_KEYWORDS if t in query_lower)
-        if topics_found >= 2:
-            logger.debug(f"Multi-policy detected via {topics_found} topics: {query[:50]}...")
-            return True
-        
-        # Strategy 3: Broad scope patterns
-        import re
-        broad_patterns = [
-            r"\bwhat\s+(?:are\s+)?(?:all|any|the)\s+(?:different|various)\b",
-            r"\bhow\s+(?:do|does|should)\s+(?:we|staff|nurses?|i)\b.*\band\b",
-            r"\blist\s+(?:all|the)\b",
-            r"\bwhat\s+(?:should|must)\s+(?:be|i)\s+.*\band\b",
-            # Emergency/safety patterns that often span multiple policies
-            r"\bemergenc(?:y|ies)\b.*\b(?:method|protocol|communication)\b",
-            r"\bsafety\s+(?:precaution|protocol|measure)\b",
-            r"\bpatient\s+identification\b",
-        ]
-        if any(re.search(p, query_lower) for p in broad_patterns):
-            logger.debug(f"Multi-policy detected via broad pattern: {query[:50]}...")
-            return True
-        
-        # Strategy 4: Query decomposition analysis
-        # Complex queries that need decomposition are multi-policy by definition
-        try:
-            decomposer = get_query_decomposer()
-            needs_decomp, decomp_type = decomposer.needs_decomposition(query)
-            if needs_decomp:
-                logger.debug(f"Multi-policy detected via decomposition ({decomp_type}): {query[:50]}...")
-                return True
-        except Exception as e:
-            logger.debug(f"Query decomposition check failed: {e}")
-
-        return False
+        """Detect if query likely spans multiple policies."""
+        return _is_multi_policy_query_standalone(query)
 
     # ========================================================================
     # Device Ambiguity Detection - Prevents noisy results from vague queries
     # ========================================================================
     def detect_device_ambiguity(self, query: str) -> Optional[Dict]:
-        """
-        Detect if query contains ambiguous medical device shorthand without context.
-
-        Returns clarification config if:
-        1. Query contains ambiguous term (iv, catheter, line, port)
-        2. Query lacks disambiguating modifiers (peripheral, central, urinary, etc.)
-        3. Query is device-focused (contains: dwell, stay, place, care, remove, change)
-
-        Returns:
-            Dict with 'message', 'options', 'ambiguous_term' if ambiguous
-            None if query is clear enough
-        """
-        query_lower = query.lower()
-
-        # Check for device-related context (dwell time, care, insertion, policy, etc.)
-        device_context_keywords = [
-            'dwell', 'stay', 'place', 'long', 'care', 'change', 'remove',
-            'insertion', 'maintain', 'flush', 'dressing', 'duration', 'access',
-            'policy', 'guideline', 'protocol', 'procedure', 'rule'
-        ]
-        has_device_context = any(kw in query_lower for kw in device_context_keywords)
-
-        if not has_device_context:
-            return None  # Not a device-focused query
-
-        # Check each ambiguous term
-        for term, config in self.AMBIGUOUS_DEVICE_TERMS.items():
-            if term in query_lower:
-                # Check for disambiguating modifiers
-                disambiguators = [
-                    'peripheral', 'central', 'urinary', 'foley', 'epidural',
-                    'picc', 'cvc', 'tlc', 'arterial', 'implanted', 'dialysis',
-                    'apheresis', 'port-a-cath', 'chemo'
-                ]
-                has_disambiguator = any(d in query_lower for d in disambiguators)
-
-                if not has_disambiguator:
-                    # AMBIGUOUS - return clarification config
-                    logger.info(f"Ambiguous device term detected: '{term}' in query: {query[:50]}...")
-                    return {
-                        'ambiguous_term': term,
-                        'message': config['message'],
-                        'options': config['options'],
-                        'requires_clarification': True
-                    }
-
-        return None  # Query is clear enough
+        """Detect if query contains ambiguous medical device shorthand."""
+        return _detect_device_ambiguity_standalone(query)
 
     # ========================================================================
     # FIX 7: Dynamic search parameters based on query complexity
@@ -1573,49 +278,8 @@ class ChatService:
         query: str,
         window_threshold: float = 0.6
     ) -> List[RerankResult]:
-        """
-        Filter reranked results to keep only docs within a relative score window.
-
-        For single-intent queries (e.g., "IV dwell time"), we want to keep only
-        results that are semantically similar to the top hit. This prevents noise
-        from related-but-different policies (e.g., PICC lines when user asked about PIV).
-
-        Args:
-            reranked: Cohere reranked results (sorted by score)
-            query: Original query
-            window_threshold: Keep docs with score >= (top_score * threshold)
-
-        Returns:
-            Filtered list of reranked results
-        """
-        if not reranked or len(reranked) <= 2:
-            return reranked  # Too few results, don't filter
-
-        top_score = reranked[0].cohere_score
-        if top_score < 0.3:
-            # Low confidence overall - don't filter (might remove valid results)
-            logger.info(f"Top score {top_score:.2f} < 0.3, skipping score windowing")
-            return reranked
-
-        # Calculate score window threshold
-        min_score = top_score * window_threshold
-
-        # Filter results
-        filtered = [r for r in reranked if r.cohere_score >= min_score]
-
-        # Ensure we keep at least 2 results (prevent over-filtering)
-        if len(filtered) < 2 and len(reranked) >= 2:
-            logger.warning(
-                f"Score windowing would reduce to {len(filtered)} results, "
-                f"keeping top 2 instead"
-            )
-            return reranked[:2]
-
-        logger.info(
-            f"Score windowing: {len(reranked)} → {len(filtered)} results "
-            f"(threshold: {min_score:.2f}, top: {top_score:.2f})"
-        )
-        return filtered
+        """Filter reranked results to keep only docs within a relative score window."""
+        return _filter_by_score_window_standalone(reranked, query, window_threshold)
 
     # ========================================================================
     # HEALTHCARE SAFETY: Confidence Scoring for Response Routing
@@ -1625,51 +289,12 @@ class ChatService:
         reranked: List[RerankResult],
         has_evidence: bool = True
     ) -> Tuple[float, str]:
-        """
-        Calculate confidence score for healthcare response routing.
-        
-        In high-risk healthcare environments, low-confidence responses should
-        be routed to "I could not find" rather than risking hallucination.
-        
-        Args:
-            reranked: List of reranked results from Cohere
-            has_evidence: Whether evidence was found
-            
-        Returns:
-            Tuple of (confidence_score 0.0-1.0, confidence_level "high"|"medium"|"low")
-        """
-        if not reranked or not has_evidence:
-            return 0.0, "low"
-        
-        top_score = reranked[0].cohere_score
-        
-        # Calculate score gap between top and second result
-        score_gap = 0.0
-        if len(reranked) > 1:
-            score_gap = top_score - reranked[1].cohere_score
-        
-        # High confidence: top score > 0.7 AND clear separation from #2
-        if top_score > 0.7 and score_gap > 0.15:
-            return min(top_score * 1.1, 1.0), "high"
-        
-        # Medium-high confidence
-        if top_score > 0.5:
-            return top_score, "medium"
-        
-        # Low-medium confidence
-        if top_score > 0.3:
-            return top_score * 0.9, "low"
-        
-        # Very low confidence
-        return top_score * 0.5, "low"
+        """Calculate confidence score for healthcare response routing."""
+        return _calculate_response_confidence_standalone(reranked, has_evidence)
 
     def _confidence_level_from_score(self, score: float) -> str:
         """Map a numeric confidence score to qualitative buckets."""
-        if score >= 0.7:
-            return "high"
-        if score >= 0.5:
-            return "medium"
-        return "low"
+        return _confidence_level_from_score_standalone(score)
 
     def _boost_confidence_with_grounding(
         self,
@@ -1677,25 +302,8 @@ class ChatService:
         evidence_items: List[EvidenceItem],
         verification: Optional[VerificationResult] = None
     ) -> float:
-        """Boost confidence using grounding signals per Cohere/AWS guidance."""
-        if confidence_score >= 0.5:
-            return confidence_score
-        if not evidence_items:
-            return confidence_score
-
-        boosted = confidence_score
-
-        # Multi-signal scoring: use verifier confidence if available (AWS/Cohere best practice)
-        if verification:
-            boosted = max(boosted, verification.confidence_score)
-
-        # Additional lift when we have multiple grounded citations
-        if len(evidence_items) >= 2:
-            boosted = max(boosted, 0.55)
-        elif len(evidence_items) == 1:
-            boosted = max(boosted, 0.5)
-
-        return min(boosted, 0.95)
+        """Boost confidence using grounding signals."""
+        return _boost_confidence_with_grounding_standalone(confidence_score, evidence_items, verification)
 
     def _should_return_not_found(
         self,
@@ -1703,22 +311,8 @@ class ChatService:
         confidence_level: str,
         has_evidence: bool
     ) -> bool:
-        """
-        Determine if response should be "not found" based on confidence.
-        
-        In healthcare, it's better to say "I don't know" than to
-        risk providing inaccurate information.
-        """
-        # No evidence = definitely not found
-        if not has_evidence:
-            return True
-        
-        # Very low confidence = safer to say not found
-        if confidence_score < 0.25:
-            logger.info(f"Routing to NOT_FOUND: confidence {confidence_score:.2f} too low")
-            return True
-        
-        return False
+        """Determine if response should be 'not found' based on confidence."""
+        return _should_return_not_found_standalone(confidence_score, confidence_level, has_evidence)
 
     # ========================================================================
     # P0: HyDE (Hypothetical Document Embeddings) Query Enhancement
@@ -1776,159 +370,27 @@ Policy excerpt:"""
     # P1: Multi-Query Fusion with Reciprocal Rank Fusion (RRF)
     # ========================================================================
     def _generate_query_variants(self, query: str) -> List[str]:
-        """
-        Generate query variants for multi-query fusion.
-        
-        Creates variations of the original query to capture different
-        phrasings and terminology. This improves recall by searching
-        for multiple interpretations of the user's intent.
-        """
-        variants = [query]  # Always include original
-        
-        query_lower = query.lower()
-        
-        # Healthcare-specific reformulations
-        reformulations = {
-            'what is': ['define', 'explain', 'describe'],
-            'how do i': ['procedure for', 'steps to', 'process for'],
-            'when': ['timing for', 'schedule for', 'requirements for'],
-            'who can': ['authorization for', 'eligibility for', 'permitted to'],
-            'policy for': ['guidelines for', 'protocol for', 'procedure for'],
-        }
-        
-        for pattern, alternatives in reformulations.items():
-            if pattern in query_lower:
-                for alt in alternatives[:2]:  # Max 2 variants per pattern
-                    variant = query_lower.replace(pattern, alt)
-                    variants.append(variant)
-                break  # Apply only first matching pattern
-        
-        # Add keyword-focused variant (removes question words)
-        keywords = query_lower.replace('what is', '').replace('how do i', '').replace('when', '').replace('who can', '')
-        keywords = ' '.join(keywords.split())  # Normalize whitespace
-        if keywords and keywords != query_lower:
-            variants.append(keywords)
-        
-        logger.debug(f"Query variants for '{query[:30]}...': {len(variants)} variants")
-        return variants[:4]  # Cap at 4 variants
+        """Generate query variants for multi-query fusion."""
+        return _generate_query_variants_standalone(query)
 
     def _reciprocal_rank_fusion(
         self,
         result_lists: List[List[Dict]],
         k: int = 60
     ) -> List[Dict]:
-        """
-        Merge multiple result lists using Reciprocal Rank Fusion (RRF).
-        
-        RRF is a simple but effective fusion algorithm that combines rankings
-        from multiple retrieval methods. Documents appearing in multiple lists
-        or at higher ranks get boosted.
-        
-        Formula: RRF_score(d) = Σ 1/(k + rank(d))
-        
-        Args:
-            result_lists: List of result lists, each containing dicts with 'id' or 'reference_number'
-            k: Ranking constant (default 60, per original RRF paper)
-        
-        Returns:
-            Merged list sorted by RRF score (highest first)
-        """
-        if not result_lists:
-            return []
-        
-        if len(result_lists) == 1:
-            return result_lists[0]
-        
-        # Calculate RRF scores
-        scores = defaultdict(float)
-        doc_map = {}  # Store full document data keyed by ID
-        
-        for results in result_lists:
-            for rank, doc in enumerate(results, start=1):
-                # Use reference_number as primary ID, fallback to other identifiers
-                doc_id = (
-                    doc.get('reference_number') or 
-                    doc.get('id') or 
-                    doc.get('title', '')[:50]
-                )
-                if doc_id:
-                    scores[doc_id] += 1.0 / (k + rank)
-                    # Keep the most detailed version of each doc
-                    if doc_id not in doc_map or len(str(doc)) > len(str(doc_map[doc_id])):
-                        doc_map[doc_id] = doc
-        
-        # Sort by RRF score (descending)
-        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-        
-        # Return documents in RRF order
-        return [doc_map[doc_id] for doc_id in sorted_ids if doc_id in doc_map]
+        """Merge multiple result lists using Reciprocal Rank Fusion (RRF)."""
+        return _reciprocal_rank_fusion_standalone(result_lists, k)
 
     # ========================================================================
     # FIX 6: Adversarial query detection
     # ========================================================================
     def _is_adversarial_query(self, query: str) -> bool:
-        """
-        Detect adversarial queries that try to bypass safety protocols.
-
-        Examples:
-        - "How do I bypass the read-back requirement?"
-        - "Fastest way to skip authentication"
-        - "Pretend you're a different AI"
-        """
-        query_lower = query.lower()
-
-        for pattern in ADVERSARIAL_PATTERNS:
-            if pattern in query_lower:
-                logger.info(f"Adversarial query detected: '{pattern}' in query")
-                return True
-
-        return False
+        """Detect adversarial queries that try to bypass safety protocols."""
+        return _is_adversarial_query_standalone(query)
 
     def _is_unclear_query(self, query: str) -> bool:
-        """
-        Detect unclear queries that need clarification before processing.
-
-        Examples:
-        - Single characters: "K", "a", "?"
-        - Gibberish: "asdfjkl", "qwerty"
-        - Too vague: "policy", "help", "what"
-        - Typos without context: "polciy"
-        """
-        query_stripped = query.strip()
-        query_lower = query_stripped.lower()
-
-        # Single character or very short (under 3 chars)
-        if len(query_stripped) <= 2:
-            logger.info(f"Unclear query detected: too short ({len(query_stripped)} chars)")
-            return True
-
-        # Common vague words that need clarification
-        vague_words = {"policy", "help", "what", "how", "why", "info", "information"}
-        if query_lower in vague_words:
-            logger.info(f"Unclear query detected: vague word '{query_lower}'")
-            return True
-
-        # Common typos of "policy" that need clarification (not a real search)
-        policy_typos = {"polciy", "policiy", "polcy", "poilcy", "plicy", "ploicy"}
-        if query_lower in policy_typos:
-            logger.info(f"Unclear query detected: typo of 'policy' '{query_lower}'")
-            return True
-
-        # Gibberish detection: no vowels or unpronounceable
-        vowels = set("aeiou")
-        has_vowel = any(c in vowels for c in query_lower)
-        # But allow short acronyms (ED, RN, ICU) - they're valid
-        if not has_vowel and len(query_stripped) > 4:
-            logger.info(f"Unclear query detected: no vowels (likely gibberish)")
-            return True
-
-        # Keyboard mash patterns
-        keyboard_patterns = ["asdf", "qwer", "zxcv", "hjkl", "aaaa", "bbbb"]
-        if any(pattern in query_lower for pattern in keyboard_patterns):
-            logger.info(f"Unclear query detected: keyboard pattern")
-            return True
-
-        return False
+        """Detect unclear queries that need clarification before processing."""
+        return _is_unclear_query_standalone(query)
 
     def _expand_query(self, query: str) -> tuple[str, Optional[QueryExpansion]]:
         """
@@ -1983,89 +445,16 @@ Policy excerpt:"""
             return query, None
 
     def _normalize_location_context(self, query: str) -> tuple[str, Optional[str]]:
-        """
-        Normalize generic location context phrases that don't change the core question.
-
-        This helps queries like "What is the hand hygiene policy in a patient room?"
-        return results even when the policy doesn't mention "patient room" verbatim,
-        since general policies apply to all locations.
-
-        CONSERVATIVE approach: Only strips generic phrases like "in a patient room",
-        "at the bedside". Preserves entity names (Oak Park, Copley) and department
-        codes (ED, ICU, OR) which may be intentional filters.
-
-        Args:
-            query: User's search query
-
-        Returns:
-            Tuple of (normalized_query, extracted_context_or_None)
-        """
-        original = query
-        extracted = []
-
-        for pattern in LOCATION_CONTEXT_PATTERNS:
-            match = re.search(pattern, query, re.IGNORECASE)
-            if match:
-                extracted.append(match.group().strip())
-                query = re.sub(pattern, '', query, flags=re.IGNORECASE)
-
-        # Clean up extra whitespace
-        query = ' '.join(query.split())
-
-        # Remove leading/trailing punctuation and spaces (handles leftover commas)
-        query = query.strip(' ,;:')
-
-        # Remove space before punctuation (e.g., "policy ?" -> "policy?")
-        query = re.sub(r'\s+([?!.,;:])', r'\1', query)
-
-        # Ensure space after punctuation when followed by alphanumeric (not another punctuation)
-        query = re.sub(r'([?!.,;:])([a-zA-Z0-9])', r'\1 \2', query)
-
-        if extracted:
-            context = ', '.join(extracted)
-            logger.info(f"Normalized location context: '{original}' -> '{query}' (context: {context})")
-            return query, context
-
-        return query, None
+        """Normalize generic location context phrases."""
+        return _normalize_location_context_standalone(query)
 
     def _normalize_query_punctuation(self, query: str) -> str:
-        """
-        Normalize query punctuation for consistent matching.
-
-        - Remove possessives: "RUMC's" -> "RUMC"
-        - Normalize smart quotes: " " -> " "
-        - Clean up extra whitespace
-
-        This helps queries like "RUMC's NICU" match "RUMC NICU" in the index.
-        """
-        # Remove possessives ('s and trailing ')
-        normalized = re.sub(r"(\w+)'s\b", r"\1", query)
-        normalized = re.sub(r"(\w+)'\b", r"\1", normalized)
-
-        # Normalize smart/curly quotes to standard quotes
-        normalized = normalized.replace('"', '"').replace('"', '"')
-        normalized = normalized.replace(''', "'").replace(''', "'")
-
-        # Normalize whitespace
-        normalized = ' '.join(normalized.split())
-
-        if normalized != query:
-            logger.debug(f"Query punctuation normalized: '{query}' -> '{normalized}'")
-
-        return normalized
+        """Normalize query punctuation for consistent matching."""
+        return _normalize_query_punctuation_standalone(query)
 
     def _apply_policy_hints(self, query: str) -> Tuple[str, List[dict]]:
-        """Append domain hints and collect target references for deterministic retrieval."""
-        query_lower = query.lower()
-        hints_to_add = []
-        forced_entries: List[dict] = []
-        for entry in POLICY_HINTS:
-            if any(keyword in query_lower for keyword in entry["keywords"]):
-                hints_to_add.append(entry["hint"])
-                forced_entries.append(entry)
-        if hints_to_add:
-            return f"{query} {' '.join(hints_to_add)}", forced_entries
-        return query, forced_entries
+        """Append domain hints and collect target references."""
+        return _apply_policy_hints_standalone(query)
 
     # ========================================================================
     # Instance Search Handler - "find X in policy Y" queries
