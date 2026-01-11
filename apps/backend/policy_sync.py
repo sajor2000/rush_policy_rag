@@ -52,6 +52,7 @@ MAX_METADATA_SIZE = 7500
 
 from preprocessing.chunker import PolicyChunker, PolicyChunk
 from azure_policy_index import PolicySearchIndex
+from app.core.security import escape_odata_string
 
 
 # Configuration
@@ -471,9 +472,10 @@ class PolicySyncManager:
             search_client = self.search_index.get_search_client()
 
             # Search for all chunks from this source file
+            safe_source = escape_odata_string(source_file)
             results = search_client.search(
                 search_text="*",
-                filter=f"source_file eq '{source_file}' and policy_status eq 'ACTIVE'",
+                filter=f"source_file eq '{safe_source}' and policy_status eq 'ACTIVE'",
                 select=["id", "version_number"],
                 top=1000  # Should be more than enough for any single document
             )
@@ -520,9 +522,10 @@ class PolicySyncManager:
             search_client = self.search_index.get_search_client()
 
             # Mark all chunks as RETIRED
+            safe_filename = escape_odata_string(filename)
             results = search_client.search(
                 search_text="*",
-                filter=f"source_file eq '{filename}'",
+                filter=f"source_file eq '{safe_filename}'",
                 select=["id"],
                 top=1000
             )
@@ -547,8 +550,13 @@ class PolicySyncManager:
             # Ensure archive container exists
             try:
                 archive_client.create_container()
-            except Exception:
-                pass  # Container likely already exists
+            except ResourceNotFoundError:
+                pass  # Container already exists - this is expected
+            except HttpResponseError as e:
+                if "ContainerAlreadyExists" in str(e):
+                    pass  # Container already exists - this is expected
+                else:
+                    logger.warning(f"Error creating archive container: {e}")
 
             # Copy to archive
             source_blob = source_client.get_blob_client(filename)

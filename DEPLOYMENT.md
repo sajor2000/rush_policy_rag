@@ -369,7 +369,7 @@ az containerapp create \
     COHERE_RERANK_API_KEY="$COHERE_RERANK_API_KEY" \
     COHERE_RERANK_MODEL="cohere-rerank-v3-5" \
     COHERE_RERANK_TOP_N="10" \
-    COHERE_RERANK_MIN_SCORE="0.15" \
+    COHERE_RERANK_MIN_SCORE="0.25" \
     BACKEND_PORT="8000" \
     LOG_FORMAT="json"
 ```
@@ -635,7 +635,7 @@ az containerapp update \
 | `COHERE_RERANK_API_KEY` | Cohere API key | `abc123...` |
 | `COHERE_RERANK_MODEL` | Model name | `cohere-rerank-v3-5` |
 | `COHERE_RERANK_TOP_N` | Docs after rerank | `10` |
-| `COHERE_RERANK_MIN_SCORE` | Relevance threshold | `0.15` |
+| `COHERE_RERANK_MIN_SCORE` | Relevance threshold | `0.25` |
 
 > **Note:** Cohere Rerank improves pass rate from 77.8% to 100% by understanding negation in queries like "Can MA accept verbal orders?" (answer: NOT authorized).
 

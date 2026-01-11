@@ -64,7 +64,7 @@ Verify these variables are set in production:
 USE_ON_YOUR_DATA=true
 USE_COHERE_RERANK=true
 COHERE_RERANK_TOP_N=10
-COHERE_RERANK_MIN_SCORE=0.15
+COHERE_RERANK_MIN_SCORE=0.25
 
 # No new environment variables required for this deployment
 ```

@@ -203,7 +203,8 @@ class PolicyIngestionPipeline:
             blob_client = self.source_container.get_blob_client(blob_name)
             props = blob_client.get_blob_properties()
             return props.content_settings.content_md5
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not get blob hash for '{blob_name}': {e}")
             return None
 
     def process_single_pdf(

@@ -55,7 +55,7 @@
                         │  │  Cohere Rerank 3.5 (Azure AI Foundry)       │    │
                         │  │  ├── Model: cohere-rerank-v3-5              │    │
                         │  │  ├── Top N: 10                              │    │
-                        │  │  └── Min Score: 0.15                        │    │
+                        │  │  └── Min Score: 0.25                        │    │
                         │  │                                             │    │
                         │  │  Azure Blob Storage (policytechrush)        │    │
                         │  │  ├── Container: policies-active             │    │
@@ -346,7 +346,7 @@ az containerapp create \
     COHERE_RERANK_API_KEY="$COHERE_RERANK_API_KEY" \
     COHERE_RERANK_MODEL="cohere-rerank-v3-5" \
     COHERE_RERANK_TOP_N="10" \
-    COHERE_RERANK_MIN_SCORE="0.15" \
+    COHERE_RERANK_MIN_SCORE="0.25" \
     BACKEND_PORT="8000" \
     LOG_FORMAT="json" \
     CORS_ORIGINS="http://localhost:3000"

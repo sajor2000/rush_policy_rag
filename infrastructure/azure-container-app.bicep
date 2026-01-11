@@ -58,7 +58,7 @@ param cohereRerankerModel string = 'cohere-rerank-v3-5'
 param cohereRerankerTopN int = 10
 
 @description('Minimum relevance score threshold')
-param cohereRerankerMinScore string = '0.15'
+param cohereRerankerMinScore string = '0.25'
 
 @description('Minimum number of replicas')
 param minReplicas int = environment == 'production' ? 2 : 1

@@ -6,12 +6,16 @@ in the policies-active container.
 """
 
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
 from dotenv import load_dotenv
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -131,7 +135,8 @@ def check_pdf_exists(filename: str, container_name: str = CONTAINER_NAME) -> boo
         container_client = blob_service.get_container_client(container_name)
         blob_client = container_client.get_blob_client(filename)
         return blob_client.exists()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error checking PDF existence for '{filename}': {e}")
         return False
 
 

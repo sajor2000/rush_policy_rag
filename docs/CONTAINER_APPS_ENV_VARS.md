@@ -92,7 +92,7 @@ az containerapp create \
     COHERE_RERANK_API_KEY="your-cohere-key" \
     COHERE_RERANK_MODEL="cohere-rerank-v3-5" \
     COHERE_RERANK_TOP_N="10" \
-    COHERE_RERANK_MIN_SCORE="0.15" \
+    COHERE_RERANK_MIN_SCORE="0.25" \
     BACKEND_PORT="8000" \
     LOG_FORMAT="json" \
     CORS_ORIGINS="http://localhost:3000"
@@ -186,7 +186,7 @@ curl https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerap
 | `COHERE_RERANK_API_KEY` | Cohere API key | Use secret |
 | `COHERE_RERANK_MODEL` | Cohere model name | `cohere-rerank-v3-5` |
 | `COHERE_RERANK_TOP_N` | Docs after rerank | `10` |
-| `COHERE_RERANK_MIN_SCORE` | Min relevance score | `0.15` |
+| `COHERE_RERANK_MIN_SCORE` | Min relevance score | `0.25` |
 | `BACKEND_PORT` | Server port | `8000` |
 | `CORS_ORIGINS` | Allowed origins | `https://rush-policy-frontend...` |
 

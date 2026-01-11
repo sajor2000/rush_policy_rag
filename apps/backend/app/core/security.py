@@ -1,6 +1,50 @@
 import re
 from typing import Optional
 
+def escape_odata_string(value: str) -> str:
+    """
+    Escape a string value for safe use in OData filter expressions.
+
+    Prevents OData injection by escaping single quotes.
+
+    Args:
+        value: The string value to escape
+
+    Returns:
+        Escaped string safe for OData filter use
+
+    Example:
+        >>> escape_odata_string("file's name.pdf")
+        "file''s name.pdf"
+    """
+    if not value:
+        return value
+    # OData escapes single quotes by doubling them
+    return value.replace("'", "''")
+
+
+def build_source_file_filter(source_file: str) -> str:
+    """
+    Build a safe OData filter expression for 'source_file'.
+
+    Prevents injection by escaping quotes in the filename.
+
+    Args:
+        source_file: The source file name to filter by
+
+    Returns:
+        OData filter string
+
+    Raises:
+        ValueError: If source_file is empty
+    """
+    if not source_file or not source_file.strip():
+        raise ValueError("source_file cannot be empty")
+
+    safe_value = escape_odata_string(source_file.strip())
+    return f"source_file eq '{safe_value}'"
+
+
 def validate_query(query: str, max_length: int = 1000) -> str:
     """
     Validate and normalize a search/chat query.

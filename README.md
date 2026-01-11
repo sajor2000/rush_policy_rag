@@ -216,8 +216,12 @@ rag_pt_rush/
 |----------|--------|-------------|
 | `/health` | GET | Health check |
 | `/api/chat` | POST | Policy Q&A (main endpoint) |
+| `/api/chat/stream` | POST | Streaming chat responses |
 | `/api/search` | POST | Direct Azure AI Search |
+| `/api/search-instances` | POST | Within-policy search |
 | `/api/pdf/{filename}` | GET | PDF SAS URL generation |
+| `/api/admin/index-stats` | GET | Index statistics (protected) |
+| `/api/admin/cache/stats` | GET | Cache statistics (protected) |
 | `/docs` | GET | Swagger API documentation |
 
 ---

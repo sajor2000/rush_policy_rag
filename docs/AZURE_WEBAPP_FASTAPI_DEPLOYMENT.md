@@ -128,7 +128,7 @@ az webapp config appsettings set \
     COHERE_RERANK_API_KEY="<your-cohere-api-key>" \
     COHERE_RERANK_MODEL="cohere-rerank-v3-5" \
     COHERE_RERANK_TOP_N="10" \
-    COHERE_RERANK_MIN_SCORE="0.15" \
+    COHERE_RERANK_MIN_SCORE="0.25" \
     WEBSITES_PORT="8000"
 ```
 
@@ -720,7 +720,7 @@ az webapp show --name <app-name> --resource-group <rg> --query "state"
 | `COHERE_RERANK_API_KEY` | Yes | Cohere API key |
 | `COHERE_RERANK_MODEL` | Yes | Model name (`cohere-rerank-v3-5`) |
 | `COHERE_RERANK_TOP_N` | No | Docs to keep after rerank (default: `10`) |
-| `COHERE_RERANK_MIN_SCORE` | No | Minimum relevance score (default: `0.15`) |
+| `COHERE_RERANK_MIN_SCORE` | No | Minimum relevance score (default: `0.25`) |
 | `WEBSITES_PORT` | Yes* | Port for Azure Web App (set to `8000`) |
 | `CORS_ORIGINS` | No | Allowed CORS origins (comma-separated) |
 | `ADMIN_API_KEY` | Prod | API key for admin endpoints |

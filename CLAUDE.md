@@ -147,7 +147,7 @@ az account show  # Verify: should show "RU-Azure-NonProd"
 │  │  ├── Cross-encoder reranking (negation-aware)           │                │
 │  │  ├── Azure AI Foundry serverless deployment             │                │
 │  │  ├── Top N: 10 docs retained after rerank               │                │
-│  │  └── Min Score: 0.15 (healthcare-calibrated)            │                │
+│  │  └── Min Score: 0.25 (healthcare-calibrated)            │                │
 │  └────────┬────────────────────────────────────────────────┘                │
 │           │                                                                  │
 │           ▼                                                                  │
@@ -434,7 +434,7 @@ The chat service uses Azure OpenAI "On Your Data" with vectorSemanticHybrid sear
 | Semantic Config | my-semantic-config | For L2 reranking |
 | Cohere Rerank | cohere-rerank-v3-5 | Azure AI Foundry deployment used after retrieval |
 | Cohere Top N | 10 | Documents retained post-rerank (configurable) |
-| Cohere Min Score | 0.15 | Threshold for healthcare policy precision |
+| Cohere Min Score | 0.25 | Threshold for healthcare policy precision |
 
 ### SDK Dependencies
 
@@ -541,7 +541,7 @@ COHERE_RERANK_ENDPOINT=https://<cohere>.models.ai.azure.com
 COHERE_RERANK_API_KEY=<api-key>
 COHERE_RERANK_MODEL=cohere-rerank-v3-5
 COHERE_RERANK_TOP_N=10                   # Docs kept after rerank
-COHERE_RERANK_MIN_SCORE=0.15             # Healthcare-calibrated threshold
+COHERE_RERANK_MIN_SCORE=0.25             # Healthcare-calibrated threshold
 
 # Security (production)
 REQUIRE_AAD_AUTH=false                    # Set true in production

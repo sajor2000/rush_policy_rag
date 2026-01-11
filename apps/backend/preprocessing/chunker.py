@@ -265,7 +265,8 @@ class PolicyChunker:
         # Also get markdown for fallback text extraction
         try:
             full_text = doc.export_to_markdown()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to export markdown from {filename}: {e}")
             full_text = ""
 
         if not tables and not full_text:
@@ -503,8 +504,8 @@ class PolicyChunker:
         """Fallback chunking if HierarchicalChunker fails."""
         try:
             full_text = doc.export_to_markdown()
-        except Exception:
-            logger.error(f"Cannot export document to markdown: {source_file}")
+        except Exception as e:
+            logger.error(f"Cannot export document to markdown: {source_file}: {e}")
             return []
 
         chunks = []

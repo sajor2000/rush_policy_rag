@@ -66,6 +66,7 @@ from preprocessing.chunker import PolicyChunk
 # Import extracted modules for backward compatibility
 # These were extracted as part of tech debt refactoring
 from app.services.search_result import SearchResult, format_rag_context
+from app.core.security import build_source_file_filter
 from app.services.search_synonyms import (
     SYNONYMS,
     SYNONYM_MAP_NAME,
@@ -681,7 +682,7 @@ class PolicySearchIndex:
             batch_count += 1
             results = self.search_client.search(
                 search_text="*",
-                filter=f"source_file eq '{source_file}'",
+                filter=build_source_file_filter(source_file),
                 select=["id"],
                 top=1000
             )
@@ -907,7 +908,7 @@ class PolicySearchIndex:
             # Search for documents with this source_file
             results = self.search_client.search(
                 search_text="*",
-                filter=f"source_file eq '{source_file}'",
+                filter=build_source_file_filter(source_file),
                 select=[
                     "applies_to",
                     "reference_number",

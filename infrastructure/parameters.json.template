@@ -45,7 +45,7 @@
       "value": 10
     },
     "cohereRerankerMinScore": {
-      "value": "0.15"
+      "value": "0.25"
     },
     "customFrontendDomain": {
       "value": ""

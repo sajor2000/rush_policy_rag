@@ -19,6 +19,7 @@ from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from preprocessing.chunker import PolicyChunker
 from azure_policy_index import PolicySearchIndex
+from app.core.security import escape_odata_string
 
 # Get settings from environment
 STORAGE_CONNECTION_STRING = os.environ.get("STORAGE_CONNECTION_STRING")
@@ -64,9 +65,10 @@ def main():
         )
 
         # Find all chunks for this source file
+        safe_filename = escape_odata_string(filename)
         results = search_client.search(
             search_text="*",
-            filter=f"source_file eq '{filename}'",
+            filter=f"source_file eq '{safe_filename}'",
             select=["id"]
         )
         chunk_ids = [r["id"] for r in results]

@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def _handle_audit_task_exception(task: asyncio.Task) -> None:
+    """Log exceptions from fire-and-forget audit tasks."""
+    try:
+        exc = task.exception()
+        if exc:
+            logger.error(f"Audit logging failed: {exc}", exc_info=exc)
+    except asyncio.CancelledError:
+        pass  # Task was cancelled, not an error
+
 @router.post("/search", response_model=SearchResponse)
 @limiter.limit("30/minute")
 async def search_policies(
@@ -119,10 +129,10 @@ async def chat(
     try:
         response = await service.process_chat(body)
 
-        # Non-blocking audit logging
+        # Non-blocking audit logging with exception handling
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         pipeline = "cohere_rerank" if cohere_service else "on_your_data"
-        asyncio.create_task(
+        audit_task = asyncio.create_task(
             get_chat_audit_service().log_chat(
                 request=body,
                 response=response,
@@ -131,6 +141,7 @@ async def chat(
                 search_query=response.search_query,  # Expanded query for synonym analysis
             )
         )
+        audit_task.add_done_callback(_handle_audit_task_exception)
 
         return response
     except ValueError as e:
