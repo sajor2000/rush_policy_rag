@@ -109,12 +109,50 @@ docs(api): update chat endpoint documentation
 
 ### PR Checklist
 
+Before submitting your PR, ensure:
+
+**Code Quality:**
+
 - [ ] Code follows the project style guidelines
-- [ ] Tests added/updated and passing
-- [ ] Documentation updated if needed
-- [ ] CHANGELOG.md updated
+- [ ] No linting errors (`black`, `isort`, `flake8` for Python; `eslint` for TypeScript)
+- [ ] No TypeScript errors (`npm run check` in frontend)
 - [ ] No sensitive data (API keys, credentials) in code
 - [ ] Commits are atomic and well-described
+
+**Testing:**
+
+- [ ] Backend tests pass: `cd apps/backend && pytest tests/ -v`
+- [ ] Frontend builds: `cd apps/frontend && npm run build`
+- [ ] TypeScript check passes: `cd apps/frontend && npm run check`
+- [ ] New features have corresponding tests
+- [ ] Existing tests still pass
+
+**Documentation:**
+
+- [ ] CHANGELOG.md updated with changes
+- [ ] README updated if adding new features/config
+- [ ] API documentation updated if endpoints changed
+- [ ] Code comments added for complex logic
+
+**Security (for security-sensitive changes):**
+
+- [ ] Input validation added for user inputs
+- [ ] No SQL/OData injection vulnerabilities
+- [ ] Secrets not logged or exposed
+- [ ] Rate limiting considered if applicable
+
+### Security Review
+
+Request a security review for changes involving:
+
+- Authentication/authorization logic (`app/core/auth.py`)
+- Input validation (`app/core/security.py`)
+- File handling or blob storage
+- New API endpoints
+- Environment variable handling
+- Any code processing user input
+
+To request: Add `security-review` label to your PR.
 
 ## Code Style Guidelines
 
