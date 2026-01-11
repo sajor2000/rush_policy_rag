@@ -27,22 +27,20 @@ Query Processing (extracted from chat_service.py):
 Search Infrastructure:
 - search_result: SearchResult dataclass
 - search_synonyms: Synonym map for Azure AI Search
+
+Note: Imports are intentionally lazy to avoid circular import issues.
+Import services directly from their modules:
+    from app.services.chat_service import ChatService
+    from app.services.search_result import SearchResult
 """
 
-# Core services
-from .chat_service import ChatService
-from .on_your_data_service import OnYourDataService
-from .cohere_rerank_service import CohereRerankService
-
-# Search result types
+# Only import standalone modules that don't have circular dependencies
+# Core services should be imported directly from their modules to avoid
+# circular import issues with azure_policy_index.py
 from .search_result import SearchResult, format_rag_context
 
 __all__ = [
-    # Core services
-    "ChatService",
-    "OnYourDataService",
-    "CohereRerankService",
-    # Search types
+    # Search types (safe to import at package level)
     "SearchResult",
     "format_rag_context",
 ]
