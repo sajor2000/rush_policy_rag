@@ -145,3 +145,4 @@ audit_report.json
 # Personal notes
 david.md
 .factory/
+.playwright-mcp/
