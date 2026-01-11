@@ -603,6 +603,76 @@ Policy excerpt:"""
             logger.info(f"Instance search query detected: '{search_term}' in policy '{policy_id}'")
             return await self._handle_instance_search(search_term, policy_id)
 
+        # ===================================================================
+        # EARLY QUERY VALIDATION (Before Cache Check)
+        # These checks MUST run before cache lookup because:
+        # 1. Cached responses may predate disambiguation logic
+        # 2. Clarification requests should never be cached
+        # ===================================================================
+
+        # Unclear query detection (gibberish, single chars, vague)
+        if self._is_unclear_query(request.message):
+            logger.info(f"Unclear query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response=UNCLEAR_QUERY_MESSAGE,
+                summary=UNCLEAR_QUERY_MESSAGE,
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["UNCLEAR_QUERY"]
+            )
+
+        # Out-of-scope detection (topics with no policies)
+        if self._is_out_of_scope_query(request.message):
+            logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
+            out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
+            return ChatResponse(
+                response=out_of_scope_msg,
+                summary=out_of_scope_msg,
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["OUT_OF_SCOPE"]
+            )
+
+        # Device ambiguity detection - Ask for clarification before searching
+        # Must run BEFORE cache check to ensure disambiguation always triggers
+        ambiguity_config = self.detect_device_ambiguity(request.message)
+        if ambiguity_config:
+            logger.info(f"Ambiguous device query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response="",
+                summary="",
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="clarification_needed",
+                clarification=ambiguity_config
+            )
+
+        # Adversarial query detection (bypass/jailbreak attempts)
+        if self._is_adversarial_query(request.message):
+            logger.info(f"Adversarial query detected: {request.message[:50]}...")
+            return ChatResponse(
+                response=ADVERSARIAL_REFUSAL_MESSAGE,
+                summary=ADVERSARIAL_REFUSAL_MESSAGE,
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["ADVERSARIAL_BLOCKED"]
+            )
+
         # Build safe filter expression
         filter_expr = build_applies_to_filter(request.filter_applies_to)
 
