@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles, Loader2, Search, HelpCircle, X } from "lucide-react";
+import { Send, Sparkles, Loader2, Search, HelpCircle, X, ExternalLink } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import LoadingState from "./LoadingState";
 import ErrorMessage from "./ErrorMessage";
@@ -12,9 +12,12 @@ import InstanceSearchModal from "./InstanceSearchModal";
 import {
   sendMessage,
   searchInstances,
+  getSyncInfo,
   type Source,
   type Evidence,
+  type SyncInfo,
 } from "@/lib/api";
+import { POLICYTECH_URL } from "@/lib/constants";
 
 interface Message {
   role: "user" | "assistant";
@@ -74,6 +77,9 @@ export default function ChatInterface() {
     originalQuery: string;
   } | null>(null);
 
+  // Sync info state for displaying last update date
+  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -81,6 +87,15 @@ export default function ChatInterface() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Fetch sync info on mount
+  useEffect(() => {
+    getSyncInfo()
+      .then(setSyncInfo)
+      .catch(() => {
+        // Silently fail - sync date is informational only
+      });
+  }, []);
 
   // Shared helper function to fetch and display PDF
   const fetchAndDisplayPdf = async (
@@ -622,6 +637,30 @@ export default function ChatInterface() {
               : "Classic Q&A (Recommended): Ask any question, get a summarized answer with evidence from matching policies."
             }
           </p>
+
+          {/* Monthly Update Disclaimer */}
+          <div className="mt-4 pt-3 border-t border-border/50">
+            <p className="text-[11px] text-muted-foreground text-center">
+              {syncInfo && syncInfo.last_sync_date_display !== "Unknown" ? (
+                <>
+                  Policies are updated monthly. Documents downloaded{" "}
+                  <span className="font-medium">{syncInfo.last_sync_date_display}</span>.
+                </>
+              ) : (
+                <>Policies are updated monthly.</>
+              )}
+              {" "}If you believe a policy was recently updated, verify at{" "}
+              <a
+                href={POLICYTECH_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-rush-legacy hover:underline inline-flex items-center gap-0.5"
+              >
+                PolicyTech
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </section>

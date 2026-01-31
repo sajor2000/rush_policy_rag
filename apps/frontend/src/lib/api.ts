@@ -662,3 +662,45 @@ export async function searchInstances(
     throw new Error("Search failed");
   }
 }
+
+// ============================================================================
+// Sync Info API - Get last policy sync date for frontend display
+// ============================================================================
+
+export interface SyncInfo {
+  last_sync_date: string | null;
+  last_sync_date_display: string;
+  sync_batch_id: string | null;
+  index_name?: string;
+}
+
+/**
+ * Get the latest sync information for displaying "Documents current as of [date]".
+ */
+export async function getSyncInfo(): Promise<SyncInfo> {
+  try {
+    const response = await fetch("/api/sync-info");
+
+    if (!response.ok) {
+      return {
+        last_sync_date: null,
+        last_sync_date_display: "Unknown",
+        sync_batch_id: null,
+      };
+    }
+
+    const data = await response.json();
+    return {
+      last_sync_date: data.last_sync_date || null,
+      last_sync_date_display: data.last_sync_date_display || "Unknown",
+      sync_batch_id: data.sync_batch_id || null,
+      index_name: data.index_name,
+    };
+  } catch {
+    return {
+      last_sync_date: null,
+      last_sync_date_display: "Unknown",
+      sync_batch_id: null,
+    };
+  }
+}

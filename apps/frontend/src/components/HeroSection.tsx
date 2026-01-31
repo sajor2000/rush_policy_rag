@@ -1,9 +1,22 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, ExternalLink } from "lucide-react";
+import { getSyncInfo, SyncInfo } from "@/lib/api";
+import { POLICYTECH_URL } from "@/lib/constants";
 
 export default function HeroSection({ onGetStarted }: { onGetStarted: () => void }) {
+  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
+
+  useEffect(() => {
+    getSyncInfo()
+      .then(setSyncInfo)
+      .catch(() => {
+        // Silently fail - sync date is informational only
+      });
+  }, []);
+
   return (
     <section className="w-full py-12 md:py-16 lg:py-20">
       <div className="container max-w-5xl mx-auto px-4 md:px-6">
@@ -19,6 +32,31 @@ export default function HeroSection({ onGetStarted }: { onGetStarted: () => void
             Connect with the knowledge you need from 1,800+ RUSH policies instantly. Every answer includes a quick summary
             and the exact policy text so you can act with confidence.
           </p>
+
+          {/* Monthly Update Notice */}
+          <div className="bg-rush-sage/30 border border-rush-legacy/20 rounded-lg px-4 py-3 max-w-xl">
+            <p className="text-sm text-muted-foreground">
+              {syncInfo && syncInfo.last_sync_date_display !== "Unknown" ? (
+                <>
+                  <span className="font-medium text-foreground">Policies updated monthly.</span>
+                  {" "}Documents downloaded{" "}
+                  <span className="font-medium">{syncInfo.last_sync_date_display}</span>.
+                </>
+              ) : (
+                <span className="font-medium text-foreground">Policies updated monthly.</span>
+              )}
+              {" "}For the latest version, check{" "}
+              <a
+                href={POLICYTECH_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-rush-legacy hover:underline inline-flex items-center gap-0.5 font-medium"
+              >
+                PolicyTech
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </p>
+          </div>
 
           <div className="flex flex-col sm:flex-row gap-4 pt-4">
             <Button
