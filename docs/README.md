@@ -9,6 +9,7 @@
 | I want to... | Go to |
 |--------------|-------|
 | Get onboarded as a new engineer | [ONBOARDING.md](ONBOARDING.md) |
+| Understand dev vs prod | [DEV_PROD_PLAN.md](DEV_PROD_PLAN.md) |
 | Set up my development environment | [Root README](../README.md) |
 | Deploy to Azure | [DEPLOYMENT.md](../DEPLOYMENT.md) |
 | Understand scripts and tooling | [SCRIPTS.md](SCRIPTS.md) |
@@ -26,6 +27,7 @@
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [ONBOARDING.md](ONBOARDING.md) | New engineer start-here guide | All |
+| [DEV_PROD_PLAN.md](DEV_PROD_PLAN.md) | Dev vs prod architecture and promotion flow | All |
 | [README.md](../README.md) | Project overview, quick start | All |
 | [CLAUDE.md](../CLAUDE.md) | Comprehensive development guide | Developers |
 | [ENV_VARS.md](ENV_VARS.md) | Environment configuration | All |
@@ -77,6 +79,7 @@
 docs/
 ├── README.md                    # This file (documentation index)
 ├── ONBOARDING.md                # New engineer start-here guide
+├── DEV_PROD_PLAN.md             # Dev vs prod plan
 ├── SCRIPTS.md                   # Script reference
 ├── ENV_VARS.md                  # Environment variables reference
 ├── TESTING.md                   # Testing guide
@@ -113,6 +116,7 @@ docs/
 | ENV_VARS.md | ✅ Current | 2026-01-11 |
 | DEPLOYMENT.md | ✅ Current | 2026-01-11 |
 | ONBOARDING.md | ✅ Current | 2026-01-31 |
+| DEV_PROD_PLAN.md | ✅ Current | 2026-01-31 |
 | SCRIPTS.md | ✅ Current | 2026-01-31 |
 | Backend README | ✅ Current | 2026-01-11 |
 | Frontend README | ✅ Current | 2026-01-11 |
