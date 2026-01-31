@@ -60,7 +60,7 @@ pip install docling docling-core
 
 ### 2. Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+Copy the repo root `.env.example` to `.env` and configure. The backend loads `.env` from the repo root.
 
 ```bash
 # Azure AI Search (REQUIRED)

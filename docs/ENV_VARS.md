@@ -6,9 +6,11 @@
 
 ## Quick Start
 
-1. Copy `apps/backend/.env.example` to `apps/backend/.env`
+1. Copy `.env.example` to `.env` (repo root)
 2. Fill in required values (marked with *)
 3. For frontend, create `apps/frontend/.env.local` with `BACKEND_URL`
+
+**Note**: The backend loads `.env` from the repo root (see `apps/backend/app/core/config.py`).
 
 ---
 

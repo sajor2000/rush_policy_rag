@@ -6,18 +6,33 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 |---|---|
 | **Tech Stack** | FastAPI (Python 3.12) + Next.js 14 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
-| **Deployment** | Azure Container Apps (Production Only) |
+| **Deployment** | Azure Container Apps (Non-Prod + Prod) |
 | **Current Version** | melissa-feedback-v1-hotfix2 (2026-01-08) |
 
 ---
 
+## New Engineer? Start Here
+
+- Start-here onboarding: [docs/ONBOARDING.md](docs/ONBOARDING.md)
+- Script map: [docs/SCRIPTS.md](docs/SCRIPTS.md)
+- Environment variables: [docs/ENV_VARS.md](docs/ENV_VARS.md)
+- Dev/Prod plan (per architecture PDF): [docs/DEV_PROD_PLAN.md](docs/DEV_PROD_PLAN.md)
+
 ## Deployment Team - Start Here
 
 **Full step-by-step deployment guide: [DEPLOYMENT.md](DEPLOYMENT.md)**
+**Deploy from IDE (VS Code): [docs/ONBOARDING.md](docs/ONBOARDING.md)**
+**Dev/Prod environment plan: [docs/DEV_PROD_PLAN.md](docs/DEV_PROD_PLAN.md)**
 
-### Quick Deploy Summary
+### Deploy from Terminal (Non-Prod)
+
+Targets **RU-Azure-NonProd** / `RU-A-NonProd-AI-Innovation-RG` per `docs/RushPolicyAssistant_Architecture.pdf`.
 
 ```bash
+# Login + select subscription
+az login
+az account set --subscription "RU-Azure-NonProd"
+
 # Step 1: Build Backend
 cd apps/backend
 az acr build --registry aiinnovation --image policytech-backend:latest .
@@ -28,18 +43,61 @@ az containerapp update \
   --resource-group RU-A-NonProd-AI-Innovation-RG \
   --image aiinnovation.azurecr.io/policytech-backend:latest
 
-# Step 3: Build Frontend
-cd apps/frontend
-az acr build --registry aiinnovation --image policytech-frontend:latest .
+# Step 3: Get backend URL for frontend build
+BACKEND_URL=$(az containerapp show \
+  --name rush-policy-backend \
+  --resource-group RU-A-NonProd-AI-Innovation-RG \
+  --query properties.configuration.ingress.fqdn -o tsv)
 
-# Step 4: Deploy Frontend
+# Step 4: Build Frontend
+cd ../frontend
+az acr build --registry aiinnovation --image policytech-frontend:latest \
+  --build-arg BACKEND_URL="https://$BACKEND_URL" .
+
+# Step 5: Deploy Frontend
 az containerapp update \
   --name rush-policy-frontend \
   --resource-group RU-A-NonProd-AI-Innovation-RG \
   --image aiinnovation.azurecr.io/policytech-frontend:latest
 ```
 
-### Production URLs
+### Deploy from Terminal (Prod)
+
+Targets **RU-Azure-Prod** / `RU-A-Prod-AI-Innovation-RG`. Backend FQDN is TBD; use the CLI to fetch it.
+
+```bash
+az login
+az account set --subscription "RU-Azure-Prod"
+
+# Build backend
+cd apps/backend
+az acr build --registry aiinnovation --image policytech-backend:latest .
+
+# Deploy backend
+az containerapp update \
+  --name rush-policy-backend \
+  --resource-group RU-A-Prod-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/policytech-backend:latest
+
+# Get backend URL for frontend build (TBD in docs)
+BACKEND_URL=$(az containerapp show \
+  --name rush-policy-backend \
+  --resource-group RU-A-Prod-AI-Innovation-RG \
+  --query properties.configuration.ingress.fqdn -o tsv)
+
+# Build frontend
+cd ../frontend
+az acr build --registry aiinnovation --image policytech-frontend:latest \
+  --build-arg BACKEND_URL="https://$BACKEND_URL" .
+
+# Deploy frontend
+az containerapp update \
+  --name rush-policy-frontend \
+  --resource-group RU-A-Prod-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/policytech-frontend:latest
+```
+
+### Non-Prod URLs (RU-Azure-NonProd)
 
 | Service | URL |
 |---------|-----|
@@ -48,7 +106,14 @@ az containerapp update \
 | **Health Check** | <https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/health> |
 | **API Docs** | <https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/docs> |
 
-**Note**: This project uses a **production-only deployment model**. No staging or test environments are currently configured to minimize Azure costs. All testing should be performed locally before deploying to production.
+### Prod URLs (RU-Azure-Prod)
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | <https://policychat.rush.edu> |
+| **Backend API** | TBD (Azure Container Apps default hostname; see `docs/DEV_PROD_PLAN.md`) |
+
+**Note**: Non-Prod and Prod live in separate subscriptions. There is no dedicated staging environment.
 
 ---
 
@@ -88,7 +153,7 @@ az containerapp update \
 
 ---
 
-## Local Development
+## Get Started (Local)
 
 ### Prerequisites
 
@@ -144,7 +209,7 @@ Open http://localhost:3000 and ask a policy question.
 
 ---
 
-## Project Structure
+## Final Folder Structure
 
 ```
 rag_pt_rush/
@@ -165,14 +230,60 @@ rag_pt_rush/
 │       ├── Dockerfile                 # Container build
 │       ├── src/app/                   # App Router
 │       └── src/components/            # UI components
+├── docs/
+│   ├── RushPolicyAssistant_Architecture.pdf
+│   ├── ONBOARDING.md
+│   ├── DEV_PROD_PLAN.md
+│   ├── SCRIPTS.md
+│   └── ... (other docs)
+├── scripts/                            # Utilities, eval, and deploy helpers
+│   └── deploy/                         # Azure deployment scripts
 ├── infrastructure/
 │   ├── azure-container-app.bicep      # Backend Bicep template
 │   └── azure-container-app-frontend.bicep  # Frontend Bicep template
+├── .env.example                        # Env template (copy to .env locally)
 ├── DEPLOYMENT.md                      # Step-by-step deployment guide
 ├── CLAUDE.md                          # Development guidance
 ├── start_backend.sh                   # Backend launcher
 └── start_frontend.sh                  # Frontend launcher
 ```
+
+---
+
+## App Entry Points
+
+- Backend: `apps/backend/main.py` (FastAPI app instance `app`)
+- Frontend: `apps/frontend/src/app/page.tsx` (main UI entry point)
+
+---
+
+## Local Folders vs Git-Tracked Files
+
+**Local-only (gitignored)** — do not commit:
+- `.env`, `apps/frontend/.env.local`
+- `.venv/`, `__pycache__/`, `.pytest_cache/`
+- `node_modules/`, `.next/`
+- `apps/backend/data/`, `data/`
+- `reports/`, `test_results*.json`, `*_evaluation_results.json`, `coverage/`
+- `.azure/`, `.vscode/`, `.idea/`, `.DS_Store`
+
+**Git-tracked** — keep in repo:
+- `apps/`, `docs/`, `scripts/`, `infrastructure/`
+- `README.md`, `DEPLOYMENT.md`, `CLAUDE.md`
+- `.env.example`, `docker-compose.yml`, `package.json`
+
+See `.gitignore` for the full list.
+
+---
+
+## Environments (from `docs/RushPolicyAssistant_Architecture.pdf`)
+
+- **Non-Prod**: RU-Azure-NonProd → `RU-A-NonProd-AI-Innovation-RG`
+- **Prod**: RU-Azure-Prod → `RU-A-Prod-AI-Innovation-RG`
+- **Dev domain**: Azure Container Apps default hostname
+- **Prod domain**: `policychat.rush.edu`
+
+See `docs/DEV_PROD_PLAN.md` for details and the dev → prod promotion flow.
 
 ---
 
