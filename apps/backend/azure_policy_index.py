@@ -106,7 +106,8 @@ class PolicySearchIndex:
         search_api_key: str = SEARCH_API_KEY,
         aoai_endpoint: str = AOAI_ENDPOINT,
         aoai_api_key: str = AOAI_API_KEY,
-        embedding_deployment: str = AOAI_EMBEDDING_DEPLOYMENT
+        embedding_deployment: str = AOAI_EMBEDDING_DEPLOYMENT,
+        default_batch_size: int = 100  # Configurable default batch size
     ):
         """
         Initialize search index client.
@@ -174,6 +175,9 @@ class PolicySearchIndex:
         # Store AOAI config for vectorizer
         self.aoai_endpoint = aoai_endpoint
         self.aoai_api_key = aoai_api_key
+
+        # Configure batch size (Azure max is 1000)
+        self.default_batch_size = min(default_batch_size, 1000)
 
     def get_search_client(self) -> SearchClient:
         """Return the SearchClient instance for direct operations."""
@@ -591,28 +595,28 @@ class PolicySearchIndex:
     def upload_chunks(
         self,
         chunks: List[PolicyChunk],
-        batch_size: int = 100,
+        batch_size: Optional[int] = None,
         generate_embeddings: bool = True
     ) -> Dict[str, int]:
         """
         Upload chunks to Azure Search index with production-grade error handling.
 
         Features:
-        - Batched uploads (default 100 docs per batch, Azure max is 1000)
+        - Batched uploads (configurable, Azure max is 1000)
         - Retry logic for HTTP 207 partial failures
         - Exponential backoff for transient errors
         - Detailed logging of failed documents
 
         Args:
             chunks: List of PolicyChunk objects
-            batch_size: Number of chunks per upload batch (max 1000)
+            batch_size: Number of chunks per upload batch. If None, uses instance default.
             generate_embeddings: Whether to generate embeddings (set False if using integrated vectorizer)
 
         Returns:
             Dict with 'uploaded' and 'failed' counts
         """
-        # Azure limit is 1000 docs per batch, 16MB payload
-        batch_size = min(batch_size, 1000)
+        # Use provided batch_size, fall back to instance default
+        batch_size = min(batch_size or self.default_batch_size, 1000)
 
         stats = {'uploaded': 0, 'failed': 0}
         documents = []
@@ -666,12 +670,22 @@ class PolicySearchIndex:
         logger.info(f"Deleted {deleted} chunks")
         return deleted
 
-    def delete_by_source_file(self, source_file: str) -> int:
+    def delete_by_source_file(self, source_file: str, max_batches: int = 200) -> int:
         """
-        Delete all chunks from a specific source file.
+        Delete all chunks from a specific source file with safety limits.
 
         Used when a document is updated - delete old chunks before uploading new ones.
         Handles pagination for source files with >1000 chunks.
+
+        Args:
+            source_file: Source PDF filename
+            max_batches: Safety limit for pagination (default: 200 = 200K chunks max)
+
+        Returns:
+            Number of chunks deleted
+
+        Raises:
+            RuntimeError: If max_batches exceeded (incomplete deletion detected)
         """
         total_deleted = 0
         batch_count = 0
@@ -702,9 +716,13 @@ class PolicySearchIndex:
                 break
 
             # Safety limit to prevent infinite loops
-            if batch_count > 100:
-                logger.warning(f"Delete pagination exceeded 100 batches for {source_file}, stopping")
-                break
+            if batch_count >= max_batches:
+                error_msg = (
+                    f"Delete pagination exceeded {max_batches} batches for {source_file} "
+                    f"({total_deleted} deleted). Possible infinite loop or data corruption."
+                )
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
         if total_deleted > 0:
             logger.info(f"Deleted {total_deleted} total chunks from {source_file} ({batch_count} batches)")
@@ -787,6 +805,8 @@ class PolicySearchIndex:
                 "subcategory",
                 "regulatory_citations",
                 "related_policies",
+                # PDF navigation
+                "page_number",
             ],
             "top": top,
         }
@@ -878,7 +898,24 @@ class PolicySearchIndex:
             raise
 
     def get_chunk_by_id(self, chunk_id: str) -> Optional[Dict]:
-        """Retrieve a specific chunk by ID."""
+        """
+        Retrieve a specific chunk by ID.
+
+        Args:
+            chunk_id: Unique identifier for the chunk (UUID format)
+
+        Returns:
+            Dictionary containing chunk data if found, None otherwise.
+            Dict keys include: content, citation, title, section, etc.
+
+        Raises:
+            HttpResponseError: If Azure AI Search service is unavailable
+
+        Example:
+            >>> chunk = index.get_chunk_by_id("pol-001-chunk-01")
+            >>> print(chunk['title'])
+            'Patient Safety Policy'
+        """
         try:
             return self.search_client.get_document(key=chunk_id)
         except ResourceNotFoundError:
@@ -886,7 +923,7 @@ class PolicySearchIndex:
             return None
         except HttpResponseError as e:
             logger.warning(f"HTTP error retrieving chunk {chunk_id}: {e}")
-            return None
+            raise  # Re-raise for caller to handle
 
     def get_metadata_by_source_file(self, source_file: str) -> Optional[Dict]:
         """

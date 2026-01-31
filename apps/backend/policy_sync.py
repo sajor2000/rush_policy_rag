@@ -31,11 +31,14 @@ import os
 import json
 import hashlib
 import logging
+import tempfile
+import re
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Set
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Load environment variables
 env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -47,8 +50,13 @@ from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Maximum size for blob metadata (8KB with buffer)
-MAX_METADATA_SIZE = 7500
+# Configuration constants
+MAX_METADATA_SIZE = 7500  # Azure Blob metadata limit (8KB with buffer)
+DEFAULT_BATCH_SIZE = 100  # Default batch size for operations
+MAX_SEARCH_RESULTS = 1000  # Azure AI Search page size
+MAX_DELETE_BATCHES = 200  # Safety limit for pagination (200K chunks max)
+TEMP_FILE_SUFFIX = '.pdf'  # Temporary file extension
+SYNC_BATCH_ID_PATTERN = r'^\d{4}-\d{2}$'  # YYYY-MM format for sync batch IDs
 
 from preprocessing.chunker import PolicyChunker, PolicyChunk
 from azure_policy_index import PolicySearchIndex
@@ -261,18 +269,38 @@ class PolicySyncManager:
         """Compute SHA-256 hash of document content."""
         return hashlib.sha256(content).hexdigest()
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((HttpResponseError, ConnectionError))
+    )
     def compute_content_hash_streaming(self, blob_client: BlobClient) -> str:
         """
-        Compute SHA-256 hash using streaming to avoid memory explosion.
+        Compute SHA-256 hash using streaming with retry logic.
 
+        Retries on network errors to prevent full sync failure from transient issues.
         For 1800 docs × 5MB = 9GB if loaded all at once.
         Streaming processes one chunk at a time.
+
+        Args:
+            blob_client: Azure Blob client for the file
+
+        Returns:
+            SHA-256 hex digest
+
+        Raises:
+            HttpResponseError: After 3 retry attempts
+            ConnectionError: After 3 retry attempts
         """
         hash_obj = hashlib.sha256()
-        download_stream = blob_client.download_blob()
-        for chunk in download_stream.chunks():
-            hash_obj.update(chunk)
-        return hash_obj.hexdigest()
+        try:
+            download_stream = blob_client.download_blob()
+            for chunk in download_stream.chunks():
+                hash_obj.update(chunk)
+            return hash_obj.hexdigest()
+        except Exception as e:
+            logger.warning(f"Hash computation failed for {blob_client.blob_name}: {e}")
+            raise
 
     def get_document_state(self, container: str, filename: str) -> Optional[DocumentState]:
         """Get the current state of a document from blob metadata."""
@@ -335,6 +363,84 @@ class PolicySyncManager:
 
         return new_files, changed_files, deleted_files
 
+    def validate_hash_consistency(
+        self,
+        container: str,
+        sample_size: int = 10
+    ) -> dict:
+        """
+        Validate that stored hashes match recomputed hashes.
+
+        This helps detect issues like:
+        - Hash algorithm changes
+        - Corrupted blob metadata
+        - Encoding issues
+
+        Args:
+            container: Container name to validate
+            sample_size: Number of documents to check (default 10)
+
+        Returns:
+            Dict with validation results:
+            - total_checked: Number of documents validated
+            - matches: Number of hash matches
+            - mismatches: List of mismatched documents
+            - errors: List of errors encountered
+        """
+        container_client = self.blob_service.get_container_client(container)
+        results = {
+            "total_checked": 0,
+            "matches": 0,
+            "mismatches": [],
+            "errors": []
+        }
+
+        try:
+            blobs = list(container_client.list_blobs(include=['metadata']))
+        except Exception as e:
+            results["errors"].append(f"Failed to list blobs: {e}")
+            return results
+
+        # Filter to PDFs and sample
+        pdf_blobs = [b for b in blobs if b.name.lower().endswith('.pdf')]
+        sample = pdf_blobs[:sample_size]
+
+        for blob in sample:
+            results["total_checked"] += 1
+
+            # Get stored hash from metadata
+            stored_hash = ""
+            if blob.metadata:
+                stored_hash = blob.metadata.get('content_hash', '')
+
+            try:
+                # Recompute hash
+                blob_client = container_client.get_blob_client(blob.name)
+                computed_hash = self.compute_content_hash_streaming(blob_client)
+
+                if stored_hash == computed_hash:
+                    results["matches"] += 1
+                elif not stored_hash:
+                    results["mismatches"].append({
+                        "filename": blob.name,
+                        "issue": "No stored hash in metadata",
+                        "computed": computed_hash[:16] + "..."
+                    })
+                else:
+                    results["mismatches"].append({
+                        "filename": blob.name,
+                        "stored": stored_hash[:16] + "...",
+                        "computed": computed_hash[:16] + "...",
+                        "issue": "Hash mismatch"
+                    })
+            except Exception as e:
+                results["errors"].append({
+                    "filename": blob.name,
+                    "error": str(e)
+                })
+
+        return results
+
     def process_document(
         self,
         source_container: str,
@@ -344,12 +450,13 @@ class PolicySyncManager:
         archive_old_version: bool = True
     ) -> Tuple[List[str], int, Optional[str]]:
         """
-        Process a single document with version control: chunk, embed, upload, and copy.
+        Process a single document with version control and transaction safety.
 
         For version transitions (v1 → v2):
         - Old chunks are marked as SUPERSEDED (not deleted) for audit trail
         - New chunks get incremented version number
         - Both versions remain searchable with policy_status filter
+        - Rollback to ACTIVE if upload fails (prevents data loss)
 
         Args:
             source_container: Container with the source PDF
@@ -360,11 +467,16 @@ class PolicySyncManager:
 
         Returns:
             Tuple of (chunk_ids, superseded_count, version_transition_info)
+
+        Raises:
+            RuntimeError: If chunk upload fails completely
+            Exception: For other processing errors
         """
         superseded_count = 0
         version_info = None
         old_version = "1.0"
         new_version = "1.0"
+        rollback_required = False
 
         # Get existing document state for version tracking
         old_state = self.get_document_state(target_container, filename)
@@ -375,13 +487,34 @@ class PolicySyncManager:
             new_version = f"{new_sequence}.0"
             version_info = f"{old_version}→{new_version}"
 
+            # Check for version conflicts (concurrent updates)
+            search_client = self.search_index.get_search_client()
+            safe_filename = escape_odata_string(filename)
+            existing_new_version = list(search_client.search(
+                search_text="*",
+                filter=f"source_file eq '{safe_filename}' and version_number eq '{new_version}'",
+                select=["id"],
+                top=1
+            ))
+
+            if existing_new_version:
+                raise RuntimeError(
+                    f"Version conflict: {filename} v{new_version} already exists. "
+                    f"Concurrent update detected. Retry sync operation."
+                )
+
             if archive_old_version:
                 # Mark old chunks as SUPERSEDED instead of deleting
-                superseded_count = self.supersede_old_chunks(
-                    source_file=filename,
-                    superseded_by=new_version
-                )
-                logger.info(f"Superseded {superseded_count} chunks for {filename} (v{old_version} → v{new_version})")
+                try:
+                    superseded_count = self.supersede_old_chunks(
+                        source_file=filename,
+                        superseded_by=new_version
+                    )
+                    rollback_required = True  # Track that we need rollback if upload fails
+                    logger.info(f"Superseded {superseded_count} chunks for {filename} (v{old_version} → v{new_version})")
+                except Exception as e:
+                    logger.error(f"Failed to supersede old chunks for {filename}: {e}")
+                    raise  # Don't proceed if we can't supersede
             else:
                 # Legacy behavior: delete old chunks
                 superseded_count = self.search_index.delete_by_source_file(filename)
@@ -394,8 +527,8 @@ class PolicySyncManager:
         content_hash = self.compute_content_hash(blob_data)
 
         # Save temporarily for processing
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+        tmp_path = None
+        with tempfile.NamedTemporaryFile(suffix=TEMP_FILE_SUFFIX, delete=False) as tmp:
             tmp.write(blob_data)
             tmp_path = tmp.name
 
@@ -414,9 +547,29 @@ class PolicySyncManager:
                 chunk.effective_date = current_time
                 chunk.policy_status = "ACTIVE"
 
-            # Upload chunks to search index
+            # Upload chunks to search index with error checking
             if chunks:
-                self.search_index.upload_chunks(chunks)
+                upload_result = self.search_index.upload_chunks(chunks)
+
+                # Check for upload failures
+                if upload_result.get('failed', 0) > 0:
+                    failed_count = upload_result['failed']
+                    uploaded_count = upload_result.get('uploaded', 0)
+
+                    if uploaded_count == 0:
+                        # Complete failure - rollback superseded chunks
+                        if rollback_required:
+                            logger.error(f"Chunk upload failed completely for {filename}. Rolling back...")
+                            self._rollback_superseded_chunks(filename, old_version)
+                        raise RuntimeError(
+                            f"Failed to upload any chunks for {filename}: {failed_count} failed"
+                        )
+                    else:
+                        # Partial failure - log warning but don't rollback
+                        logger.warning(
+                            f"Partial upload failure for {filename}: "
+                            f"{uploaded_count} succeeded, {failed_count} failed"
+                        )
 
             chunk_ids = [c.chunk_id for c in chunks]
 
@@ -449,13 +602,78 @@ class PolicySyncManager:
 
             return chunk_ids, superseded_count, version_info
 
+        except Exception as e:
+            # Rollback superseded chunks if upload failed
+            if rollback_required:
+                logger.error(f"Processing failed for {filename}. Rolling back superseded chunks...")
+                try:
+                    self._rollback_superseded_chunks(filename, old_version)
+                except Exception as rollback_error:
+                    logger.critical(
+                        f"ROLLBACK FAILED for {filename}: {rollback_error}. "
+                        f"Manual intervention required!"
+                    )
+            raise
         finally:
             # Clean up temp file
-            os.unlink(tmp_path)
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
-    def supersede_old_chunks(self, source_file: str, superseded_by: str) -> int:
+    def _rollback_superseded_chunks(self, source_file: str, restore_version: str) -> int:
         """
-        Mark old chunks as SUPERSEDED instead of deleting them.
+        Rollback superseded chunks to ACTIVE status if new version upload fails.
+
+        This prevents data loss during failed version transitions.
+
+        Args:
+            source_file: Source PDF filename
+            restore_version: Version to restore to ACTIVE status
+
+        Returns:
+            Number of chunks restored to ACTIVE
+
+        Raises:
+            Exception: If rollback fails (critical error)
+        """
+        try:
+            search_client = self.search_index.get_search_client()
+
+            safe_source = escape_odata_string(source_file)
+            results = search_client.search(
+                search_text="*",
+                filter=f"source_file eq '{safe_source}' and policy_status eq 'SUPERSEDED'",
+                select=["id"],
+                top=MAX_SEARCH_RESULTS
+            )
+
+            chunks_to_restore = [
+                {
+                    "id": result["id"],
+                    "policy_status": "ACTIVE",
+                    "superseded_by": None,
+                    "expiration_date": None,
+                }
+                for result in results
+            ]
+
+            if chunks_to_restore:
+                search_client.merge_documents(documents=chunks_to_restore)
+                logger.info(f"Rolled back {len(chunks_to_restore)} chunks to ACTIVE for {source_file}")
+                return len(chunks_to_restore)
+
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to rollback chunks for {source_file}: {e}")
+            raise
+
+    def supersede_old_chunks(
+        self,
+        source_file: str,
+        superseded_by: str,
+        batch_size: int = DEFAULT_BATCH_SIZE
+    ) -> int:
+        """
+        Mark old chunks as SUPERSEDED with batched updates.
 
         This preserves the audit trail for version transitions (v1 → v2).
         Old chunks remain in the index but are filtered out of normal queries.
@@ -463,24 +681,25 @@ class PolicySyncManager:
         Args:
             source_file: The source file whose chunks should be superseded
             superseded_by: The new version number that supersedes these chunks
+            batch_size: Number of chunks to update per batch (default: 100)
 
         Returns:
             Number of chunks marked as SUPERSEDED
         """
-        # Find all chunks for this source file with ACTIVE status
         try:
             search_client = self.search_index.get_search_client()
-
-            # Search for all chunks from this source file
             safe_source = escape_odata_string(source_file)
+
             results = search_client.search(
                 search_text="*",
                 filter=f"source_file eq '{safe_source}' and policy_status eq 'ACTIVE'",
                 select=["id", "version_number"],
-                top=1000  # Should be more than enough for any single document
+                top=MAX_SEARCH_RESULTS
             )
 
             chunks_to_update = []
+            total_updated = 0
+
             for result in results:
                 chunks_to_update.append({
                     "id": result["id"],
@@ -489,45 +708,98 @@ class PolicySyncManager:
                     "expiration_date": datetime.now().isoformat(),
                 })
 
-            if chunks_to_update:
-                # Merge update (only update specified fields)
-                search_client.merge_documents(documents=chunks_to_update)
-                logger.info(f"Marked {len(chunks_to_update)} chunks as SUPERSEDED for {source_file}")
+                # Upload in batches to avoid memory buildup
+                if len(chunks_to_update) >= batch_size:
+                    search_client.merge_documents(documents=chunks_to_update)
+                    total_updated += len(chunks_to_update)
+                    chunks_to_update = []
 
-            return len(chunks_to_update)
+            # Upload remaining
+            if chunks_to_update:
+                search_client.merge_documents(documents=chunks_to_update)
+                total_updated += len(chunks_to_update)
+
+            if total_updated > 0:
+                logger.info(f"Marked {total_updated} chunks as SUPERSEDED for {source_file}")
+
+            return total_updated
 
         except Exception as e:
             logger.error(f"Failed to supersede chunks for {source_file}: {e}")
             # Fall back to deletion if update fails
             return self.search_index.delete_by_source_file(source_file)
 
-    def retire_policy(self, container: str, filename: str, archive_container: str = "policies-archive") -> int:
+    def retire_policy(
+        self,
+        container: str,
+        filename: str,
+        archive_container: str = "policies-archive",
+        sync_batch_id: Optional[str] = None
+    ) -> int:
         """
-        Retire a policy: mark chunks as RETIRED and move PDF to archive.
+        Retire a policy with idempotency (safe to call multiple times).
 
         Unlike delete, this preserves the document for audit purposes.
+        If sync_batch_id is provided, archives into dated folder (e.g., "2026-01/").
 
         Args:
             container: Current container of the policy
             filename: Name of the PDF file
             archive_container: Container for archived policies
+            sync_batch_id: Optional date folder in YYYY-MM format
 
         Returns:
             Number of chunks marked as RETIRED
+
+        Raises:
+            ValueError: If sync_batch_id format is invalid
+            Exception: For critical errors during retirement
         """
+        # Validate sync_batch_id format (YYYY-MM) to prevent path traversal
+        if sync_batch_id:
+            if not re.match(SYNC_BATCH_ID_PATTERN, sync_batch_id):
+                raise ValueError(
+                    f"Invalid sync_batch_id format: {sync_batch_id}. Expected YYYY-MM"
+                )
+
+            # Additional validation: check if month is valid (01-12)
+            try:
+                year, month = sync_batch_id.split('-')
+                month_int = int(month)
+                if not (1 <= month_int <= 12):
+                    raise ValueError(
+                        f"Invalid month in sync_batch_id: {sync_batch_id}. Month must be 01-12"
+                    )
+            except (ValueError, AttributeError) as e:
+                raise ValueError(
+                    f"Invalid sync_batch_id: {sync_batch_id}. Expected YYYY-MM format with valid month (01-12)"
+                )
+
         retired_count = 0
         state = self.get_document_state(container, filename)
 
         try:
             search_client = self.search_index.get_search_client()
 
-            # Mark all chunks as RETIRED
+            # Check if already retired (idempotency check)
             safe_filename = escape_odata_string(filename)
+            existing = list(search_client.search(
+                search_text="*",
+                filter=f"source_file eq '{safe_filename}' and policy_status eq 'RETIRED'",
+                select=["id"],
+                top=1
+            ))
+
+            if existing:
+                logger.info(f"Policy {filename} already retired, skipping")
+                return len(existing)  # Return count of retired chunks
+
+            # Mark all chunks as RETIRED (only ACTIVE or SUPERSEDED chunks)
             results = search_client.search(
                 search_text="*",
-                filter=f"source_file eq '{safe_filename}'",
+                filter=f"source_file eq '{safe_filename}' and (policy_status eq 'ACTIVE' or policy_status eq 'SUPERSEDED')",
                 select=["id"],
-                top=1000
+                top=MAX_SEARCH_RESULTS
             )
 
             chunks_to_retire = []
@@ -543,26 +815,34 @@ class PolicySyncManager:
                 retired_count = len(chunks_to_retire)
                 logger.info(f"Retired {retired_count} chunks for {filename}")
 
-            # Move PDF to archive container
+            # Move PDF to archive container (check if source exists first)
             source_client = self.blob_service.get_container_client(container)
+            try:
+                source_blob = source_client.get_blob_client(filename)
+                blob_properties = source_blob.get_blob_properties()  # Check existence
+            except ResourceNotFoundError:
+                logger.info(f"Source blob {filename} not found (may already be archived)")
+                return retired_count  # Idempotent: chunks are retired, blob already gone
+
             archive_client = self.blob_service.get_container_client(archive_container)
 
             # Ensure archive container exists
             try:
                 archive_client.create_container()
-            except ResourceNotFoundError:
-                pass  # Container already exists - this is expected
-            except HttpResponseError as e:
-                if "ContainerAlreadyExists" in str(e):
-                    pass  # Container already exists - this is expected
-                else:
+            except (ResourceNotFoundError, HttpResponseError) as e:
+                if "ContainerAlreadyExists" not in str(e):
                     logger.warning(f"Error creating archive container: {e}")
 
-            # Copy to archive
-            source_blob = source_client.get_blob_client(filename)
-            archive_blob = archive_client.get_blob_client(filename)
+            # Determine archive blob name (with date folder if provided)
+            if sync_batch_id:
+                archive_blob_name = f"{sync_batch_id}/{filename}"
+            else:
+                archive_blob_name = filename
 
+            # Copy to archive
+            archive_blob = archive_client.get_blob_client(archive_blob_name)
             blob_data = source_blob.download_blob().readall()
+
             if state:
                 state.policy_status = "RETIRED"
                 archive_blob.upload_blob(blob_data, overwrite=True, metadata=state.to_metadata())
@@ -571,10 +851,11 @@ class PolicySyncManager:
 
             # Delete from active container
             source_blob.delete_blob()
-            logger.info(f"Moved {filename} to archive container")
+            logger.info(f"Moved {filename} to archive: {archive_blob_name}")
 
         except Exception as e:
             logger.error(f"Failed to retire policy {filename}: {e}")
+            raise  # Re-raise to caller for proper error handling
 
         return retired_count
 
@@ -608,21 +889,48 @@ class PolicySyncManager:
         self,
         source_container: str = SOURCE_CONTAINER,
         target_container: str = TARGET_CONTAINER,
-        dry_run: bool = False
+        dry_run: bool = False,
+        download_date: Optional[datetime] = None
     ) -> SyncReport:
         """
-        Perform monthly differential sync.
+        Perform monthly differential sync with date validation.
 
         Args:
             source_container: Container with new/updated policies
             target_container: Production container
             dry_run: If True, only detect changes without applying
+            download_date: Date when PDFs were downloaded from PolicyTech.
+                          If None, uses current date. This is shown to users
+                          as "Documents downloaded [date]" in the frontend.
 
         Returns:
             SyncReport with details of the operation
+
+        Raises:
+            ValueError: If download_date is in the future
         """
+        sync_date = datetime.now()
+
+        # Validate download_date
+        if download_date:
+            # Prevent future dates
+            if download_date > sync_date:
+                raise ValueError(f"download_date cannot be in the future: {download_date}")
+
+            # Prevent unreasonably old dates (e.g., >10 years)
+            min_date = datetime(sync_date.year - 10, 1, 1)
+            if download_date < min_date:
+                logger.warning(
+                    f"download_date is very old ({download_date}), using sync_date instead"
+                )
+                download_date = None
+
+        # Use download_date for display, fall back to sync_date if not provided
+        display_date = download_date or sync_date
+        sync_batch_id = display_date.strftime("%Y-%m")  # e.g., "2026-01"
+
         report = SyncReport(
-            started_at=datetime.now().isoformat(),
+            started_at=sync_date.isoformat(),
             source_container=source_container,
             target_container=target_container,
         )
@@ -694,9 +1002,12 @@ class PolicySyncManager:
             for filename in deleted_files:
                 try:
                     # Use retire instead of delete to preserve audit trail
-                    retired = self.retire_policy(target_container, filename)
+                    # Pass sync_batch_id for dated archive folder (e.g., "2026-01/")
+                    retired = self.retire_policy(
+                        target_container, filename, sync_batch_id=sync_batch_id
+                    )
                     report.chunks_deleted += retired
-                    print(f"  ✓ {filename} ({retired} chunks retired, moved to archive)")
+                    print(f"  ✓ {filename} ({retired} chunks retired, moved to archive/{sync_batch_id}/)")
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
@@ -709,7 +1020,46 @@ class PolicySyncManager:
         report.completed_at = datetime.now().isoformat()
         report.log_summary()
 
+        # Save sync info for frontend display ("Documents downloaded [date]")
+        self.save_sync_info(target_container, display_date, sync_batch_id)
+
         return report
+
+    def save_sync_info(
+        self,
+        container: str,
+        download_date: datetime,
+        sync_batch_id: str
+    ) -> None:
+        """
+        Save global sync info for frontend access.
+
+        Creates/updates latest_sync_info.json in the target container
+        for the frontend to display "Documents downloaded [date]".
+
+        Args:
+            container: Target container to store the info file
+            download_date: Date when PDFs were downloaded from PolicyTech
+            sync_batch_id: Batch ID in format "YYYY-MM"
+        """
+        info = {
+            "last_sync_date": download_date.isoformat(),
+            "last_sync_date_display": download_date.strftime("%B %d, %Y"),
+            "index_name": "rush-policies",
+            "sync_batch_id": sync_batch_id
+        }
+
+        try:
+            container_client = self.blob_service.get_container_client(container)
+            blob_client = container_client.get_blob_client("latest_sync_info.json")
+            blob_client.upload_blob(
+                json.dumps(info, indent=2),
+                overwrite=True
+            )
+            logger.info(f"Saved sync info: {info['last_sync_date_display']}")
+            print(f"\n  Sync info saved: Documents downloaded {info['last_sync_date_display']}")
+        except Exception as e:
+            logger.warning(f"Failed to save sync info: {e}")
 
     def process_single_document(
         self,
@@ -812,7 +1162,7 @@ class PolicySyncManager:
                     report.chunks_deleted += deleted
 
                 # Save temp and process
-                import tempfile
+                tmp_path = None
                 with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
                     tmp.write(content)
                     tmp_path = tmp.name
@@ -843,14 +1193,15 @@ class PolicySyncManager:
                     report.documents_new += 1
 
                 finally:
-                    os.unlink(tmp_path)
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
 
             except Exception as e:
                 report.errors.append({"file": filename, "error": str(e)})
                 print(f"  ✗ Error: {e}")
 
         report.completed_at = datetime.now().isoformat()
-        report.print_summary()
+        report.log_summary()
 
         return report
 
@@ -1034,10 +1385,47 @@ if __name__ == "__main__":
             retired_count = sync.retire_policy(container, filename)
             print(f"✓ Retired {retired_count} chunks, moved to archive")
 
+        elif command == "validate":
+            # Validate hash consistency
+            container = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('--') else TARGET_CONTAINER
+            sample = int(get_arg('--sample') or '10')
+
+            print(f"\nValidating hash consistency in {container}...")
+            print(f"Sample size: {sample}")
+
+            results = sync.validate_hash_consistency(container, sample_size=sample)
+
+            print(f"\nResults:")
+            print(f"  Documents checked: {results['total_checked']}")
+            print(f"  Hashes match:      {results['matches']}")
+            print(f"  Mismatches:        {len(results['mismatches'])}")
+            print(f"  Errors:            {len(results['errors'])}")
+
+            if results['mismatches']:
+                print(f"\nMismatches:")
+                for mm in results['mismatches'][:5]:
+                    print(f"  - {mm['filename']}: {mm.get('issue', 'Hash mismatch')}")
+                if len(results['mismatches']) > 5:
+                    print(f"  ... and {len(results['mismatches']) - 5} more")
+
+            if results['errors']:
+                print(f"\nErrors:")
+                for err in results['errors'][:3]:
+                    if isinstance(err, dict):
+                        print(f"  - {err.get('filename', 'unknown')}: {err.get('error', 'unknown')}")
+                    else:
+                        print(f"  - {err}")
+
+            if results['matches'] == results['total_checked'] and results['total_checked'] > 0:
+                print(f"\n✓ All hashes valid - safe to sync")
+            elif results['mismatches']:
+                print(f"\n⚠ Hash mismatches detected - review before syncing")
+
         else:
             print("Usage:")
             print("  python policy_sync.py detect [source] [target]    # Detect changes")
             print("  python policy_sync.py sync [source] [target]      # Run monthly sync")
+            print("  python policy_sync.py validate [container]        # Validate hash consistency")
             print("  python policy_sync.py reindex [container]         # Full reindex")
             print("  python policy_sync.py process <pdf_path>          # Process single file")
             print("  python policy_sync.py rollback --reference REF --to-version X.X")
