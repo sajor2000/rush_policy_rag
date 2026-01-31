@@ -9,6 +9,7 @@
  * Extracted from ChatMessage.tsx as part of tech debt refactoring.
  */
 
+import React from "react";
 import { cn } from "@/lib/utils";
 import { Evidence } from "@/lib/api";
 import { cleanQuickAnswerText } from "@/lib/chatMessageFormatting";
@@ -39,7 +40,7 @@ export interface FormattedTextSpanProps {
  *   onCitationClick={handleClick}
  * />
  */
-export function FormattedTextSpan({
+export const FormattedTextSpan = React.memo(function FormattedTextSpan({
   text,
   evidence,
   onCitationClick,
@@ -154,7 +155,7 @@ export function FormattedTextSpan({
   }
 
   return <>{parts}</>;
-}
+});
 
 // ============================================================================
 // FormattedQuickAnswer - Quick answer with list/paragraph formatting
@@ -182,7 +183,7 @@ export interface FormattedQuickAnswerProps {
  *   onCitationClick={handleClick}
  * />
  */
-export function FormattedQuickAnswer({
+export const FormattedQuickAnswer = React.memo(function FormattedQuickAnswer({
   text,
   evidence,
   onCitationClick,
@@ -243,4 +244,4 @@ export function FormattedQuickAnswer({
       })}
     </div>
   );
-}
+});

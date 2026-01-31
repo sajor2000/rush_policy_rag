@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Copy, FileText, CheckCircle2, AlertCircle, ExternalLink, BookOpen, Search, ChevronRight } from "lucide-react";
 import { Evidence, Source } from "@/lib/api";
@@ -41,8 +41,8 @@ interface ChatMessageProps {
 // buildCitationSummary and utilities are now imported from @/lib/chatMessageFormatting
 
 /** Compact checkbox-style entity display */
-function AppliesTo({ appliesTo }: { appliesTo?: string }) {
-  const activeEntities = parseAppliesTo(appliesTo);
+const AppliesTo = React.memo(function AppliesTo({ appliesTo }: { appliesTo?: string }) {
+  const activeEntities = useMemo(() => parseAppliesTo(appliesTo), [appliesTo]);
   return (
     <span className="inline-flex items-center gap-1 text-[9px]">
       {RUSH_ENTITIES.map((entity) => (
@@ -62,7 +62,7 @@ function AppliesTo({ appliesTo }: { appliesTo?: string }) {
       ))}
     </span>
   );
-}
+});
 
 export default function ChatMessage({
   role,
@@ -157,6 +157,19 @@ export default function ChatMessage({
         date_updated: e.date_updated,
       }));
   }, [sources, evidence]);
+
+  // Memoize citation number mapping to avoid recomputing 3 times per render
+  const policyToCitationNum = useMemo(() => {
+    const map = new Map<string, number>();
+    let counter = 1;
+    evidence?.forEach((e) => {
+      const key = e.reference_number || e.title;
+      if (key && !map.has(key)) {
+        map.set(key, counter++);
+      }
+    });
+    return map;
+  }, [evidence]);
 
   return (
     <div
@@ -360,16 +373,8 @@ export default function ChatMessage({
 
             {/* Supporting Evidence Section - Compact PDF Style */}
             {evidence && evidence.length > 0 && (() => {
-              // Build citation number map: first occurrence of each policy gets the display number
+              // Use memoized citation number map (defined above)
               // This ensures Policy Sources, Supporting Evidence, and PDFs all use same numbering
-              const policyToCitationNum = new Map<string, number>();
-              let citationCounter = 1;
-              evidence.forEach((e) => {
-                const key = e.reference_number || e.title;
-                if (key && !policyToCitationNum.has(key)) {
-                  policyToCitationNum.set(key, citationCounter++);
-                }
-              });
 
               return (
             <div className="rounded-lg border border-rush-legacy/20 bg-white/90 p-3 overflow-hidden">
@@ -596,16 +601,8 @@ export default function ChatMessage({
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {(() => {
-                    // Build consistent citation number map by policy (reference_number or title)
+                    // Use memoized citation number map (defined above)
                     // This matches the numbering in Policy Sources and Supporting Evidence sections
-                    const policyToCitationNum = new Map<string, number>();
-                    let citationCounter = 1;
-                    evidence?.forEach((e) => {
-                      const key = e.reference_number || e.title;
-                      if (key && !policyToCitationNum.has(key)) {
-                        policyToCitationNum.set(key, citationCounter++);
-                      }
-                    });
 
                     // Map source_file to citation number via its policy key
                     const sourceToNumber = new Map<string, number>();
