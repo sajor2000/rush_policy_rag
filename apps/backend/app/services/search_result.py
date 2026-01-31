@@ -182,3 +182,55 @@ def format_rag_context(results: list[SearchResult]) -> str:
 """)
 
     return "\n".join(context_parts)
+
+
+def search_result_to_item(result: SearchResult) -> dict:
+    """
+    Convert SearchResult to dict for API response.
+
+    Preserves all metadata fields including page_number for PDF navigation.
+    This ensures the /api/search endpoint returns complete attribution data
+    matching the /api/chat endpoint.
+
+    Args:
+        result: SearchResult object from Azure AI Search
+
+    Returns:
+        Dictionary with all metadata fields for SearchResultItem model
+    """
+    return {
+        "citation": result.citation,
+        "content": result.content,
+        "title": result.title,
+        "section": result.section,
+        "reference_number": result.reference_number,
+        "applies_to": result.applies_to,
+        "date_updated": result.date_updated,
+        "date_approved": result.date_approved,
+        "document_owner": result.document_owner,
+        "source_file": result.source_file,
+        # PDF navigation (CRITICAL - was missing)
+        "page_number": result.page_number,
+        # Enhanced metadata (was missing)
+        "category": result.category,
+        "subcategory": result.subcategory,
+        "regulatory_citations": result.regulatory_citations,
+        "related_policies": result.related_policies,
+        # Hierarchical fields
+        "chunk_level": result.chunk_level,
+        "parent_chunk_id": result.parent_chunk_id,
+        "chunk_index": result.chunk_index,
+        # Entity booleans
+        "applies_to_rumc": result.applies_to_rumc,
+        "applies_to_rumg": result.applies_to_rumg,
+        "applies_to_rmg": result.applies_to_rmg,
+        "applies_to_roph": result.applies_to_roph,
+        "applies_to_rcmc": result.applies_to_rcmc,
+        "applies_to_rch": result.applies_to_rch,
+        "applies_to_roppg": result.applies_to_roppg,
+        "applies_to_rcmg": result.applies_to_rcmg,
+        "applies_to_ru": result.applies_to_ru,
+        # Scoring
+        "score": result.score,
+        "reranker_score": result.reranker_score,
+    }

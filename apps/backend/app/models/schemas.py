@@ -23,6 +23,52 @@ class EvidenceItem(BaseModel):
     match_type: Optional[str] = None  # "verified" (exact match), "related" (fallback search)
 
 
+class SearchResultItem(BaseModel):
+    """Search result with complete metadata for frontend attribution."""
+    # Core content
+    citation: str
+    content: str
+    title: str
+    section: str = ""
+    reference_number: str = ""
+    applies_to: str = ""
+
+    # Dates and ownership
+    date_updated: Optional[str] = None
+    date_approved: Optional[str] = None
+    document_owner: Optional[str] = None
+    source_file: Optional[str] = None
+
+    # PDF navigation (CRITICAL for page jump feature)
+    page_number: Optional[int] = None  # 1-indexed
+
+    # Enhanced metadata
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    regulatory_citations: Optional[str] = None
+    related_policies: Optional[str] = None
+
+    # Hierarchical chunking
+    chunk_level: str = "semantic"
+    parent_chunk_id: Optional[str] = None
+    chunk_index: int = 0
+
+    # Entity booleans (for filtering)
+    applies_to_rumc: bool = False
+    applies_to_rumg: bool = False
+    applies_to_rmg: bool = False
+    applies_to_roph: bool = False
+    applies_to_rcmc: bool = False
+    applies_to_rch: bool = False
+    applies_to_roppg: bool = False
+    applies_to_rcmg: bool = False
+    applies_to_ru: bool = False
+
+    # Search scoring
+    score: Optional[float] = None
+    reranker_score: Optional[float] = None
+
+
 class ChatResponse(BaseModel):
     response: str
     summary: str
@@ -49,7 +95,7 @@ class SearchRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    results: List[dict]
+    results: List[SearchResultItem]
     query: str
     count: int
 

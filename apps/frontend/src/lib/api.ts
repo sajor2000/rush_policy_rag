@@ -26,6 +26,44 @@ export interface Evidence {
   match_type?: "verified" | "related";  // verified = exact match, related = fallback
 }
 
+export interface SearchResultItem {
+  citation: string;
+  content: string;
+  title: string;
+  section?: string;
+  reference_number?: string;
+  applies_to?: string;
+  date_updated?: string;
+  date_approved?: string;
+  document_owner?: string;
+  source_file?: string;
+  page_number?: number;  // 1-indexed for PDF jump
+  category?: string;
+  subcategory?: string;
+  regulatory_citations?: string;
+  related_policies?: string;
+  chunk_level?: string;
+  parent_chunk_id?: string;
+  chunk_index?: number;
+  applies_to_rumc?: boolean;
+  applies_to_rumg?: boolean;
+  applies_to_rmg?: boolean;
+  applies_to_roph?: boolean;
+  applies_to_rcmc?: boolean;
+  applies_to_rch?: boolean;
+  applies_to_roppg?: boolean;
+  applies_to_rcmg?: boolean;
+  applies_to_ru?: boolean;
+  score?: number;
+  reranker_score?: number;
+}
+
+export interface SearchResponse {
+  results: SearchResultItem[];
+  query: string;
+  count: number;
+}
+
 export interface ChatApiResponse {
   response: string;
   summary?: string;

@@ -14,6 +14,7 @@ from app.core.rate_limit import limiter  # Shared rate limiter with load balance
 from app.core.circuit_breaker import azure_openai_breaker, is_circuit_open
 from azure_policy_index import PolicySearchIndex
 from app.services.on_your_data_service import OnYourDataService
+from app.services.search_result import search_result_to_item
 from openai import RateLimitError, APITimeoutError, APIConnectionError
 from typing import Optional
 import logging
@@ -65,18 +66,7 @@ async def search_policies(
     )
 
     return SearchResponse(
-        results=[{
-            "citation": r.citation,
-            "content": r.content,
-            "title": r.title,
-            "section": r.section,
-            "reference_number": r.reference_number,
-            "applies_to": r.applies_to,
-            "date_updated": r.date_updated,
-            "source_file": r.source_file,
-            "document_owner": r.document_owner,
-            "date_approved": r.date_approved
-        } for r in results],
+        results=[search_result_to_item(r) for r in results],
         query=validated_query,
         count=len(results)
     )

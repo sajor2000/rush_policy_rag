@@ -146,3 +146,5 @@ audit_report.json
 david.md
 .factory/
 .playwright-mcp/
+hardware_config.json
+pdf_staging/
