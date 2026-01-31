@@ -59,6 +59,7 @@ from preprocessing.checkbox_extractor import (
 from preprocessing.metadata_extractor import (
     clean_filename,
     extract_page_number,
+    extract_page_number_pymupdf,
     extract_section_info,
     extract_fields_from_text,
 )
@@ -215,25 +216,32 @@ class PolicyChunker:
             # Extract metadata from header table(s)
             metadata = self._extract_header_metadata(doc, pdf_path)
 
-            # Chunk the document body
-            chunks = self._chunk_document(doc, metadata, filename)
+            # Store PDF path for fallback page extraction in _chunk_document
+            self._current_pdf_path = pdf_path
 
-            logger.info(f"Docling processed {filename}: {len(chunks)} chunks, "
-                       f"ref={metadata.reference_number}, applies_to={metadata.applies_to_str}")
+            try:
+                # Chunk the document body
+                chunks = self._chunk_document(doc, metadata, filename)
 
-            # Distinguish between success with chunks vs empty document
-            if not chunks:
+                logger.info(f"Docling processed {filename}: {len(chunks)} chunks, "
+                           f"ref={metadata.reference_number}, applies_to={metadata.applies_to_str}")
+
+                # Distinguish between success with chunks vs empty document
+                if not chunks:
+                    return ProcessingResult(
+                        chunks=[],
+                        status=ProcessingStatus.EMPTY_DOCUMENT,
+                        source_file=filename
+                    )
+
                 return ProcessingResult(
-                    chunks=[],
-                    status=ProcessingStatus.EMPTY_DOCUMENT,
+                    chunks=chunks,
+                    status=ProcessingStatus.SUCCESS,
                     source_file=filename
                 )
-
-            return ProcessingResult(
-                chunks=chunks,
-                status=ProcessingStatus.SUCCESS,
-                source_file=filename
-            )
+            finally:
+                # Clear PDF path reference to avoid memory retention
+                self._current_pdf_path = None
 
         except Exception as e:
             logger.error(f"Docling failed to process {filename}: {e}")
@@ -352,6 +360,14 @@ class PolicyChunker:
             # Extract page number for PDF navigation
             page_number = extract_page_number(doc_chunk)
 
+            # Fallback to PyMuPDF if Docling didn't provide page number
+            if page_number is None and hasattr(self, '_current_pdf_path'):
+                page_number = extract_page_number_pymupdf(
+                    self._current_pdf_path,
+                    text,
+                    global_chunk_index
+                )
+
             # Determine chunk level based on content/context
             chunk_level = "section" if section_number else "semantic"
 
@@ -392,6 +408,14 @@ class PolicyChunker:
                 chunks.append(chunk)
                 chunk_counter += 1
                 global_chunk_index += 1
+
+        # Log page extraction success rate
+        if chunks:
+            chunks_with_pages = sum(1 for c in chunks if c.page_number is not None)
+            logger.info(
+                f"Page extraction: {chunks_with_pages}/{len(chunks)} chunks "
+                f"have page numbers ({100*chunks_with_pages//len(chunks)}%)"
+            )
 
         return chunks
 

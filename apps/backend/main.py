@@ -11,9 +11,11 @@ except ImportError:
     pass  # truststore not installed, SSL uses default cert handling
 
 import asyncio
+import json
 import logging
 import os
 import uvicorn
+from typing import Dict, Any
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -227,6 +229,40 @@ async def health_check():
         )
 
     return response_body
+
+
+@app.get("/api/sync-info")
+async def get_sync_info() -> Dict[str, Any]:
+    """
+    Get latest sync information for frontend display.
+
+    Returns the date of the last policy sync for showing
+    "Documents current as of [date]" in the frontend.
+
+    Returns:
+        Dict with last_sync_date, last_sync_date_display, and sync_batch_id
+    """
+    try:
+        from pdf_service import get_blob_service_client, CONTAINER_NAME
+
+        client = get_blob_service_client()
+        container = client.get_container_client(CONTAINER_NAME)
+        blob_client = container.get_blob_client("latest_sync_info.json")
+
+        # Download sync info JSON
+        content = await asyncio.to_thread(
+            lambda: blob_client.download_blob().readall()
+        )
+        return json.loads(content)
+    except Exception as e:
+        logger.warning(f"Could not retrieve sync info: {e}")
+        # Return default if file doesn't exist or error occurs
+        return {
+            "last_sync_date_display": "Unknown",
+            "last_sync_date": None,
+            "sync_batch_id": None
+        }
+
 
 if __name__ == "__main__":
     uvicorn.run(

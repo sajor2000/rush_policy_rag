@@ -73,6 +73,71 @@ def extract_page_number(doc_chunk) -> Optional[int]:
     return None
 
 
+def extract_page_number_pymupdf(
+    pdf_path: str,
+    chunk_text: str,
+    chunk_index: int,
+    num_pages: Optional[int] = None
+) -> Optional[int]:
+    """
+    Extract page number using PyMuPDF by finding chunk text in PDF.
+
+    This is a fallback when Docling's chunk metadata doesn't include page info.
+    Uses text matching to find the most likely page containing the chunk.
+
+    Args:
+        pdf_path: Path to the PDF file
+        chunk_text: Text content of the chunk (first 150 chars used for matching)
+        chunk_index: Index of the chunk (used for estimation if text not found)
+        num_pages: Optional pre-computed page count (avoids re-opening PDF)
+
+    Returns:
+        1-indexed page number, or estimated page based on chunk position
+    """
+    try:
+        import fitz  # PyMuPDF
+
+        # Use context manager to ensure proper resource cleanup
+        with fitz.open(pdf_path) as doc:
+            total_pages = num_pages if num_pages is not None else len(doc)
+
+            # Use first 150 chars for matching (avoid partial matches at boundaries)
+            # Strip whitespace and normalize for better matching
+            search_text = ' '.join(chunk_text[:150].split()).strip()
+
+            if len(search_text) < 20:
+                # Text too short for reliable matching, use estimation
+                estimated = min(max(1, (chunk_index // 2) + 1), total_pages)
+                logger.debug(f"Chunk text too short, estimating page {estimated}")
+                return estimated
+
+            # Search for text on each page
+            for page_num in range(total_pages):
+                page = doc.load_page(page_num)
+                page_text = page.get_text()
+
+                # Normalize page text for comparison
+                page_text_normalized = ' '.join(page_text.split())
+
+                if search_text in page_text_normalized:
+                    return page_num + 1  # Convert to 1-indexed
+
+            # Fallback: estimate based on chunk index and document length
+            # Assume ~2-3 chunks per page as a rough estimate
+            estimated_page = min(max(1, (chunk_index // 2) + 1), total_pages)
+            logger.debug(
+                f"Page not found for chunk {chunk_index}, estimating page {estimated_page}"
+            )
+            return estimated_page
+
+    except ImportError:
+        logger.warning("PyMuPDF (fitz) not installed, cannot use fallback page extraction")
+        return None
+    except Exception as e:
+        logger.warning(f"PyMuPDF page extraction failed: {e}")
+        return None
+
+
 def extract_section_info(doc_chunk) -> Tuple[str, str]:
     """
     Extract section number and title from Docling chunk metadata.
