@@ -49,11 +49,27 @@ export interface ChatApiResponse {
   };
 }
 
-// Constants
-const MAX_MESSAGE_LENGTH = 2000;
-const REQUEST_TIMEOUT_MS = 60000; // Increased from 30s for RAG operations
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+/** Maximum length for user messages */
+export const MAX_MESSAGE_LENGTH = 2000;
+
+/** Request timeout in milliseconds (60s for RAG operations) */
+export const REQUEST_TIMEOUT_MS = 60000;
+
+/** Maximum number of retry attempts for failed requests */
+export const MAX_RETRIES = 3;
+
+/** Base delay in milliseconds between retries (exponential backoff) */
+export const RETRY_DELAY_MS = 1000;
+
+/** Timeout for file uploads in milliseconds (2 minutes for large files) */
+export const UPLOAD_TIMEOUT_MS = 120000;
+
+/** Timeout for instance search operations in milliseconds */
+export const INSTANCE_SEARCH_TIMEOUT_MS = 30000;
 
 // Rate limit tracking
 let rateLimitResetTime: number | null = null;
@@ -483,8 +499,6 @@ export interface UploadStatus {
   created_at: string;
   updated_at: string;
 }
-
-const UPLOAD_TIMEOUT_MS = 120000; // 2 minutes for large files
 
 /**
  * Upload a PDF file for processing and indexing.

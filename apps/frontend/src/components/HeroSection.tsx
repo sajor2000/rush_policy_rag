@@ -1,21 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, ExternalLink } from "lucide-react";
-import { getSyncInfo, SyncInfo } from "@/lib/api";
 import { POLICYTECH_URL } from "@/lib/constants";
+import { useSyncInfo } from "@/hooks/useSyncInfo";
 
 export default function HeroSection({ onGetStarted }: { onGetStarted: () => void }) {
-  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
-
-  useEffect(() => {
-    getSyncInfo()
-      .then(setSyncInfo)
-      .catch(() => {
-        // Silently fail - sync date is informational only
-      });
-  }, []);
+  // Fetch sync info with proper cleanup (prevents memory leaks)
+  const syncInfo = useSyncInfo();
 
   return (
     <section className="w-full py-12 md:py-16 lg:py-20">

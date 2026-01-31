@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Sparkles, Loader2, Search, HelpCircle, X, ExternalLink } from "lucide-react";
@@ -12,12 +12,11 @@ import InstanceSearchModal from "./InstanceSearchModal";
 import {
   sendMessage,
   searchInstances,
-  getSyncInfo,
   type Source,
   type Evidence,
-  type SyncInfo,
 } from "@/lib/api";
-import { POLICYTECH_URL } from "@/lib/constants";
+import { POLICYTECH_URL, PAGE_RANGE_BUFFER, MAX_DEEP_SEARCH_RESULTS } from "@/lib/constants";
+import { useSyncInfo } from "@/hooks/useSyncInfo";
 
 interface Message {
   role: "user" | "assistant";
@@ -77,25 +76,17 @@ export default function ChatInterface() {
     originalQuery: string;
   } | null>(null);
 
-  // Sync info state for displaying last update date
-  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
+  // Fetch sync info with proper cleanup (prevents memory leaks)
+  const syncInfo = useSyncInfo();
 
-  const scrollToBottom = () => {
+  // Memoize scroll function to prevent unnecessary re-renders
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
-
-  // Fetch sync info on mount
-  useEffect(() => {
-    getSyncInfo()
-      .then(setSyncInfo)
-      .catch(() => {
-        // Silently fail - sync date is informational only
-      });
-  }, []);
+  }, [messages, scrollToBottom]);
 
   // Shared helper function to fetch and display PDF
   const fetchAndDisplayPdf = async (
@@ -191,12 +182,12 @@ export default function ChatInterface() {
       } else {
         responseContent = `Found **${result.total_instances} result${result.total_instances !== 1 ? 's' : ''}** for "${searchTerm}" in **${result.policy_title}** (Ref #${result.policy_ref}):\n\n`;
 
-        result.instances.slice(0, 10).forEach((instance, idx) => {
-          // Show estimated page range (±1 page) since exact page numbers may not be available
+        result.instances.slice(0, MAX_DEEP_SEARCH_RESULTS).forEach((instance, idx) => {
+          // Show estimated page range (±PAGE_RANGE_BUFFER) since exact page numbers may not be available
           let pageInfo = "N/A";
           if (instance.page_number) {
-            const minPage = Math.max(1, instance.page_number - 1);
-            const maxPage = instance.page_number + 1;
+            const minPage = Math.max(1, instance.page_number - PAGE_RANGE_BUFFER);
+            const maxPage = instance.page_number + PAGE_RANGE_BUFFER;
             pageInfo = `Pages ~${minPage}-${maxPage}`;
           }
           const sectionInfo = instance.section ? `, Section ${instance.section}` : "";
@@ -205,8 +196,8 @@ export default function ChatInterface() {
           responseContent += `> "${instance.context.trim()}"\n\n`;
         });
 
-        if (result.total_instances > 10) {
-          responseContent += `_Showing first 10 of ${result.total_instances} results._\n\n`;
+        if (result.total_instances > MAX_DEEP_SEARCH_RESULTS) {
+          responseContent += `_Showing first ${MAX_DEEP_SEARCH_RESULTS} of ${result.total_instances} results._\n\n`;
         }
 
         // Add helpful tip (View PDF button is rendered by ChatMessage component)
@@ -232,6 +223,9 @@ export default function ChatInterface() {
         setInstanceSearchPolicy(policyInfo);
       }
     } catch (err) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error("Deep search error:", err);
+      }
       setError(err instanceof Error ? err.message : "Deep search failed");
     } finally {
       setIsLoading(false);
@@ -347,6 +341,9 @@ export default function ChatInterface() {
         found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0
       }]);
     } catch (err) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error("Clarification refinement error:", err);
+      }
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);

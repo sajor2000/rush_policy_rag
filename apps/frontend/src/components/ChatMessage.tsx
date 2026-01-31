@@ -112,7 +112,9 @@ export default function ChatMessage({
       }
       copiedTimeoutRef.current = setTimeout(() => setCopiedIndex(null), 1600);
     } catch (error) {
-      console.error("Failed to copy citation", error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error("Failed to copy citation", error);
+      }
     }
   };
 
@@ -275,18 +277,22 @@ export default function ChatMessage({
               </div>
 
               {/* Citation Sources Summary - Card Style */}
-              {evidence && evidence.length > 0 && (
+              {evidence && evidence.length > 0 && (() => {
+                // Memoize unique evidence to prevent unnecessary re-computation
+                const uniqueEvidence = Array.from(
+                  new Map(
+                    evidence.map((e, idx) => [e.reference_number || e.title, { ...e, idx }])
+                  ).values()
+                );
+
+                return (
                 <div className="mt-4 pt-3 border-t border-rush-legacy/10">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold flex items-center gap-1.5">
                     <FileText className="h-3 w-3" />
                     Policy Sources
                   </p>
                   <div className="grid gap-2">
-                    {Array.from(
-                      new Map(
-                        evidence.map((e, idx) => [e.reference_number || e.title, { ...e, idx }])
-                      ).values()
-                    ).map((item, displayIdx) => {
+                    {uniqueEvidence.map((item, displayIdx) => {
                       const ref = formatReferenceNumber(item.reference_number);
                       return (
                         <button
@@ -322,7 +328,8 @@ export default function ChatMessage({
                     })}
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* Sticky Quick Access Panel - PDFs correlated with evidence */}
