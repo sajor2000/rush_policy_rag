@@ -1,0 +1,37 @@
+# Dependencies (CRITICAL - 478MB+)
+node_modules/
+
+# Build outputs (rebuilt in Docker)
+.next/
+out/
+dist/
+build/
+
+# Git & tooling
+.git/
+.gitignore
+.DS_Store
+
+# Env/config
+.env*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__/
+coverage/
+.jest/
+
+# Misc
+*.log
+*.md
+tmp/
+.turbo/
+.vercel/
