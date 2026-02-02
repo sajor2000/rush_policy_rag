@@ -50,20 +50,29 @@ class CorrectiveAction:
 class CorrectiveRAGService:
     """
     Corrective RAG service that evaluates retrieval quality before generation.
-    
+
     Key features:
     1. Scores each retrieved document for relevance to query
     2. Classifies documents as relevant/ambiguous/irrelevant
     3. Decides whether to proceed, decompose query, or refuse
     4. Handles negation-aware relevance scoring
+
+    Note: When Cohere Rerank 4.0 Pro is enabled, cRAG acts as a pre-filter
+    but passes sufficient candidates to Cohere for cross-encoder ranking.
+    Cohere's semantic understanding is far superior to cRAG's term matching.
     """
-    
+
     # Minimum relevant documents needed to proceed
     MIN_RELEVANT_DOCS = 2
-    
+
     # Thresholds for quality classification
     RELEVANT_THRESHOLD = 0.6
     AMBIGUOUS_THRESHOLD = 0.3
+
+    # Maximum ambiguous documents to pass to Cohere reranking
+    # Increased from 2 to 20 to give Cohere 4.0 Pro sufficient candidates
+    # Cohere's cross-encoder is much better at semantic ranking than term matching
+    MAX_AMBIGUOUS_FOR_RERANK = 20
     
     # Healthcare-specific terms that indicate high relevance
     HEALTHCARE_SIGNAL_TERMS = [
@@ -182,33 +191,42 @@ class CorrectiveRAGService:
             )
         
         # Case 2: Some relevant + ambiguous - proceed with caution
+        # Pass more candidates to Cohere 4.0 Pro for cross-encoder reranking
         if len(relevant) >= 1 and len(ambiguous) >= 1:
-            logger.info(f"cRAG: {len(relevant)} relevant + {len(ambiguous)} ambiguous - proceeding with caution")
-            # Use relevant docs + top ambiguous docs
-            combined = relevant + sorted(ambiguous, key=lambda a: a.score, reverse=True)[:2]
+            # Take all relevant + top N ambiguous (default 20)
+            # Cohere's semantic understanding will rank better than term matching
+            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:self.MAX_AMBIGUOUS_FOR_RERANK]
+            combined = relevant + top_ambiguous
+            logger.info(
+                f"cRAG: {len(relevant)} relevant + {len(top_ambiguous)} ambiguous "
+                f"(of {len(ambiguous)} total) → {len(combined)} docs for Cohere reranking"
+            )
             return CorrectiveAction(
                 action="proceed",
                 relevant_docs=[a.doc_index for a in combined],
-                message=f"Found {len(relevant)} relevant + {len(ambiguous)} ambiguous documents"
+                message=f"Passing {len(combined)} docs to Cohere (relevant + top ambiguous)"
             )
         
-        # Case 3: Only ambiguous documents - try query decomposition
+        # Case 3: Only ambiguous documents - try query decomposition or pass to Cohere
         if len(ambiguous) >= 2:
             sub_queries = self._decompose_query(query)
+            # Sort and limit ambiguous docs for Cohere reranking
+            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:self.MAX_AMBIGUOUS_FOR_RERANK]
             if sub_queries:
                 logger.info(f"cRAG: Only ambiguous docs - decomposing query into {len(sub_queries)} sub-queries")
                 return CorrectiveAction(
                     action="decompose",
-                    relevant_docs=[a.doc_index for a in ambiguous],
+                    relevant_docs=[a.doc_index for a in top_ambiguous],
                     sub_queries=sub_queries,
                     message="Retrieval ambiguous - decomposing query"
                 )
             else:
-                # Can't decompose, proceed with ambiguous
+                # Can't decompose, let Cohere rank the ambiguous docs
+                logger.info(f"cRAG: {len(top_ambiguous)} ambiguous docs (no relevant) → Cohere reranking")
                 return CorrectiveAction(
                     action="proceed",
-                    relevant_docs=[a.doc_index for a in ambiguous],
-                    message="Using ambiguous documents (unable to decompose)"
+                    relevant_docs=[a.doc_index for a in top_ambiguous],
+                    message=f"Passing {len(top_ambiguous)} ambiguous docs to Cohere"
                 )
         
         # Case 4: Insufficient quality - refuse to generate

@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     PEDIATRIC_BOOST: float = 1.3  # Boost pediatric policies when peds keywords detected
     ADULT_DEFAULT_BOOST: float = 1.2  # Boost adult/general policies by default
     ADULT_PENALTY_IN_PEDS_CONTEXT: float = 0.85  # Penalty for adult policies in peds context
-    PEDS_PENALTY_IN_ADULT_CONTEXT: float = 0.6  # 40% penalty - stronger deprioritization for peds in adult context
+    PEDS_PENALTY_IN_ADULT_CONTEXT: float = 0.5  # 50% penalty - strong deprioritization for peds in adult default context
 
     # PolicyTech URL - official RUSH policy administration portal
     POLICYTECH_URL: str = "https://rushumc.policytech.com"

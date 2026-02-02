@@ -158,6 +158,7 @@ def apply_surge_capacity_penalty(
                 source_file=result.source_file,
                 section=result.section,
                 applies_to=result.applies_to,
+                page_number=result.page_number,  # Preserve page number for PDF navigation
                 cohere_score=adjusted_score,
                 original_index=result.original_index
             )

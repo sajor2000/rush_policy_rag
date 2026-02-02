@@ -1267,14 +1267,17 @@ Policy excerpt:"""
 
             # CORRECTIVE RAG: Evaluate retrieval quality BEFORE generation
             # This catches low-quality retrievals that could lead to hallucinations
+            # NOTE: Use expanded_query (with synonyms) for better term matching
+            # e.g., "central line" expands to "central venous catheter CVC" which
+            # matches adult policy titles better than the original query
             try:
                 crag_service = get_corrective_rag_service()
                 quality_assessments = crag_service.assess_retrieval_quality(
-                    query=request.message,
+                    query=expanded_query,  # Use expanded query for better term matching
                     documents=docs_for_rerank
                 )
                 corrective_action = crag_service.determine_corrective_action(
-                    query=request.message,
+                    query=expanded_query,
                     assessments=quality_assessments
                 )
                 
@@ -1436,6 +1439,7 @@ Policy excerpt:"""
                         source_file=doc.get("source_file", ""),
                         section=doc.get("section", ""),
                         applies_to=doc.get("applies_to", ""),
+                        page_number=doc.get("page_number"),  # Preserve page number for PDF navigation
                         cohere_score=0.35,
                         original_index=len(reranked)
                     ))
