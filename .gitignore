@@ -137,14 +137,21 @@ claude
 
 # Generated reports and outputs
 reports/
+eval_reports/
 all_files.txt
 audit_report.json
 *_report.json
 *_results.txt
 
-# Personal notes
+# Large data directories
+SimpleExport_*/
+pdf_staging/
+
+# DeepEval cache
+.deepeval/
+apps/backend/.deepeval/
+
+# Personal notes and local files
 david.md
 .factory/
 .playwright-mcp/
-hardware_config.json
-pdf_staging/
