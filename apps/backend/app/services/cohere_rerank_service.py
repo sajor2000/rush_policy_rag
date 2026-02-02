@@ -2,12 +2,15 @@
 Cohere Rerank Service
 
 Provides cross-encoder reranking for negation-aware search.
-Supports Cohere Rerank v3.5 and v4.0 deployed on Azure AI Foundry.
+Supports Cohere Rerank v4.0 Pro deployed on Azure AI Foundry.
 
 Rerank 4.0 Pro (Dec 2025):
 - Healthcare-optimized: "tuned for healthcare, finance, government"
-- Higher accuracy than v3.5 with same latency
+- 9.5% accuracy improvement over v3.5 with same latency
+- Context length: 32,768 tokens (8x larger than v3.5's 4,096)
+- Query token limit: 16,384 tokens (8x larger than v3.5's 2,048)
 - Supports v2 API endpoint format
+- Semi-structured data (JSON/YAML) support
 
 Why cross-encoder beats Azure's L2 semantic reranker for negation:
 - Azure L2 is a bi-encoder: embeds query and document separately, then compares
@@ -18,7 +21,7 @@ Why cross-encoder beats Azure's L2 semantic reranker for negation:
 Best Practices (per Cohere docs):
 - Use YAML format for structured documents with sort_keys=False
 - Field order matters: put most important fields first (title, ref#), content last
-- Content field is most likely to be truncated at 4096 token context limit
+- v4.0 Pro context: 32,768 tokens (v3.5 was 4,096) - policy chunks (~1500 chars) fit easily
 - Relevance scores are normalized [0,1] - use threshold to filter low-relevance docs
 - Optimal top_n: 3-5 documents (reduces "lost in middle" effect)
 - Healthcare threshold: 0.4+ for precision (default 0.25 may be too permissive)
@@ -66,12 +69,13 @@ class CohereRerankService:
 
     Deployed on Azure AI Foundry as a serverless API.
     Pricing: ~$1 per 1000 searches (100 docs = 1 search unit)
-    
-    Best Practices:
-    - Context length: 4096 tokens (query can use up to 2048)
+
+    Best Practices (v4.0 Pro):
+    - Context length: 32,768 tokens (query can use up to 16,384)
     - YAML format for structured data preserves field relationships
     - Field order: title, reference_number, section, applies_to, content (last)
     - Score threshold filters low-relevance results
+    - Model parameter is ignored in Azure AI Foundry - endpoint determines model
     """
 
     def __init__(
@@ -158,7 +162,7 @@ class CohereRerankService:
         Per Cohere best practices:
         - YAML format preserves field structure for better reranking
         - Field order matters: most important fields first, content last
-        - Content is most likely to be truncated at 4096 token limit
+        - v4.0 Pro has 32k context - policy chunks (~1500 chars) fit easily
         - Use sort_keys=False to maintain field order
         
         Healthcare-optimized field order for RUSH policy documents:
@@ -186,7 +190,7 @@ class CohereRerankService:
                 doc_repr["document_owner"] = doc.get("document_owner")
             if doc.get("date_updated"):
                 doc_repr["effective_date"] = doc.get("date_updated")
-            # Content LAST - most likely to be truncated at 4096 token limit
+            # Content LAST - per Cohere best practices (most important fields first)
             doc_repr["content"] = doc.get("content", "")
             
             doc_texts.append(yaml.dump(doc_repr, sort_keys=False, default_flow_style=False))
@@ -306,8 +310,8 @@ class CohereRerankService:
                 "query": query,
                 "documents": doc_texts,
                 "top_n": n,
-                "return_documents": False,
-                "max_tokens_per_doc": 2048
+                "return_documents": False
+                # max_tokens_per_doc: Using Cohere default (4096) - sufficient for policy chunks (~1500 chars)
             }
 
             response = self._client.post(self.endpoint, json=payload)
@@ -389,8 +393,8 @@ class CohereRerankService:
             "query": query,
             "documents": doc_texts,
             "top_n": n,
-            "return_documents": False,
-            "max_tokens_per_doc": 2048
+            "return_documents": False
+            # max_tokens_per_doc: Using Cohere default (4096) - sufficient for policy chunks (~1500 chars)
         }
 
         # Async retry with exponential backoff (matches sync rerank behavior)

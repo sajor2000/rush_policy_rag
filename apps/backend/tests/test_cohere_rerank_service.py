@@ -310,11 +310,12 @@ class TestNegationHandling:
         """
         Document the negation handling capability.
 
-        Cohere Rerank 3.5 (cross-encoder) should understand that:
+        Cohere Rerank 4.0 Pro (cross-encoder) should understand that:
         - Query: "Can nurses accept verbal orders?"
         - Doc with "NOT authorized to accept" should rank LOWER than
         - Doc with "authorized to accept verbal orders"
 
+        v4.0 Pro has 32k context and 9.5% accuracy improvement over v3.5.
         This is tested in the full enhanced evaluation suite.
         """
         # This test documents the expected behavior

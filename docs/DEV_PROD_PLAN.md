@@ -36,9 +36,9 @@ az containerapp show -g RU-A-Prod-AI-Innovation-RG -n <backend-app-name> \
 - **Azure Blob Storage**: `policytechrush`
 - **Container Registry**: `aiinnovation`
 - **Models**:
-  - LLM: **GPT-4** (PDF text) / **GPT-4.1** (PDF diagram)
+  - LLM: **GPT-4.1** (Chat Completions)
   - Embeddings: **text-embedding-3-large**
-  - Cohere Rerank model: **TBD** (unspecified in PDF)
+  - Cohere Rerank: **Cohere-rerank-v4.0-pro** (Azure AI Foundry serverless deployment)
 
 ## Dev → Prod Deployment Flow
 
@@ -52,4 +52,4 @@ Use `DEPLOYMENT.md` for detailed CLI steps; change subscription/resource group f
 ## Notes and Gaps
 
 - The PDF lists LLM as **GPT-4**. Current code defaults to `gpt-4.1`. Confirm which deployment name is correct for Prod and update `.env`/Container App settings.
-- Cohere rerank model is **TBD**. Update env vars once confirmed.
+- Cohere Rerank: Using **Cohere-rerank-v4.0-pro** deployed on Azure AI Foundry (Dec 2025 release, 32k context, 9.5% accuracy improvement).
