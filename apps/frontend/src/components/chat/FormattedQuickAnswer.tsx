@@ -87,8 +87,8 @@ export const FormattedTextSpan = React.memo(function FormattedTextSpan({
             "text-[10px] font-bold min-w-[16px] h-4 px-1",
             "rounded-sm align-super -translate-y-0.5",
             hasEvidence
-              ? "bg-rush-legacy text-white hover:bg-rush-legacy/80 cursor-pointer"
-              : "bg-gray-300 text-gray-600 cursor-default"
+              ? "bg-rush-legacy text-white hover:bg-rush-growth cursor-pointer"
+              : "bg-rush-gray/60 text-rush-charcoal cursor-default"
           )}
           title={
             hasEvidence ? `Jump to source ${match[3]}` : `Citation ${match[3]}`
@@ -106,14 +106,14 @@ export const FormattedTextSpan = React.memo(function FormattedTextSpan({
       const hasEvidence = evidenceIdx >= 0;
       parts.push(
         <span key={keyIdx++} className="inline-flex items-center gap-1">
-          <span className="text-gray-500">(</span>
+          <span className="text-rush-gray">(</span>
           <button
             onClick={() => hasEvidence && onCitationClick?.(evidenceIdx)}
             className={cn(
               "font-medium",
               hasEvidence
                 ? "text-rush-legacy hover:underline cursor-pointer"
-                : "text-gray-700"
+                : "text-rush-charcoal"
             )}
           >
             {match[4].trim()}
@@ -121,7 +121,7 @@ export const FormattedTextSpan = React.memo(function FormattedTextSpan({
           <span className="text-xs bg-rush-sage/40 px-1 py-0.5 rounded text-rush-legacy font-medium">
             #{refNum}
           </span>
-          <span className="text-gray-500">)</span>
+          <span className="text-rush-gray">)</span>
         </span>
       );
     } else if (match[6]) {
@@ -138,7 +138,7 @@ export const FormattedTextSpan = React.memo(function FormattedTextSpan({
             "inline-flex items-center text-xs bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium",
             hasEvidence
               ? "text-rush-legacy hover:bg-rush-sage/60 cursor-pointer"
-              : "text-gray-600"
+              : "text-rush-charcoal"
           )}
         >
           Ref #{refNum}

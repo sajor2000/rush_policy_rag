@@ -127,7 +127,7 @@ export default function InstanceSearchModal({
 
     // If no highlight positions, just return the context
     if (highlight_start === 0 && highlight_end === 0) {
-      return <span className="text-sm text-gray-700">{context}</span>;
+      return <span className="text-sm text-rush-charcoal">{context}</span>;
     }
 
     const before = context.slice(0, highlight_start);
@@ -135,7 +135,7 @@ export default function InstanceSearchModal({
     const after = context.slice(highlight_end);
 
     return (
-      <span className="text-sm text-gray-700">
+      <span className="text-sm text-rush-charcoal">
         {before}
         <mark className="bg-yellow-200 px-0.5 rounded font-medium">
           {highlighted}
@@ -180,7 +180,7 @@ export default function InstanceSearchModal({
             <Button
               onClick={handleSearch}
               disabled={isSearching || !searchTerm.trim()}
-              className="bg-rush-legacy hover:bg-rush-legacy/90"
+              className="bg-rush-legacy hover:bg-rush-growth"
             >
               {isSearching ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -234,7 +234,7 @@ export default function InstanceSearchModal({
                 {results.instances.map((instance, idx) => (
                   <div
                     key={`${instance.chunk_id}-${instance.position}-${idx}`}
-                    className="p-3 rounded-lg border bg-white border-gray-200"
+                    className="p-3 rounded-lg border bg-white border-rush-gray/40"
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -255,7 +255,7 @@ export default function InstanceSearchModal({
                             e.stopPropagation();
                             handleCopyText(instance.context, idx);
                           }}
-                          className="p-1.5 text-gray-400 hover:text-rush-legacy hover:bg-gray-100 rounded transition-colors"
+                          className="p-1.5 text-rush-gray hover:text-rush-legacy hover:bg-rush-light-gray rounded transition-colors"
                           title="Copy text to search in PDF (Ctrl+F)"
                         >
                           {copiedIndex === idx ? (
@@ -276,13 +276,13 @@ export default function InstanceSearchModal({
                       </div>
                     </div>
                     {/* Show FULL chunk content - no truncation */}
-                    <div className="leading-relaxed break-words text-sm text-gray-700 bg-gray-50 p-2 rounded border border-gray-100">
+                    <div className="leading-relaxed break-words text-sm text-rush-charcoal bg-rush-light-gray p-2 rounded border border-rush-light-gray">
                       {renderHighlightedContext(instance)}
                     </div>
                   </div>
                 ))}
                 {/* Tip for PDF navigation */}
-                <p className="text-xs text-gray-400 text-center mt-3 italic">
+                <p className="text-xs text-rush-gray text-center mt-3 italic">
                   💡 Click arrow to jump to page in PDF, or use "Copy" to search exact text (Ctrl+F).
                 </p>
               </div>

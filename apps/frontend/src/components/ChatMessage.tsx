@@ -197,7 +197,7 @@ export default function ChatMessage({
                     if (line.includes('**')) {
                       const parts = line.split(/(\*\*[^*]+\*\*)/g);
                       return (
-                        <p key={lineIdx} className={line.startsWith('>') ? 'pl-3 border-l-2 border-rush-legacy/30 text-gray-600 my-2' : 'my-1'}>
+                        <p key={lineIdx} className={line.startsWith('>') ? 'pl-3 border-l-2 border-rush-legacy/30 text-rush-charcoal my-2' : 'my-1'}>
                           {parts.map((part, partIdx) => {
                             if (part.startsWith('**') && part.endsWith('**')) {
                               return <strong key={partIdx} className="font-semibold text-rush-legacy">{part.slice(2, -2)}</strong>;
@@ -210,7 +210,7 @@ export default function ChatMessage({
                     // Blockquote: > text
                     if (line.startsWith('>')) {
                       return (
-                        <p key={lineIdx} className="pl-3 border-l-2 border-rush-legacy/30 text-gray-600 my-2 text-[13px]">
+                        <p key={lineIdx} className="pl-3 border-l-2 border-rush-legacy/30 text-rush-charcoal my-2 text-[13px]">
                           {line.slice(1).trim()}
                         </p>
                       );
@@ -218,7 +218,7 @@ export default function ChatMessage({
                     // Italic: _text_
                     if (line.startsWith('_') && line.endsWith('_')) {
                       return (
-                        <p key={lineIdx} className="text-xs text-gray-500 italic my-2">
+                        <p key={lineIdx} className="text-xs text-rush-gray italic my-2">
                           {line.slice(1, -1)}
                         </p>
                       );
@@ -241,12 +241,12 @@ export default function ChatMessage({
                   <div className="pt-3 border-t border-rush-legacy/20">
                     <button
                       onClick={() => onViewPdf(deepSearchPolicy.sourceFile!, deepSearchPolicy.policyTitle)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-rush-legacy hover:bg-rush-legacy/90 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-rush-legacy hover:bg-rush-growth text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
                     >
                       <FileText className="h-4 w-4" />
                       View PDF: {deepSearchPolicy.policyTitle}
                     </button>
-                    <p className="text-xs text-gray-500 mt-2">
+                    <p className="text-xs text-rush-gray mt-2">
                       Use Ctrl+F in the PDF to search for the exact text shown above.
                     </p>
                   </div>
@@ -321,12 +321,12 @@ export default function ChatMessage({
 
                           {/* Policy info */}
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm text-gray-900 group-hover:text-rush-legacy truncate">
+                            <p className="font-medium text-sm text-rush-charcoal group-hover:text-rush-legacy truncate">
                               {item.title}
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
                               {ref !== "N/A" && (
-                                <span className="text-xs text-gray-500">
+                                <span className="text-xs text-rush-gray">
                                   Reference #{ref}
                                 </span>
                               )}
@@ -356,7 +356,7 @@ export default function ChatMessage({
             {/* Sticky Quick Access Panel - PDFs correlated with evidence */}
             {effectiveSources.length > 0 && onViewPdf && (
               <div className="sticky top-0 z-10 mt-3 p-3 bg-white/95 backdrop-blur-sm border border-rush-legacy/30 rounded-lg shadow-md">
-                <p className="text-[10px] uppercase tracking-wider text-gray-600 mb-2 flex items-center gap-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-rush-charcoal mb-2 flex items-center gap-1.5">
                   <FileText className="h-3 w-3" />
                   Quick Access: Source PDFs
                 </p>
@@ -365,7 +365,7 @@ export default function ChatMessage({
                     <button
                       key={idx}
                       onClick={() => onViewPdf(source.source_file, source.title)}
-                      className="inline-flex items-center gap-1.5 text-xs bg-rush-legacy text-white hover:bg-rush-legacy/80 px-3 py-1.5 rounded-md transition-colors"
+                      className="inline-flex items-center gap-1.5 text-xs bg-rush-legacy text-white hover:bg-rush-growth px-3 py-1.5 rounded-md transition-colors"
                     >
                       <span className="flex items-center justify-center w-5 h-5 bg-white text-rush-legacy rounded-full text-[10px] font-bold">
                         {idx + 1}
@@ -392,11 +392,11 @@ export default function ChatMessage({
                 const allRelated = evidence.every(e => e.match_type === "related");
                 return (
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs uppercase tracking-widest font-semibold text-gray-700">
+                    <p className="text-xs uppercase tracking-widest font-semibold text-rush-charcoal">
                       {allRelated ? "Related Policies" : "Supporting Evidence"} ({evidence.length})
                     </p>
                     {hasRelated && !allRelated && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-1 text-[10px] text-rush-charcoal bg-rush-light-pink px-2 py-0.5 rounded">
                         <AlertCircle className="h-3 w-3" />
                         Includes related content
                       </span>
@@ -406,20 +406,20 @@ export default function ChatMessage({
               })()}
               {/* Note for all-related results */}
               {evidence.every(e => e.match_type === "related") && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
+                <p className="text-[11px] text-rush-charcoal bg-rush-light-pink border border-rush-yellow/50 rounded px-2 py-1.5 mb-2">
                   The cited policy is not in our database. Showing related policies that may help.
                 </p>
               )}
               {/* Explanatory message about result limits */}
-              <div className="mb-3 flex items-start gap-2 text-[11px] text-gray-600 bg-gray-50/50 border border-gray-200/50 rounded px-2.5 py-2">
+              <div className="mb-3 flex items-start gap-2 text-[11px] text-rush-charcoal bg-rush-light-gray/70 border border-rush-gray/40 rounded px-2.5 py-2">
                 <div className="flex-shrink-0 mt-0.5">
-                  <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-3.5 h-3.5 text-rush-gray" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="leading-relaxed">
-                    We show you the <span className="font-medium text-gray-700">most relevant policies</span> that match your question. 
+                    We show you the <span className="font-medium text-rush-charcoal">most relevant policies</span> that match your question. 
                     For comprehensive search of all policies, visit{" "}
                     <a
                       href={POLICYTECH_URL}
@@ -448,7 +448,7 @@ export default function ChatMessage({
                     className={cn(
                       "border bg-white overflow-hidden transition-all duration-300 rounded-lg shadow-sm",
                       item.match_type === "related"
-                        ? "border-amber-300/50"
+                        ? "border-rush-yellow/50"
                         : "border-rush-legacy/20",
                       highlightedEvidence === idx && "ring-2 ring-rush-legacy ring-offset-2 shadow-lg"
                     )}
@@ -457,7 +457,7 @@ export default function ChatMessage({
                     <div className={cn(
                       "border-b px-3 py-2",
                       item.match_type === "related"
-                        ? "bg-amber-50/50 border-amber-200/50"
+                        ? "bg-rush-light-pink/50 border-rush-yellow/30"
                         : "bg-rush-legacy/5 border-rush-legacy/20"
                     )}>
                       <div className="flex items-start justify-between gap-2">
@@ -474,12 +474,12 @@ export default function ChatMessage({
                                 Cited
                               </span>
                             ) : item.match_type === "related" ? (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-medium">
+                              <span className="inline-flex items-center gap-0.5 text-[9px] text-rush-charcoal bg-rush-light-pink px-1.5 py-0.5 rounded font-medium">
                                 <AlertCircle className="h-2.5 w-2.5" />
                                 Related
                               </span>
                             ) : null}
-                            <span className="text-xs font-semibold text-gray-900">
+                            <span className="text-xs font-semibold text-rush-charcoal">
                               {item.title || "Policy"}
                             </span>
                             {item.reference_number && formatReferenceNumber(item.reference_number) !== "N/A" && (
@@ -496,7 +496,7 @@ export default function ChatMessage({
                               </span>
                             )}
                             {item.date_updated && (
-                              <span className="text-[10px] text-gray-500">
+                              <span className="text-[10px] text-rush-gray">
                                 Updated: {item.date_updated}
                               </span>
                             )}
@@ -538,7 +538,7 @@ export default function ChatMessage({
                               onClick={() => onViewPdf(item.source_file!, item.title, item.page_number)}
                               title="View source PDF"
                               aria-label="View source PDF"
-                              className="inline-flex items-center gap-1 text-xs text-white bg-rush-legacy hover:bg-rush-legacy/80 transition-colors px-2 py-1 rounded font-medium"
+                              className="inline-flex items-center gap-1 text-xs text-white bg-rush-legacy hover:bg-rush-growth transition-colors px-2 py-1 rounded font-medium"
                             >
                               <FileText className="h-3 w-3" />
                               PDF
@@ -551,31 +551,31 @@ export default function ChatMessage({
                     {/* Policy Text - Collapsible for "related" evidence */}
                     {item.match_type === "related" ? (
                       <details className="group">
-                        <summary className="px-4 py-2 bg-amber-50/30 cursor-pointer hover:bg-amber-100/50 transition-colors text-sm text-gray-600 flex items-center gap-2">
-                          <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90 text-amber-700" />
-                          <span className="font-medium text-amber-800">Show related evidence</span>
-                          <span className="text-xs text-gray-500">(may not directly support the answer)</span>
+                        <summary className="px-4 py-2 bg-rush-light-pink/30 cursor-pointer hover:bg-rush-light-pink/70 transition-colors text-sm text-rush-charcoal flex items-center gap-2">
+                          <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90 text-rush-charcoal" />
+                          <span className="font-medium text-rush-charcoal">Show related evidence</span>
+                          <span className="text-xs text-rush-gray">(may not directly support the answer)</span>
                         </summary>
-                        <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
-                          <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                        <div className="px-4 py-3 bg-gradient-to-b from-white to-rush-light-gray/70 overflow-hidden">
+                          <div className="text-[13px] leading-[1.7] text-rush-charcoal whitespace-pre-line break-words [overflow-wrap:anywhere]">
                             {cleanSnippet(item.snippet)}
                           </div>
                           {isSnippetTruncated(item.snippet) && (
-                            <p className="text-xs text-gray-400 italic mt-3 pt-2 border-t border-gray-100 flex items-center gap-1">
-                              <span className="inline-block w-1 h-1 bg-gray-300 rounded-full"></span>
+                            <p className="text-xs text-rush-gray/80 italic mt-3 pt-2 border-t border-rush-light-gray flex items-center gap-1">
+                              <span className="inline-block w-1 h-1 bg-rush-gray/70 rounded-full"></span>
                               Text excerpt — view full document for complete policy
                             </p>
                           )}
                         </div>
                       </details>
                     ) : (
-                      <div className="px-4 py-3 bg-gradient-to-b from-white to-gray-50/50 overflow-hidden">
-                        <div className="text-[13px] leading-[1.7] text-gray-700 whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                      <div className="px-4 py-3 bg-gradient-to-b from-white to-rush-light-gray/70 overflow-hidden">
+                        <div className="text-[13px] leading-[1.7] text-rush-charcoal whitespace-pre-line break-words [overflow-wrap:anywhere]">
                           {cleanSnippet(item.snippet)}
                         </div>
                         {isSnippetTruncated(item.snippet) && (
-                          <p className="text-xs text-gray-400 italic mt-3 pt-2 border-t border-gray-100 flex items-center gap-1">
-                            <span className="inline-block w-1 h-1 bg-gray-300 rounded-full"></span>
+                          <p className="text-xs text-rush-gray/80 italic mt-3 pt-2 border-t border-rush-light-gray flex items-center gap-1">
+                            <span className="inline-block w-1 h-1 bg-rush-gray/70 rounded-full"></span>
                             Text excerpt — view full document for complete policy
                           </p>
                         )}

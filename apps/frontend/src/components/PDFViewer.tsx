@@ -277,7 +277,7 @@ export default function PDFViewer({
         </div>
 
         {/* PDF Content */}
-        <div className="flex-1 overflow-auto bg-gray-100 flex justify-center">
+        <div className="flex-1 overflow-auto bg-rush-light-gray flex justify-center">
           {loading && (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-8 w-8 animate-spin text-rush-legacy" />
@@ -288,12 +288,12 @@ export default function PDFViewer({
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-red-600 p-4">
                 <p className="mb-2 font-medium">Unable to load document</p>
-                <p className="text-sm text-gray-600 mb-4">{error}</p>
+                <p className="text-sm text-rush-charcoal mb-4">{error}</p>
                 <div className="flex gap-2 justify-center mt-4">
                   {onRetry && (
                     <Button
                       variant="default"
-                      className="bg-rush-legacy hover:bg-rush-legacy/90"
+                      className="bg-rush-legacy hover:bg-rush-growth"
                       onClick={onRetry}
                     >
                       <RefreshCw className="h-4 w-4 mr-2" />

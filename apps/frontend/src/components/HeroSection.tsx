@@ -54,7 +54,7 @@ export default function HeroSection({ onGetStarted }: { onGetStarted: () => void
             <Button
               size="lg"
               onClick={onGetStarted}
-              className="bg-rush-legacy hover:bg-rush-legacy text-lg px-8"
+              className="bg-rush-legacy hover:bg-rush-growth text-lg px-8"
               data-testid="button-get-started"
             >
               Let&apos;s get started

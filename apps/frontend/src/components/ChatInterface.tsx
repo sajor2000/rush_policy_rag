@@ -396,8 +396,8 @@ export default function ChatInterface() {
             )}
             {/* Device Ambiguity Clarification UI */}
             {showClarification && (
-              <div className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-lg mb-4 shadow-md">
-                <p className="text-sm font-medium text-gray-800 mb-3">
+              <div className="p-4 bg-rush-light-pink border-l-4 border-rush-yellow rounded-lg mb-4 shadow-md">
+                <p className="text-sm font-medium text-rush-charcoal mb-3">
                   {showClarification.message}
                 </p>
                 <div className="flex flex-col gap-2">
@@ -447,7 +447,7 @@ export default function ChatInterface() {
               <span className={`text-xs font-medium px-2 py-0.5 rounded ${
                 !deepSearchMode
                   ? "bg-rush-legacy text-white"
-                  : "bg-gray-100 text-gray-500"
+                  : "bg-rush-light-gray text-rush-gray"
               }`}>
                 Classic Q&A {!deepSearchMode && <span className="text-[10px] opacity-80">(Default)</span>}
               </span>
@@ -458,7 +458,7 @@ export default function ChatInterface() {
                   setError(null); // Clear error when switching modes
                 }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  deepSearchMode ? "bg-rush-growth" : "bg-gray-300"
+                  deepSearchMode ? "bg-rush-growth" : "bg-rush-gray/60"
                 }`}
                 role="switch"
                 aria-checked={deepSearchMode}
@@ -473,14 +473,14 @@ export default function ChatInterface() {
               <span className={`text-xs font-medium px-2 py-0.5 rounded ${
                 deepSearchMode
                   ? "bg-rush-growth text-white"
-                  : "bg-gray-100 text-gray-500"
+                  : "bg-rush-light-gray text-rush-gray"
               }`}>
                 Search Within Policy
               </span>
               <button
                 type="button"
                 onClick={() => setShowDeepSearchHelp(!showDeepSearchHelp)}
-                className="text-gray-400 hover:text-rush-legacy transition-colors"
+                className="text-rush-gray hover:text-rush-legacy transition-colors"
                 aria-label={showDeepSearchHelp ? "Close help" : "Learn about search modes"}
                 aria-expanded={showDeepSearchHelp}
               >
@@ -492,7 +492,7 @@ export default function ChatInterface() {
             {deepSearchMode && (
               <div className="flex flex-col items-center gap-1">
                 <div className="flex items-center gap-2">
-                  <label htmlFor="policy-ref" className="text-xs text-gray-600 flex items-center gap-1">
+                  <label htmlFor="policy-ref" className="text-xs text-rush-charcoal flex items-center gap-1">
                     <Search className="h-3.5 w-3.5" />
                     Policy Ref #:
                   </label>
@@ -508,11 +508,11 @@ export default function ChatInterface() {
                       setDeepSearchPolicyRef(value);
                     }}
                     placeholder="e.g., 528"
-                    className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-rush-growth"
+                    className="w-24 px-2 py-1 text-sm border border-rush-gray/60 rounded focus:outline-none focus:ring-1 focus:ring-rush-growth"
                   />
                 </div>
                 {!deepSearchPolicyRef && (
-                  <p className="text-[10px] text-gray-500">
+                  <p className="text-[10px] text-rush-gray">
                     Don&apos;t know the policy number? Switch to Classic Q&A to find it first.
                   </p>
                 )}
@@ -526,7 +526,7 @@ export default function ChatInterface() {
               <button
                 type="button"
                 onClick={() => setShowDeepSearchHelp(false)}
-                className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                className="absolute top-2 right-2 text-rush-gray hover:text-rush-charcoal"
                 aria-label="Close help"
               >
                 <X className="h-4 w-4" />
@@ -541,15 +541,15 @@ export default function ChatInterface() {
                     Classic Q&A
                     <span className="text-[9px] bg-rush-legacy/20 text-rush-legacy px-1.5 py-0.5 rounded font-normal">Recommended</span>
                   </p>
-                  <p className="text-gray-600 text-xs mb-1.5">
+                  <p className="text-rush-charcoal text-xs mb-1.5">
                     Ask any policy question. Get a summarized answer + evidence from matching policies.
                   </p>
-                  <p className="text-gray-700 text-[10px] font-medium mb-1">Use when:</p>
-                  <ul className="text-gray-600 text-[10px] mb-1.5 space-y-0.5 ml-2">
+                  <p className="text-rush-charcoal text-[10px] font-medium mb-1">Use when:</p>
+                  <ul className="text-rush-charcoal text-[10px] mb-1.5 space-y-0.5 ml-2">
                     <li>• You have a question and don&apos;t know which policy covers it</li>
                     <li>• You want a summarized answer with citations</li>
                   </ul>
-                  <p className="text-gray-500 text-[10px] italic">
+                  <p className="text-rush-gray text-[10px] italic">
                     Examples: "What is the visitor policy?" • "When can employees access their records?"
                   </p>
                 </div>
@@ -561,22 +561,22 @@ export default function ChatInterface() {
                     Search Within Policy
                     <span className="text-[9px] bg-rush-growth/20 text-rush-growth px-1.5 py-0.5 rounded font-normal">Advanced</span>
                   </p>
-                  <p className="text-gray-600 text-xs mb-1.5">
+                  <p className="text-rush-charcoal text-xs mb-1.5">
                     Find ALL instances of a word or phrase within a specific policy you already know.
                   </p>
-                  <p className="text-gray-700 text-[10px] font-medium mb-1">Use when:</p>
-                  <ul className="text-gray-600 text-[10px] mb-1.5 space-y-0.5 ml-2">
+                  <p className="text-rush-charcoal text-[10px] font-medium mb-1">Use when:</p>
+                  <ul className="text-rush-charcoal text-[10px] mb-1.5 space-y-0.5 ml-2">
                     <li>• You know the policy number but need to find specific text</li>
                     <li>• You want to see every mention of a term (e.g., "employee")</li>
                     <li>• You need page/section numbers for a long policy</li>
                   </ul>
-                  <p className="text-gray-500 text-[10px] italic">
+                  <p className="text-rush-gray text-[10px] italic">
                     Examples: Find "employee" in #528 • Find "prohibited" in #1515
                   </p>
                 </div>
               </div>
 
-              <p className="text-gray-600 text-[10px] mt-3 text-center bg-white/50 py-1.5 px-2 rounded">
+              <p className="text-rush-charcoal text-[10px] mt-3 text-center bg-white/50 py-1.5 px-2 rounded">
                 Don&apos;t know the policy number? Use Classic Q&A first to find it, then switch to Search Within Policy.
               </p>
             </div>
@@ -600,7 +600,7 @@ export default function ChatInterface() {
               type="submit"
               size="icon"
               disabled={isLoading || (deepSearchMode && !deepSearchPolicyRef.trim())}
-              className="bg-rush-legacy hover:bg-rush-legacy h-[60px] w-[60px] flex-shrink-0"
+              className="bg-rush-legacy hover:bg-rush-growth h-[60px] w-[60px] flex-shrink-0"
               data-testid="button-send"
               aria-label={isLoading ? "Sending message" : "Send message"}
             >
@@ -625,11 +625,11 @@ export default function ChatInterface() {
 
           {/* Document Sync Date Disclaimer */}
           <div className="mt-4 pt-3 border-t border-border/50">
-            <div className="bg-amber-50 border border-amber-200 rounded-md p-2.5 text-center">
-              <p className="text-[11px] text-amber-800">
+            <div className="bg-rush-light-pink border border-rush-yellow/50 rounded-md p-2.5 text-center">
+              <p className="text-[11px] text-rush-charcoal">
                 <span className="font-semibold">Documents indexed: January 22, 2026</span>
               </p>
-              <p className="text-[10px] text-amber-700 mt-1">
+              <p className="text-[10px] text-rush-charcoal mt-1">
                 Recently updated or new policies may not appear here yet. For the most current version, verify at{" "}
                 <a
                   href={POLICYTECH_URL}

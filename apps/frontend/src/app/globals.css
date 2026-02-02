@@ -8,27 +8,46 @@
  * Fallbacks: system fonts for graceful degradation
  */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 150 100% 10%;
-  --border: 150 20% 90%;
-  --card: 0 0% 98%;
-  --card-foreground: 150 100% 10%;
-  --popover: 0 0% 98%;
-  --popover-foreground: 150 100% 12%;
+  /* Rush brand palette */
+  --rush-legacy-green: #006332;
+  --rush-growth-green: #30AE6E;
+  --rush-vitality-green: #5FEEA2;
+  --rush-sage-green: #DFF9EB;
+  --rush-yellow: #FFC60B;
+  --rush-light-blue: #54ADD3;
+  --rush-dark-blue: #005D83;
+  --rush-deep-purple: #2D1D4E;
+  --rush-purple: #6C43B9;
+  --rush-light-pink: #FFE3E0;
+  --rush-cream: #F2DBB3;
+  --rush-black: #000000;
+  --rush-charcoal: #5F5858;
+  --rush-gray: #AFAEAF;
+  --rush-light-gray: #F5F5F5;
+
+  /* Semantic tokens mapped to Rush palette (HSL for Tailwind) */
+  --background: 148 68% 93%;
+  --foreground: 0 4% 36%;
+  --border: 0 1% 68%;
+  --card: 0 0% 96%;
+  --card-foreground: 0 4% 36%;
+  --popover: 0 0% 96%;
+  --popover-foreground: 0 4% 36%;
   --primary: 150.3 100% 19.4%;
   --primary-foreground: 150 20% 98%;
   --secondary: 149.5 56.8% 43.5%;
   --secondary-foreground: 0 0% 100%;
-  --muted: 150 50% 95%;
-  --muted-foreground: 150 20% 40%;
-  --accent: 150 50% 95%;
+  --muted: 148 68% 93%;
+  --muted-foreground: 0 1% 68%;
+  --accent: 148 68% 93%;
   --accent-foreground: 150 100% 15%;
   --destructive: 0 84% 35%;
   --destructive-foreground: 0 20% 98%;
-  --input: 150 30% 75%;
+  --input: 0 1% 68%;
   --ring: 150 100% 20%;
   --radius: 0.375rem;
   /* Inter loaded via next/font, CSS variable set in layout.tsx */
+  --font-primary: 'Calibre', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Droid Sans', 'Helvetica Neue', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
   --font-mono: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
 }
@@ -61,7 +80,7 @@
   }
 
   body {
-    @apply antialiased bg-background text-foreground;
+    @apply antialiased bg-background text-foreground font-sans;
   }
 
   /* Headings use Inter with semibold weight */
