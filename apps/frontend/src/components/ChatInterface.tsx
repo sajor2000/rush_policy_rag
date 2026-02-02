@@ -16,7 +16,6 @@ import {
   type Evidence,
 } from "@/lib/api";
 import { POLICYTECH_URL, PAGE_RANGE_BUFFER, MAX_DEEP_SEARCH_RESULTS } from "@/lib/constants";
-import { useSyncInfo } from "@/hooks/useSyncInfo";
 
 interface Message {
   role: "user" | "assistant";
@@ -75,9 +74,6 @@ export default function ChatInterface() {
     }>;
     originalQuery: string;
   } | null>(null);
-
-  // Fetch sync info with proper cleanup (prevents memory leaks)
-  const syncInfo = useSyncInfo();
 
   // Memoize scroll function to prevent unnecessary re-renders
   const scrollToBottom = useCallback(() => {
@@ -635,28 +631,25 @@ export default function ChatInterface() {
             }
           </p>
 
-          {/* Monthly Update Disclaimer */}
+          {/* Document Sync Date Disclaimer */}
           <div className="mt-4 pt-3 border-t border-border/50">
-            <p className="text-[11px] text-muted-foreground text-center">
-              {syncInfo && syncInfo.last_sync_date_display !== "Unknown" ? (
-                <>
-                  Policies are updated monthly. Documents downloaded{" "}
-                  <span className="font-medium">{syncInfo.last_sync_date_display}</span>.
-                </>
-              ) : (
-                <>Policies are updated monthly.</>
-              )}
-              {" "}If you believe a policy was recently updated, verify at{" "}
-              <a
-                href={POLICYTECH_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-rush-legacy hover:underline inline-flex items-center gap-0.5"
-              >
-                PolicyTech
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-2.5 text-center">
+              <p className="text-[11px] text-amber-800">
+                <span className="font-semibold">Documents indexed: January 22, 2026</span>
+              </p>
+              <p className="text-[10px] text-amber-700 mt-1">
+                Recently updated or new policies may not appear here yet. For the most current version, verify at{" "}
+                <a
+                  href={POLICYTECH_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-rush-legacy font-medium hover:underline inline-flex items-center gap-0.5"
+                >
+                  PolicyTech
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </p>
+            </div>
           </div>
         </div>
       </div>

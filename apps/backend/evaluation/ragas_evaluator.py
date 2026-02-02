@@ -61,10 +61,11 @@ class RagasEvaluator:
         - Context Recall >= 0.7
     """
     
-    FAITHFULNESS_THRESHOLD = 0.8
-    RELEVANCY_THRESHOLD = 0.7
-    PRECISION_THRESHOLD = 0.7
-    RECALL_THRESHOLD = 0.7
+    # Thresholds aligned with DeepEval for consistency
+    FAITHFULNESS_THRESHOLD = 0.85  # Aligned with DeepEval (healthcare requires high accuracy)
+    RELEVANCY_THRESHOLD = 0.70
+    PRECISION_THRESHOLD = 0.70
+    RECALL_THRESHOLD = 0.70
     
     # Weights for overall score
     WEIGHTS = {
@@ -97,7 +98,11 @@ class RagasEvaluator:
         if use_azure:
             self.azure_endpoint = azure_endpoint or os.getenv("AOAI_ENDPOINT")
             self.azure_api_key = azure_api_key or os.getenv("AOAI_API_KEY")
-            self.deployment_name = deployment_name or os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1")
+            # Use eval deployment (gpt-4.1-mini) for cost-efficiency, consistent with DeepEval
+            self.deployment_name = deployment_name or os.getenv(
+                "AOAI_EVAL_DEPLOYMENT",
+                os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini")
+            )
         else:
             self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
         
@@ -105,10 +110,10 @@ class RagasEvaluator:
         self._metrics = None
     
     def _init_ragas(self):
-        """Lazy-load RAGAS metrics and configure LLM."""
+        """Lazy-load RAGAS metrics and configure LLM + embeddings."""
         if self._metrics_initialized:
             return
-        
+
         try:
             from ragas import evaluate
             from ragas.metrics import (
@@ -118,8 +123,9 @@ class RagasEvaluator:
                 context_recall,
             )
             from ragas.llms import LangchainLLMWrapper
-            from langchain_openai import AzureChatOpenAI, ChatOpenAI
-            
+            from ragas.embeddings import LangchainEmbeddingsWrapper
+            from langchain_openai import AzureChatOpenAI, ChatOpenAI, AzureOpenAIEmbeddings, OpenAIEmbeddings
+
             # Configure LLM for RAGAS
             if self.use_azure:
                 llm = AzureChatOpenAI(
@@ -127,22 +133,37 @@ class RagasEvaluator:
                     api_key=self.azure_api_key,
                     azure_deployment=self.deployment_name,
                     api_version="2024-08-01-preview",
+                    validate_base_url=False,
+                )
+
+                # Configure embeddings for answer_relevancy metric
+                embedding_deployment = os.getenv("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
+                embeddings = AzureOpenAIEmbeddings(
+                    azure_endpoint=self.azure_endpoint,
+                    api_key=self.azure_api_key,
+                    azure_deployment=embedding_deployment,
+                    api_version="2024-08-01-preview",
                 )
             else:
                 llm = ChatOpenAI(
                     api_key=self.openai_api_key,
                     model="gpt-4",
                 )
-            
+                embeddings = OpenAIEmbeddings(
+                    api_key=self.openai_api_key,
+                )
+
             # Wrap for RAGAS
             ragas_llm = LangchainLLMWrapper(llm)
-            
-            # Configure metrics with our LLM
+            ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)
+
+            # Configure metrics with our LLM and embeddings
             faithfulness.llm = ragas_llm
             answer_relevancy.llm = ragas_llm
+            answer_relevancy.embeddings = ragas_embeddings  # Required for answer_relevancy
             context_precision.llm = ragas_llm
             context_recall.llm = ragas_llm
-            
+
             self._metrics = [
                 faithfulness,
                 answer_relevancy,
@@ -151,9 +172,9 @@ class RagasEvaluator:
             ]
             self._evaluate_fn = evaluate
             self._metrics_initialized = True
-            
+
             logger.info("RAGAS metrics initialized with Azure OpenAI" if self.use_azure else "RAGAS metrics initialized")
-            
+
         except ImportError as e:
             raise ImportError(
                 "RAGAS dependencies not installed. Run: pip install ragas langchain-openai"

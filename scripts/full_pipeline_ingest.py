@@ -384,12 +384,44 @@ def print_results(results: PipelineResults):
             print(f"  - {doc['filename']}: {doc['error']}")
 
 
+def run_post_index_tests(quick: bool = True) -> bool:
+    """
+    Run RAG accuracy tests after indexing.
+    
+    Returns True if tests pass, False otherwise.
+    """
+    import subprocess
+    
+    print(f"\n{'='*60}")
+    print("POST-INDEXING RAG ACCURACY TEST")
+    print(f"{'='*60}")
+    
+    test_script = Path(__file__).parent.parent / "tests" / "rag_accuracy" / "run_post_index_test.py"
+    
+    if not test_script.exists():
+        print(f"Warning: Test script not found: {test_script}")
+        return False
+    
+    cmd = [sys.executable, str(test_script)]
+    if not quick:
+        cmd.append("--full")
+    
+    try:
+        result = subprocess.run(cmd, capture_output=False)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"Error running tests: {e}")
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Full pipeline ingestion with timing")
     parser.add_argument("--skip-clear", action="store_true", help="Don't clear index first")
     parser.add_argument("--limit", type=int, help="Limit number of documents to process")
     parser.add_argument("--dry-run", action="store_true", help="Preview without processing")
     parser.add_argument("--output", "-o", help="Save results to JSON file")
+    parser.add_argument("--run-tests", action="store_true", help="Run RAG accuracy tests after indexing")
+    parser.add_argument("--full-tests", action="store_true", help="Run full test suite (not just quick)")
     args = parser.parse_args()
 
     ingestor = FullPipelineIngestor()
@@ -406,6 +438,15 @@ def main():
             with open(args.output, "w") as f:
                 json.dump(results.to_dict(), f, indent=2)
             print(f"\nResults saved to: {args.output}")
+        
+        # Run post-indexing tests if requested
+        if args.run_tests:
+            tests_passed = run_post_index_tests(quick=not args.full_tests)
+            if not tests_passed:
+                print("\n⚠️  Post-indexing tests failed!")
+                sys.exit(1)
+            else:
+                print("\n✅ Post-indexing tests passed!")
 
 
 if __name__ == "__main__":

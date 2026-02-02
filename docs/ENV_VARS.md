@@ -48,16 +48,18 @@ Alternative (for managed identity in production):
 |----------|-------------|---------|
 | `STORAGE_ACCOUNT_URL` | Account URL without credentials | `https://myaccount.blob.core.windows.net` |
 
-### Cohere Rerank 3.5 (Required for Healthcare RAG*)
+### Cohere Rerank 4.0 Pro (Required for Healthcare RAG*)
+
+Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, with 32k context window and healthcare-optimized ranking.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `USE_COHERE_RERANK` | Enable Cohere reranking | `true` |
 | `COHERE_RERANK_ENDPOINT`* | Azure AI Foundry deployment URL | `https://cohere.models.ai.azure.com` |
 | `COHERE_RERANK_API_KEY`* | Cohere API key | `abc123...` |
-| `COHERE_RERANK_MODEL` | Model name | `cohere-rerank-v3-5` |
-| `COHERE_RERANK_TOP_N` | Documents to keep after rerank | `10` |
-| `COHERE_RERANK_MIN_SCORE` | Minimum relevance threshold | `0.25` |
+| `COHERE_RERANK_MODEL` | Model name | `Cohere-rerank-v4.0-pro` |
+| `COHERE_RERANK_TOP_N` | Documents to keep after rerank (3-5 optimal) | `5` |
+| `COHERE_RERANK_MIN_SCORE` | Minimum relevance threshold (4.0 Pro calibrated) | `0.40` |
 
 ### Feature Flags
 

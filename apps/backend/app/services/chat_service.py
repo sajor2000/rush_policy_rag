@@ -88,6 +88,11 @@ from app.services.confidence_calculator import (
     boost_confidence_with_grounding as _boost_confidence_with_grounding_standalone,
     should_return_not_found as _should_return_not_found_standalone,
 )
+from app.services.context_expander import (
+    ContextExpander,
+    ExpandedContext,
+    build_expanded_rag_context,
+)
 
 from openai import AzureOpenAI
 import httpx
@@ -175,6 +180,21 @@ class ChatService:
                     http_client=http_client
                 )
                 logger.info("Azure OpenAI client initialized for Cohere rerank pipeline")
+
+        # Initialize context expander for parent-child chunk retrieval
+        self.context_expander = None
+        if settings.CONTEXT_EXPANSION_ENABLED:
+            self.context_expander = ContextExpander(
+                search_index=search_index,
+                include_parent=settings.CONTEXT_EXPANSION_INCLUDE_PARENT,
+                include_siblings=settings.CONTEXT_EXPANSION_INCLUDE_SIBLINGS,
+                max_siblings=settings.CONTEXT_EXPANSION_MAX_SIBLINGS
+            )
+            logger.info(
+                f"Context expander initialized: parent={settings.CONTEXT_EXPANSION_INCLUDE_PARENT}, "
+                f"siblings={settings.CONTEXT_EXPANSION_INCLUDE_SIBLINGS}, "
+                f"max_siblings={settings.CONTEXT_EXPANSION_MAX_SIBLINGS}"
+            )
 
     # ========================================================================
     # FIX 1: Expanded "not found" detection
@@ -271,6 +291,60 @@ class ChatService:
         if len(query.split()) <= 3:
             return 5   # Fewer for simple/short queries
         return 7       # Default for standard queries
+
+    def _reorder_for_attention(self, reranked: List[RerankResult]) -> List[RerankResult]:
+        """
+        Reorder documents to mitigate lost-in-middle attention decay.
+
+        Research shows LLMs have U-shaped attention - best recall at START and END
+        positions, with significantly degraded recall for MIDDLE positions.
+
+        Strategy: Place highest-ranked docs at positions with best attention:
+        - Position 0: doc1 (best) - START (primacy effect)
+        - Position -1: doc2 (2nd best) - END (recency effect)
+        - Position 1: doc3 (3rd best) - near start
+        - Middle positions: lower-ranked docs (attention decay zone)
+
+        Example with 5 docs (by relevance order 1-5):
+        Input:  [doc1, doc2, doc3, doc4, doc5]
+        Output: [doc1, doc3, doc5, doc4, doc2]
+                  ^     ^     ^     ^     ^
+                START  near  mid  mid   END
+                       start           (recency)
+
+        References:
+        - Stanford "Lost in the Middle" (arxiv.org/abs/2307.03172)
+        - Cohere Best Practices (docs.cohere.com/docs/reranking-best-practices)
+        - Maxim.ai RAG Techniques (getmaxim.ai/articles/solving-the-lost-in-the-middle-problem)
+
+        Args:
+            reranked: List of RerankResult objects sorted by relevance score (best first)
+
+        Returns:
+            Reordered list with best docs at START/END positions
+        """
+        if len(reranked) <= 2:
+            return reranked
+
+        n = len(reranked)
+        reordered = [None] * n
+
+        # Interleave: even-indexed docs (0, 2, 4...) go to front positions
+        # odd-indexed docs (1, 3, 5...) go to back positions
+        front_idx, back_idx = 0, n - 1
+        for i, doc in enumerate(reranked):
+            if i % 2 == 0:
+                reordered[front_idx] = doc
+                front_idx += 1
+            else:
+                reordered[back_idx] = doc
+                back_idx -= 1
+
+        logger.debug(
+            f"Reordered {n} docs for attention optimization: "
+            f"doc1→pos0, doc2→pos{n-1}, doc3→pos1"
+        )
+        return reordered
 
     def filter_by_score_window(
         self,
@@ -1288,7 +1362,7 @@ Policy excerpt:"""
                             logger.info(f"Sparse fallback found forced refs: {found_forced}")
                             reranked = reranked_with_lower_threshold
 
-            # NEW: Apply score windowing for single-intent queries
+            # Apply score windowing for single-intent queries
             # This filters out noise from related-but-different policies
             if reranked and len(reranked) > 3:
                 reranked = self.filter_by_score_window(
@@ -1407,18 +1481,61 @@ Policy excerpt:"""
                 )
                 logger.info(f"Applied MMR diversification for multi-policy query: {len(reranked)} diverse results")
 
-            # Step 3: Build context from reranked results
+            # LOST-IN-MIDDLE MITIGATION: Reorder documents for optimal LLM attention
+            # Research shows LLMs have U-shaped attention (best recall at START/END)
+            # This places top docs at positions 0 and -1, lower docs in middle
+            # Reference: Stanford "Lost in the Middle" (arxiv.org/abs/2307.03172)
+            reranked = self._reorder_for_attention(reranked)
+            logger.debug(f"Applied attention-aware reordering for {len(reranked)} documents")
+
+            # CONTEXT EXPANSION: Fetch parent/sibling chunks for complete procedural context
+            # This addresses the root cause of "lost in middle" - incomplete context
+            expanded_contexts: List[ExpandedContext] = []
+            if self.context_expander and settings.CONTEXT_EXPANSION_ENABLED:
+                try:
+                    expanded_contexts = await self.context_expander.expand_context(
+                        reranked,
+                        top_n=settings.CONTEXT_EXPANSION_TOP_N
+                    )
+                    logger.info(
+                        f"Context expansion: {len(expanded_contexts)} chunks expanded "
+                        f"(top_n={settings.CONTEXT_EXPANSION_TOP_N})"
+                    )
+                except Exception as e:
+                    logger.warning(f"Context expansion failed (non-critical): {e}")
+                    expanded_contexts = []
+
+            # Step 3: Build context from reranked results (with expansion if available)
             context_parts = []
             evidence_items = []
             sources = []
             seen_refs = set()
 
+            # Create a map of expanded content by original content hash for lookup
+            expanded_content_map: Dict[int, ExpandedContext] = {}
+            for ec in expanded_contexts:
+                content_hash = hash(ec.original.content[:100]) if ec.original.content else 0
+                expanded_content_map[content_hash] = ec
+
             for rr in reranked:
                 title = _normalize_policy_title(rr.title)
+
+                # Check if this chunk has expanded context
+                content_hash = hash(rr.content[:100]) if rr.content else 0
+                expanded_ctx = expanded_content_map.get(content_hash)
+
+                # Use expanded content if available, otherwise original
+                if expanded_ctx and expanded_ctx.siblings_included > 0:
+                    content_to_use = expanded_ctx.content_for_rag
+                    expansion_note = f" [+{expanded_ctx.siblings_included} siblings]"
+                else:
+                    content_to_use = rr.content
+                    expansion_note = ""
+
                 # Build context string
                 context_parts.append(
-                    f"[{title} (Ref #{rr.reference_number})] "
-                    f"Section: {rr.section or 'N/A'}\n{rr.content}"
+                    f"[{title} (Ref #{rr.reference_number}){expansion_note}] "
+                    f"Section: {rr.section or 'N/A'}\n{content_to_use}"
                 )
 
                 # Build evidence items (deduplicated by ref)
@@ -1533,7 +1650,15 @@ Policy excerpt:"""
             )
             
             # Prepare contexts for validation (handle empty case)
-            contexts = [rr.content for rr in reranked] if reranked else []
+            # Use expanded content if available for better citation verification
+            contexts = []
+            for rr in reranked:
+                content_hash = hash(rr.content[:100]) if rr.content else 0
+                expanded_ctx = expanded_content_map.get(content_hash)
+                if expanded_ctx and expanded_ctx.siblings_included > 0:
+                    contexts.append(expanded_ctx.content_for_rag)
+                else:
+                    contexts.append(rr.content)
             
             # Citation verification - detect hallucinated references
             try:

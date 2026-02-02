@@ -1,6 +1,6 @@
 # RUSH Policy RAG Backend
 
-FastAPI backend for the RUSH Policy RAG system. Integrates with Azure OpenAI "On Your Data" (vectorSemanticHybrid search) and Cohere Rerank 3.5 for intelligent policy retrieval.
+FastAPI backend for the RUSH Policy RAG system. Integrates with Azure OpenAI "On Your Data" (vectorSemanticHybrid search) and Cohere Rerank 4.0 Pro for intelligent policy retrieval.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ FastAPI backend for the RUSH Policy RAG system. Integrates with Azure OpenAI "On
 │  │             │      │   ↓                                      │    │
 │  │ Response    │ ◄─── │ OnYourDataService (vectorSemanticHybrid) │    │
 │  │ + Citations │      │   ↓                                      │    │
-│  └─────────────┘      │ Cohere Rerank 3.5 (cross-encoder)        │    │
+│  └─────────────┘      │ Cohere Rerank 4.0 Pro (cross-encoder)    │    │
 │                       │   ↓                                      │    │
 │                       │ Response Formatting + Citations          │    │
 │                       └─────────────────────────────────────────┘    │
@@ -82,12 +82,13 @@ CONTAINER_NAME=policies-active
 USE_ON_YOUR_DATA=true
 USE_COHERE_RERANK=true
 
-# Cohere Rerank 3.5 (REQUIRED for healthcare RAG quality)
+# Cohere Rerank 4.0 Pro (REQUIRED for healthcare RAG quality)
+# Dec 2025 release: 9.5% accuracy improvement, 32k context, healthcare-optimized
 COHERE_RERANK_ENDPOINT=https://<cohere>.models.ai.azure.com
 COHERE_RERANK_API_KEY=your_key
-COHERE_RERANK_MODEL=cohere-rerank-v3-5
-COHERE_RERANK_TOP_N=10
-COHERE_RERANK_MIN_SCORE=0.25
+COHERE_RERANK_MODEL=Cohere-rerank-v4.0-pro
+COHERE_RERANK_TOP_N=5
+COHERE_RERANK_MIN_SCORE=0.40
 ```
 
 See `.env.example` for the complete list of configuration options.
@@ -284,7 +285,7 @@ Get a signed URL for viewing a policy PDF.
 | `main.py` | FastAPI application entrypoint |
 | `app/services/chat_service.py` | Main RAG orchestrator (2,200+ lines) |
 | `app/services/on_your_data_service.py` | Azure OpenAI "On Your Data" integration |
-| `app/services/cohere_rerank_service.py` | Cohere Rerank 3.5 cross-encoder |
+| `app/services/cohere_rerank_service.py` | Cohere Rerank 4.0 Pro cross-encoder |
 | `app/services/synonym_service.py` | Healthcare synonym expansion |
 | `app/services/device_disambiguator.py` | IV/catheter/line disambiguation |
 | `preprocessing/chunker.py` | Docling-based PDF chunker |

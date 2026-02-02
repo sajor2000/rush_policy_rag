@@ -265,10 +265,11 @@ async def get_sync_info() -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
+    # reload=False for production stability; use --reload flag for dev
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=settings.BACKEND_PORT,
-        reload=True,
+        reload=False,
         log_level="info"
     )

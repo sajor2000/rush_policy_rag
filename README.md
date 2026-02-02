@@ -132,13 +132,13 @@ az containerapp update \
       ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐ │
       │ Azure AI      │  │ Azure OpenAI  │  │ Cohere Rerank │  │ Azure Blob    │ │
       │ Search        │  │ ───────────── │  │ ───────────── │  │ Storage       │ │
-      │ ───────────── │  │ GPT-4.1       │  │ rerank-v3-5   │  │ ───────────── │ │
-      │ rush-policies │  │ embeddings    │  │ cross-encoder │  │ PDFs          │ │
-      │ 3072-dim      │  │ (3-large)     │  │ AI Foundry    │  │               │ │
+      │ ───────────── │  │ GPT-4.1       │  │ rerank-v4.0   │  │ ───────────── │ │
+      │ rush-policies │  │ embeddings    │  │ Pro (cross-   │  │ PDFs          │ │
+      │ 3072-dim      │  │ (3-large)     │  │ encoder)      │  │               │ │
       └───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘ │
                                                                                   │
       ◄──────────────────────── RAG PIPELINE ────────────────────────────────────►
-      1. Hybrid Search (Vector + BM25)  2. Cohere Rerank  3. GPT-4.1 Generation
+      1. Hybrid Search (Vector + BM25)  2. Cohere Rerank 4.0 Pro  3. GPT-4.1 Generation
 ```
 
 **Two containers only:**
@@ -149,7 +149,7 @@ az containerapp update \
 
 **AI Services:**
 - Azure OpenAI (GPT-4.1 chat + embeddings)
-- Cohere Rerank 3.5 (cross-encoder for negation-aware retrieval)
+- Cohere Rerank 4.0 Pro (cross-encoder for negation-aware retrieval, 9.5% accuracy improvement over v3.5)
 
 ---
 
@@ -188,11 +188,12 @@ STORAGE_CONNECTION_STRING=<connection_string>
 # Enable On Your Data (vectorSemanticHybrid)
 USE_ON_YOUR_DATA=true
 
-# Cohere Rerank 3.5 (cross-encoder reranking)
+# Cohere Rerank 4.0 Pro (cross-encoder reranking - Dec 2025 release)
+# 9.5% accuracy improvement over v3.5, 32k context, healthcare-optimized
 USE_COHERE_RERANK=true
 COHERE_RERANK_ENDPOINT=https://<cohere-endpoint>.models.ai.azure.com
 COHERE_RERANK_API_KEY=<key>
-COHERE_RERANK_MODEL=cohere-rerank-v3-5
+COHERE_RERANK_MODEL=Cohere-rerank-v4.0-pro
 ```
 
 ### Start Services
@@ -221,7 +222,7 @@ rag_pt_rush/
 │   │   │   ├── services/
 │   │   │   │   ├── on_your_data_service.py  # Azure OpenAI "On Your Data"
 │   │   │   │   ├── chat_service.py          # Chat orchestration
-│   │   │   │   ├── cohere_rerank_service.py # Cohere Rerank 3.5
+│   │   │   │   ├── cohere_rerank_service.py # Cohere Rerank 4.0 Pro
 │   │   │   │   └── synonym_service.py       # Query expansion
 │   │   │   └── api/routes/            # API endpoints
 │   │   ├── azure_policy_index.py      # Search index management
@@ -293,7 +294,7 @@ See `docs/DEV_PROD_PLAN.md` for details and the dev → prod promotion flow.
 |---------------|---------|----------|
 | **Azure AI Search** | Vector store + semantic ranking | Yes |
 | **Azure OpenAI** | GPT-4.1 + embeddings | Yes |
-| **Azure AI Foundry (Cohere)** | Cohere Rerank 3.5 deployment | Yes |
+| **Azure AI Foundry (Cohere)** | Cohere Rerank 4.0 Pro deployment | Yes |
 | **Azure Blob Storage** | PDF document storage | Yes |
 | **Azure Container Apps** | Host frontend + backend | Yes |
 | **Azure Container Registry** | Store container images | Yes |
@@ -305,7 +306,7 @@ See `docs/DEV_PROD_PLAN.md` for details and the dev → prod promotion flow.
 ### Core RAG Pipeline
 
 - **Azure OpenAI "On Your Data"**: vectorSemanticHybrid search (Vector + BM25 + L2 Reranking)
-- **Cohere Rerank 3.5**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval
+- **Cohere Rerank 4.0 Pro**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval (9.5% accuracy improvement, 32k context window)
 - **Production Security**: Rate limiting, input validation, CSP headers
 - **PDF Upload & Viewing**: End-to-end pipeline with async blob storage
 - **1,800+ Document Support**: top_k=50 with semantic ranker optimization

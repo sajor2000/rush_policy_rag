@@ -42,7 +42,7 @@
 |---------------|---------|----------|--------------|
 | **Azure AI Search** | Vector store (3072-dim) + 132 synonym rules | ✅ **Required** | ~$75 (Basic) |
 | **Azure OpenAI** | GPT-4.1 + text-embedding-3-large | ✅ **Required** | Variable (token-based) |
-| **Azure AI Foundry** | Cohere Rerank 3.5 (Serverless) | ✅ **Required** | ~$6-$30 |
+| **Azure AI Foundry** | Cohere Rerank 4.0 Pro (Serverless) | ✅ **Required** | ~$6-$30 |
 | **Azure Blob Storage** | PDF storage (3 containers) | ✅ **Required** | ~$3-$48 |
 | **Azure Container Apps** | Host backend + frontend | ✅ **Required** | ~$70-$280 |
 | **Azure Container Registry** | Container images | ✅ **Required** | ~$5 (Basic) |
@@ -162,9 +162,10 @@ Fixed monthly cost based on tier selection.
 Cross-encoder reranking improves precision by re-scoring the top 50 documents.
 Pricing is based on "Search Units" (1 unit = 1 query with up to 100 documents).
 
-**Cohere Rerank 3.5**
+**Cohere Rerank 4.0 Pro** (Dec 2025)
 - Price: $2.00 per 1,000 queries (Search Units)
 - Reranking 50 documents per query counts as 1 unit.
+- 9.5% accuracy improvement over v3.5, 32k context window, healthcare-optimized.
 
 | Tier | Queries | Unit Cost | **Total** | **95% CI** |
 |------|---------|-----------|-----------|------------|

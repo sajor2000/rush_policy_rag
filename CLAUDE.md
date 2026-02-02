@@ -18,9 +18,10 @@ This application **requires** the following Azure services to function:
 |---------------|---------|----------|
 | **Azure AI Search** | Vector store (3072-dim embeddings) + semantic ranking + 132 synonym rules | ✅ **Required** |
 | **Azure OpenAI** | GPT-4.1 (chat) + text-embedding-3-large (embeddings) | ✅ **Required** |
-| **Azure AI Foundry (Cohere)** | Cohere Rerank 3.5 cross-encoder deployment | ✅ **Required** |
+| **Azure AI Foundry (Cohere)** | Cohere Rerank 4.0 Pro cross-encoder deployment | ✅ **Required** |
 | **Azure Blob Storage** | PDF document storage (3 containers: source, active, archive) | ✅ **Required** |
 | **Azure Container Apps** | Host FastAPI backend + Next.js frontend | ✅ **Required** |
+| **Azure Communication Services** | Weekly evaluation email reports | Optional |
 | **Azure AD** | Authentication for production | Optional |
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step Azure resource creation commands.
@@ -46,6 +47,8 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step Azure resource creation comm
 | AI Search | `policychataisearch` | Microsoft.Search/searchServices |
 | Blob Storage | `policytechrush` | Microsoft.Storage/storageAccounts |
 | Cognitive Services | `rua-nonprod-ai-innovation` | Microsoft.CognitiveServices/accounts |
+| Communication Services | `rush-policy-comm` | Microsoft.Communication/communicationServices |
+| Email Services | `rush-policy-email` | Microsoft.Communication/emailServices |
 
 **Live URLs:**
 - Backend: `https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
@@ -143,11 +146,20 @@ az account show  # Verify: should show "RU-Azure-NonProd"
 │           │                                                                  │
 │           ▼                                                                  │
 │  ┌─────────────────────────────────────────────────────────┐                │
-│  │  Cohere Rerank 3.5 (CohereRerankService)                │                │
+│  │  Cohere Rerank 4.0 Pro (CohereRerankService)            │                │
 │  │  ├── Cross-encoder reranking (negation-aware)           │                │
 │  │  ├── Azure AI Foundry serverless deployment             │                │
-│  │  ├── Top N: 10 docs retained after rerank               │                │
-│  │  └── Min Score: 0.25 (healthcare-calibrated)            │                │
+│  │  ├── Top N: 5 docs retained (reduces lost-in-middle)    │                │
+│  │  └── Min Score: 0.40 (4.0 Pro calibrated threshold)     │                │
+│  └────────┬────────────────────────────────────────────────┘                │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐                │
+│  │  Context Expansion (ContextExpander)                    │                │
+│  │  ├── Top 3 reranked → sibling chunk retrieval           │                │
+│  │  ├── Fetch chunks at chunk_index ± 1                    │                │
+│  │  ├── Merge into coherent procedural context             │                │
+│  │  └── Addresses "lost in middle" with complete sections  │                │
 │  └────────┬────────────────────────────────────────────────┘                │
 │           │                                                                  │
 │           ▼                                                                  │
@@ -190,6 +202,12 @@ pip install -r requirements.txt                   # Install dependencies
 # Full pipeline ingestion (recommended - 50 docs in ~85-113s)
 python scripts/full_pipeline_ingest.py
 
+# Full pipeline with post-indexing RAG accuracy test (RECOMMENDED)
+python scripts/full_pipeline_ingest.py --run-tests
+
+# Full pipeline with comprehensive test suite
+python scripts/full_pipeline_ingest.py --run-tests --full-tests
+
 # Legacy ingestion from Azure Blob Storage
 python scripts/ingest_all_policies.py
 
@@ -205,6 +223,8 @@ python policy_sync.py detect
 # Run incremental sync (only changed documents)
 python policy_sync.py sync
 ```
+
+**IMPORTANT**: Always run `--run-tests` after full indexing to validate RAG accuracy!
 
 ### PDF Blob Storage (from root) - Required for PDF Viewing Feature
 ```bash
@@ -266,6 +286,152 @@ python scripts/debug_pdf_structure.py
 python scripts/test_checkbox_extraction.py
 ```
 
+### Pre-Production Testing (4-Gate Process)
+
+**Test Dataset**: v4 (100 realistic staff questions with verified answers from policy PDFs)
+- Located at: `apps/backend/data/test_dataset_v4.json` (combined format)
+- RAGAS format: `apps/backend/data/test_dataset_v4_ragas.json`
+- DeepEval format: `apps/backend/data/test_dataset_v4_deepeval.json`
+
+See [docs/RAG_TESTING_PLAN.md](docs/RAG_TESTING_PLAN.md) for comprehensive testing documentation.
+
+```bash
+# Gate 1: Retrieval Quality (Context Precision ≥0.60, Recall ≥0.70)
+python scripts/run_ragas_evaluation.py \
+    --dataset apps/backend/data/test_dataset_v4.json
+
+# Gates 2-3: Generation Quality + Safety (Faithfulness ≥0.85)
+pytest apps/backend/tests/test_rag_evaluation.py -v
+
+# Gate 4: Domain Regression (per-category validation)
+python scripts/run_ragas_evaluation.py \
+    --dataset apps/backend/data/test_dataset_v4.json
+
+# Run all critical tests only (fast validation)
+pytest apps/backend/tests/test_rag_evaluation.py -v -m "critical"
+```
+
+### DeepEval CI/CD Evaluation (from apps/backend/)
+```bash
+# Run full DeepEval CI/CD tests (100 realistic staff questions)
+# Uses v4 dataset with verified answers from policy PDFs
+# Uses gpt-4.1-mini for evaluation (faster, cheaper, avoids token limits)
+# Timeout: 240s per attempt (configured in conftest.py)
+pytest tests/test_rag_evaluation.py -v
+
+# Run only critical tests (safety-critical, emergency codes)
+pytest tests/test_rag_evaluation.py -v -m "critical"
+
+# Run with DeepEval dashboard
+pytest tests/test_rag_evaluation.py -v --deepeval
+
+# Run with explicit timeout override (if needed)
+DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE=240 pytest tests/test_rag_evaluation.py -v
+```
+
+### Local Validation (Before Deployment)
+```bash
+# Run complete local validation suite
+./scripts/local_validation.sh
+
+# Or run individual checks:
+# 1. Backend health
+curl -s http://localhost:8000/health | jq
+
+# 2. DeepEval tests with timeout
+cd apps/backend
+export DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE=180
+pytest tests/test_rag_evaluation.py -v --tb=short
+
+# 3. Diagnostics module check
+python -c "from app.evaluation.diagnostics import RAGDiagnostics; print('OK')"
+
+# 4. Weekly eval dry run
+python scripts/weekly_eval.py --dry-run --sample 5
+```
+
+### Weekly Production Monitoring (from root)
+
+The system has TWO weekly reports:
+1. **Technical Evaluation** (`weekly_eval.py`) - DeepEval metrics, RAG diagnostics
+2. **Executive Report** (`generate_executive_report.py`) - Usage analytics, question classification
+
+```bash
+# === TECHNICAL EVALUATION (RAG Quality) ===
+
+# Full weekly evaluation with App Insights queries (production)
+python scripts/weekly_eval.py
+
+# Dry run without email
+python scripts/weekly_eval.py --dry-run
+
+# Limit sample size for testing
+python scripts/weekly_eval.py --sample 20 --dry-run
+
+# Use local queries instead of App Insights
+python scripts/weekly_eval.py --local-queries queries.json
+
+# View weekly report
+cat eval_reports/eval_report_*.json | jq '.summary'
+
+# === EXECUTIVE REPORT (Usage Analytics) ===
+
+# Generate executive report (last 7 days, with AI question classification)
+python scripts/generate_executive_report.py
+
+# Specific date range
+python scripts/generate_executive_report.py --start-date 2026-01-20 --end-date 2026-01-27
+
+# Dry run without email
+python scripts/generate_executive_report.py --dry-run
+
+# Send to specific executives
+python scripts/generate_executive_report.py --email cio@rush.edu --email vp_it@rush.edu
+
+# View executive report
+cat eval_reports/executive_report_*.json | jq '.summary'
+```
+
+**Executive Report Features:**
+- AI-powered question type classification (clinical, medication, compliance, etc.)
+- Inferred user role analysis (nurse, physician, admin, etc.)
+- Time of engagement patterns (hourly/daily usage)
+- Success rate and response time metrics
+- Sample questions with category breakdown
+- Actionable recommendations
+
+### RAG Accuracy Testing (Post-Indexing)
+
+**IMPORTANT**: Always run RAG accuracy tests after full index ingestion!
+
+```bash
+# Quick post-index test (10 cases, ~30 seconds)
+python tests/rag_accuracy/run_post_index_test.py --quick
+
+# Full post-index test (uses v4 dataset)
+python tests/rag_accuracy/run_post_index_test.py --full
+
+# Run RAGAS evaluation on v4 dataset (100 realistic staff questions)
+python scripts/run_ragas_evaluation.py \
+    --dataset apps/backend/data/test_dataset_v4.json \
+    --output reports/ragas_evaluation.json
+
+# RAGAS evaluation without live backend (use dataset responses)
+python scripts/run_ragas_evaluation.py --no-live --sample 20
+
+# Regenerate v4 dataset from realistic_staff_questions.json (if needed)
+python scripts/generate_test_dataset_v4.py
+
+# Quick regeneration with sample (10 cases for testing)
+python scripts/generate_test_dataset_v4.py --sample 10 --no-live
+```
+
+**RAG Testing Workflow:**
+1. After `full_pipeline_ingest.py`, always add `--run-tests`
+2. Tests validate retrieval accuracy against known policies
+3. Pass rate threshold: >= 80% required
+4. RAGAS metrics: Faithfulness >= 0.85, Context Recall >= 0.80
+
 ### Test Dataset Categories
 
 | Category | Tests | Purpose |
@@ -281,6 +447,72 @@ python scripts/test_checkbox_extraction.py
 | `risen_unclear` | 4 | Gibberish/typo handling |
 | `safety_critical` | 4 | Life-safety accuracy (phone numbers, thresholds) |
 | `verbatim_accuracy` | 4 | Exact numbers/timeframes |
+
+### Realistic Staff Questions (100 Production-Ready Tests)
+
+The `apps/backend/data/realistic_staff_questions.json` dataset contains 100 questions derived from actual policy content review, designed to simulate what nurses, doctors, and staff actually search for.
+
+**Question Categories:**
+
+| Category | Tests | Example Query |
+|----------|-------|---------------|
+| `emergency_codes` | 15 | "What do I do when a Code Orange is called?" |
+| `urinary_catheter_cauti` | 10 | "Can a nurse remove a Foley catheter without a physician order?" |
+| `medications_pharmacy` | 15 | "What medications require dual RN verification?" |
+| `pain_management_epidural` | 10 | "What blood pressure threshold prevents giving an epidural bolus?" |
+| `infection_control` | 10 | "How long should a patient with scabies be in isolation?" |
+| `dnr_end_of_life` | 10 | "What is the policy for DNR during surgery?" |
+| `ed_triage` | 10 | "What are the ESI triage levels and what do they mean?" |
+| `scope_of_practice` | 10 | "Can a CNA administer medications?" |
+| `safety_security` | 10 | "What do I do if a patient becomes physically aggressive?" |
+
+**Test Type Distribution:**
+
+| Test Type | Count | Purpose |
+|-----------|-------|---------|
+| `retrieval_accuracy` | 60 | Standard policy retrieval |
+| `safety_critical` | 15 | Verbatim requirements (dosing, phone numbers) |
+| `negation_handling` | 12 | "NOT", "cannot", "should not" queries |
+| `scope_boundary` | 8 | Role/authority questions |
+| `procedural_steps` | 5 | Multi-step procedures |
+
+**Integration Commands:**
+
+```bash
+# Export all test formats (DeepEval, weekly eval, pre-prod, category batches)
+python scripts/integrate_realistic_questions.py --export-all
+
+# Merge into DeepEval dataset (creates deepeval_test_dataset_v2.json)
+python scripts/integrate_realistic_questions.py --merge-deepeval
+
+# Create weekly evaluation queries (stratified sample)
+python scripts/integrate_realistic_questions.py --weekly-eval --sample 50
+
+# Run weekly eval with realistic questions
+python scripts/weekly_eval.py --local-queries apps/backend/data/weekly_eval_queries.json
+
+# Create category-specific test batch
+python scripts/integrate_realistic_questions.py --category emergency_codes
+
+# Create pre-prod test dataset (criticality-ordered)
+python scripts/integrate_realistic_questions.py --preprod
+
+# Run pre-prod tests with DeepEval
+pytest apps/backend/tests/test_rag_evaluation.py -v
+
+# List available categories
+python scripts/integrate_realistic_questions.py --list-categories
+```
+
+**Test Dataset Files:**
+
+| File | Purpose |
+|------|---------|
+| `realistic_staff_questions.json` | Master 100-question dataset |
+| `deepeval_test_dataset_v2.json` | Merged DeepEval format (125 cases) |
+| `weekly_eval_queries.json` | Weekly eval query format |
+| `preprod_realistic_tests.json` | Pre-prod validation tests |
+| `test_batch_{category}.json` | Category-specific batches |
 
 ## Project Structure
 
@@ -340,7 +572,17 @@ rag_pt_rush/
 │
 ├── scripts/
 │   ├── deploy/                               # Azure deployment scripts
+│   ├── full_pipeline_ingest.py               # Full PDF ingestion with --run-tests
+│   ├── generate_test_dataset_from_pdfs.py    # RAGAS test dataset generator
+│   ├── integrate_realistic_questions.py      # 100 realistic staff question integrator
+│   ├── run_ragas_evaluation.py               # RAGAS evaluation runner
+│   ├── weekly_eval.py                        # Weekly RAG evaluation with email reports
 │   └── upload_pdfs_to_blob.py                # PDF upload utility
+├── tests/
+│   └── rag_accuracy/                         # RAG accuracy testing module
+│       ├── __init__.py                       # Module exports and paths
+│       ├── run_post_index_test.py            # Post-indexing validation
+│       └── data/                             # Generated test datasets
 ├── docs/
 │   ├── TECHNICAL_ARCHITECTURE_PWC.md         # Architecture overview for review
 │   ├── DEPLOYMENT.md                         # Step-by-step deployment guide
@@ -358,6 +600,7 @@ rag_pt_rush/
 | **ChatService** | `chat_service.py` | Main RAG orchestrator |
 | **OnYourDataService** | `on_your_data_service.py` | Azure OpenAI "On Your Data" integration |
 | **CohereRerankService** | `cohere_rerank_service.py` | Cross-encoder reranking (negation-aware) |
+| **ContextExpander** | `context_expander.py` | Sibling chunk retrieval for procedural context |
 | **SynonymService** | `synonym_service.py` | Query-time synonym expansion (1MB JSON) |
 | **CacheService** | `cache_service.py` | Multi-layer in-memory caching |
 | **ChatAuditService** | `chat_audit_service.py` | Query logging to blob storage |
@@ -380,6 +623,12 @@ rag_pt_rush/
 |--------|---------|
 | `search_result.py` | SearchResult dataclass |
 | `search_synonyms.py` | SYNONYMS constant for Azure AI Search |
+
+**DeepEval Evaluation** (`apps/backend/app/evaluation/`):
+| Module | Purpose |
+|--------|---------|
+| `metrics.py` | DeepEval metrics (Faithfulness, Answer Relevancy, Context Precision, Policy Citation) |
+| `diagnostics.py` | RAGChecker-style claim-level diagnostics + Lost-in-the-Middle detection |
 
 ## Key Technical Details
 
@@ -421,20 +670,50 @@ The chunker (`preprocessing/chunker.py`) uses a dual-library approach:
 - `chunk_level`: "document" | "section" | "semantic"
 - `parent_chunk_id`, `chunk_index`
 
-### Service Configuration
+### Service Configuration (Production Audit: Feb 2026 ✅)
 
-The chat service uses Azure OpenAI "On Your Data" with vectorSemanticHybrid search plus Cohere Rerank 3.5 for cross-encoder reranking:
+The chat service uses Azure OpenAI "On Your Data" with vectorSemanticHybrid search plus Cohere Rerank 4.0 Pro for cross-encoder reranking. **All settings verified against Cohere docs, Azure AI Search best practices, and RAG research.**
 
+**Retrieval Pipeline:**
 | Setting | Value | Description |
 |---------|-------|-------------|
 | Model | GPT-4.1 | Azure OpenAI chat deployment |
 | Query Type | vectorSemanticHybrid | Vector + BM25 + L2 Reranking |
-| Top K | 50 | Documents to semantic reranker |
+| Retrieve Top K | 100 | Documents retrieved before Cohere rerank (industry standard) |
 | Index | rush-policies | Azure AI Search index |
 | Semantic Config | my-semantic-config | For L2 reranking |
-| Cohere Rerank | cohere-rerank-v3-5 | Azure AI Foundry deployment used after retrieval |
-| Cohere Top N | 10 | Documents retained post-rerank (configurable) |
-| Cohere Min Score | 0.25 | Threshold for healthcare policy precision |
+
+**Cohere Rerank 4.0 Pro (Cross-Encoder):**
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Model | Cohere-rerank-v4.0-pro | Azure AI Foundry deployment (9.5% accuracy improvement over v3.5) |
+| Top N | 5 | Documents retained post-rerank (optimal for lost-in-middle mitigation) |
+| Min Score | 0.40 | 4.0 Pro calibrated threshold for healthcare precision |
+| Document Format | YAML | Field ordering: title → ref# → section → content (Cohere best practice) |
+
+**Context Expansion (Sibling Chunk Retrieval):**
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Enabled | true | Master enable/disable for context expansion |
+| Top N to Expand | 3 | Number of top reranked results to expand |
+| Max Siblings | 1 | ±1 sibling chunks (chunk_index ± 1) |
+| Include Parent | true | Fetch parent chunks (not yet used) |
+| Include Siblings | true | Fetch adjacent chunks for procedural context |
+
+**Best Practices Compliance:**
+| Best Practice | Source | Status |
+|---------------|--------|--------|
+| Hybrid search (vector + keyword) | Azure AI Search | ✅ |
+| Cross-encoder reranking | Cohere Docs | ✅ |
+| YAML document formatting | Cohere Docs | ✅ |
+| Field ordering (important→content last) | Cohere Docs | ✅ |
+| Min score threshold 0.4+ for healthcare | Cohere Docs | ✅ |
+| Query expansion before search | RAG Best Practices | ✅ |
+| Lost-in-middle mitigation | Stanford Research | ✅ |
+| Context expansion (siblings) | RAG Techniques | ✅ |
+| DeepEval/RAGAS evaluation | Industry Standard | ✅ |
+
+**No further optimization recommended** - current configuration achieves 88% test pass rate with context expansion.
 
 ### SDK Dependencies
 
@@ -526,6 +805,7 @@ AOAI_ENDPOINT=https://<your-aoai>.openai.azure.com/
 AOAI_API_KEY=<api-key>
 AOAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
 AOAI_CHAT_DEPLOYMENT=gpt-4.1
+AOAI_EVAL_DEPLOYMENT=gpt-4.1-mini        # For DeepEval/diagnostics (faster, cheaper)
 
 # Azure Storage (3-container architecture)
 STORAGE_CONNECTION_STRING=<connection_string>
@@ -535,13 +815,22 @@ CONTAINER_NAME=policies-active            # Production
 
 # Feature Flags
 USE_ON_YOUR_DATA=true                     # Enable vectorSemanticHybrid
-# Cohere Rerank 3.5 (cross-encoder)
+# Cohere Rerank 4.0 Pro (cross-encoder) - Dec 2025 release
+# 9.5% accuracy improvement over v3.5, 32k context, healthcare-optimized
 USE_COHERE_RERANK=true                   # Enable Cohere rerank pipeline
 COHERE_RERANK_ENDPOINT=https://<cohere>.models.ai.azure.com
 COHERE_RERANK_API_KEY=<api-key>
-COHERE_RERANK_MODEL=cohere-rerank-v3-5
-COHERE_RERANK_TOP_N=10                   # Docs kept after rerank
-COHERE_RERANK_MIN_SCORE=0.25             # Healthcare-calibrated threshold
+COHERE_RERANK_MODEL=Cohere-rerank-v4.0-pro
+COHERE_RERANK_TOP_N=5                    # Docs kept after rerank (3-5 optimal to reduce lost-in-middle)
+COHERE_RERANK_MIN_SCORE=0.40             # 4.0 Pro calibrated threshold (higher than v3.5's 0.25)
+
+# Context Expansion - Sibling chunk retrieval for complete procedural context
+# Addresses "lost in middle" problem by providing coherent policy sections
+CONTEXT_EXPANSION_ENABLED=true           # Master enable/disable
+CONTEXT_EXPANSION_TOP_N=3                # Top N reranked results to expand
+CONTEXT_EXPANSION_INCLUDE_PARENT=true    # Fetch parent chunks
+CONTEXT_EXPANSION_INCLUDE_SIBLINGS=true  # Fetch adjacent chunks
+CONTEXT_EXPANSION_MAX_SIBLINGS=1         # Max siblings on each side (1 = ±1)
 
 # Security (production)
 REQUIRE_AAD_AUTH=false                    # Set true in production
@@ -551,6 +840,19 @@ ADMIN_API_KEY=<secure-key>                # Required in production
 
 # Backend connection (for frontend)
 BACKEND_URL=http://localhost:8000
+
+# Weekly Evaluation Email (Azure Communication Services - recommended)
+AZURE_COMM_CONNECTION_STRING=endpoint=https://rush-policy-comm.unitedstates.communication.azure.com/;accesskey=<key>
+AZURE_COMM_SENDER_ADDRESS=DoNotReply@<domain>.azurecomm.net
+
+# Weekly Evaluation Email (SMTP - legacy fallback)
+# SMTP_SERVER=smtp.office365.com           # Rush SMTP server
+# SMTP_USER=<rush-email>                   # SMTP username
+# SMTP_PASS=<password>                     # SMTP password
+# SMTP_FROM=policyrag@rush.edu             # Sender email
+
+# App Insights for query analysis (optional)
+LOG_ANALYTICS_WORKSPACE_ID=<workspace-id>
 ```
 
 ## Azure Blob Storage Architecture

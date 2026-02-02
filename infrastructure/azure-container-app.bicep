@@ -51,14 +51,14 @@ param cohereRerankerApiKey string = ''
 @description('Enable Cohere Rerank cross-encoder')
 param useCohereRerank bool = true
 
-@description('Cohere Rerank model name')
-param cohereRerankerModel string = 'cohere-rerank-v3-5'
+@description('Cohere Rerank model name (4.0 Pro recommended for healthcare)')
+param cohereRerankerModel string = 'Cohere-rerank-v4.0-pro'
 
-@description('Number of documents to retain after reranking')
-param cohereRerankerTopN int = 10
+@description('Number of documents to retain after reranking (3-5 optimal to reduce lost-in-middle)')
+param cohereRerankerTopN int = 5
 
-@description('Minimum relevance score threshold')
-param cohereRerankerMinScore string = '0.25'
+@description('Minimum relevance score threshold (4.0 Pro calibrated)')
+param cohereRerankerMinScore string = '0.40'
 
 @description('Minimum number of replicas')
 param minReplicas int = environment == 'production' ? 2 : 1

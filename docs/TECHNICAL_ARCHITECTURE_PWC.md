@@ -26,7 +26,7 @@ flowchart LR
   BE --> CS
   CS --> SS
   CS -->|Hybrid retrieval| AIS[Azure AI Search<br/>index: rush-policies]
-  CS -->|Optional rerank| COH[Cohere Rerank 3.5<br/>(Azure AI Foundry)]
+  CS -->|Optional rerank| COH[Cohere Rerank 4.0 Pro<br/>(Azure AI Foundry)]
   CS -->|Generate answer| AOAI[Azure OpenAI<br/>GPT-4.1]
   PDFS --> BLOB[Azure Blob Storage<br/>policies-active (PDFs)]
 
@@ -103,7 +103,7 @@ flowchart LR
 | Language | Python |
 | Retrieval | Azure AI Search (`azure-search-documents`) hybrid (keyword + vector + semantic rank) |
 | Generation | Azure OpenAI (GPT-4.1) |
-| Reranking (optional) | Cohere Rerank 3.5 (Azure AI Foundry deployment) |
+| Reranking (optional) | Cohere Rerank 4.0 Pro (Azure AI Foundry deployment) |
 | Query expansion | Custom SynonymService + Azure AI Search synonym map |
 | PDF processing | IBM Docling + PyMuPDF |
 | Security | Azure AD claim dependency, input validation, rate limiting, circuit breaker |
@@ -125,7 +125,7 @@ flowchart LR
 ### RAG query pipeline
 
 - Hybrid retrieval from **Azure AI Search** (keyword + vector) with semantic ranking.
-- Optional cross-encoder reranking via **Cohere Rerank 3.5** to improve precision and handle negation.
+- Optional cross-encoder reranking via **Cohere Rerank 4.0 Pro** to improve precision and handle negation (9.5% accuracy improvement over v3.5, 32k context window).
 - Deterministic generation settings (e.g., `temperature=0.0`) and strict prompting to reduce hallucinations.
 - Response payload includes:
   - `summary` / `response` text

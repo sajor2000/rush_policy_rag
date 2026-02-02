@@ -14,6 +14,7 @@ Extracted from chat_service.py as part of tech debt refactoring.
 """
 
 import logging
+import re
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -135,9 +136,12 @@ def detect_device_ambiguity(query: str) -> Optional[Dict]:
     if not has_device_context:
         return None  # Not a device-focused query
 
-    # Check each ambiguous term
+    # Check each ambiguous term (using word boundary to avoid false positives like "guidelines" matching "line")
     for term, config in AMBIGUOUS_DEVICE_TERMS.items():
-        if term in query_lower:
+        # Use word boundary regex to match whole words only
+        # This prevents "guidelines" from matching "line" or "export" from matching "port"
+        pattern = r'\b' + re.escape(term) + r'\b'
+        if re.search(pattern, query_lower):
             # Check for disambiguating modifiers
             has_disambiguator = any(d in query_lower for d in DISAMBIGUATING_TERMS)
 

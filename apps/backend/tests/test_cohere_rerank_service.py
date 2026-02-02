@@ -168,15 +168,20 @@ class TestCohereRerankServiceRerank:
             assert result.cohere_score >= 0.5
 
     def test_rerank_respects_top_n(self, mock_service):
-        """Should return at most top_n results."""
+        """Should return at most top_n results.
+
+        Note: Cohere API respects top_n server-side, returning only that many results.
+        The mock must simulate this behavior accurately.
+        """
         mock_service.top_n = 2
 
         mock_response = Mock()
+        # Cohere API returns only top_n results (2 in this case)
         mock_response.json.return_value = {
             "results": [
                 {"index": 0, "relevance_score": 0.9},
                 {"index": 1, "relevance_score": 0.8},
-                {"index": 2, "relevance_score": 0.7},
+                # API would NOT return index 2 since top_n=2
             ]
         }
         mock_response.status_code = 200
@@ -337,7 +342,7 @@ class TestConfiguredState:
             endpoint="https://test.models.ai.azure.com",
             api_key="test-key",
         )
-        assert service.is_configured() is True
+        assert service.is_configured is True
 
     def test_is_not_configured_without_credentials(self):
         """Should report not configured without credentials."""
@@ -345,7 +350,7 @@ class TestConfiguredState:
             endpoint="",
             api_key="",
         )
-        assert service.is_configured() is False
+        assert service.is_configured is False
 
     def test_is_not_configured_with_partial_credentials(self):
         """Should report not configured with only partial credentials."""
@@ -353,10 +358,10 @@ class TestConfiguredState:
             endpoint="https://test.models.ai.azure.com",
             api_key="",
         )
-        assert service1.is_configured() is False
+        assert service1.is_configured is False
 
         service2 = CohereRerankService(
             endpoint="",
             api_key="test-key",
         )
-        assert service2.is_configured() is False
+        assert service2.is_configured is False

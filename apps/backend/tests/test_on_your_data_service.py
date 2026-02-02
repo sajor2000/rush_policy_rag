@@ -126,7 +126,8 @@ class TestOnYourDataServiceChat:
             service.client = Mock()
             return service
 
-    def test_chat_returns_result(self, mock_service):
+    @pytest.mark.asyncio
+    async def test_chat_returns_result(self, mock_service):
         """Should return OnYourDataResult from chat."""
         # Mock the OpenAI response
         mock_response = Mock()
@@ -144,12 +145,13 @@ class TestOnYourDataServiceChat:
         }
         mock_service.client.chat.completions.create.return_value = mock_response
 
-        result = mock_service.chat("What is the verbal order policy?")
+        result = await mock_service.chat("What is the verbal order policy?")
 
         assert isinstance(result, OnYourDataResult)
         assert "policy" in result.answer.lower()
 
-    def test_chat_handles_no_citations(self, mock_service):
+    @pytest.mark.asyncio
+    async def test_chat_handles_no_citations(self, mock_service):
         """Should handle response with no citations."""
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -157,12 +159,13 @@ class TestOnYourDataServiceChat:
         mock_response.choices[0].message.context = {"citations": []}
         mock_service.client.chat.completions.create.return_value = mock_response
 
-        result = mock_service.chat("Unknown topic query")
+        result = await mock_service.chat("Unknown topic query")
 
         assert isinstance(result, OnYourDataResult)
         assert len(result.citations) == 0
 
-    def test_chat_with_filter(self, mock_service):
+    @pytest.mark.asyncio
+    async def test_chat_with_filter(self, mock_service):
         """Should pass filter to Azure Search."""
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -170,9 +173,9 @@ class TestOnYourDataServiceChat:
         mock_response.choices[0].message.context = {"citations": []}
         mock_service.client.chat.completions.create.return_value = mock_response
 
-        result = mock_service.chat(
+        result = await mock_service.chat(
             "What is the policy?",
-            filter_expression="applies_to_rumc eq true"
+            filter_expr="applies_to_rumc eq true"
         )
 
         # Verify filter was passed in the call
@@ -227,9 +230,11 @@ class TestOnYourDataServiceErrorHandling:
             service.client = Mock()
             return service
 
-    def test_handles_rate_limit_error(self, mock_service):
-        """Should handle rate limit errors appropriately."""
+    @pytest.mark.asyncio
+    async def test_handles_rate_limit_error(self, mock_service):
+        """Should raise rate limit error after retry exhaustion."""
         from openai import RateLimitError
+        from tenacity import RetryError
 
         mock_service.client.chat.completions.create.side_effect = RateLimitError(
             message="Rate limit exceeded",
@@ -237,19 +242,23 @@ class TestOnYourDataServiceErrorHandling:
             body=None,
         )
 
-        with pytest.raises(RateLimitError):
-            mock_service.chat("Test query")
+        # The service retries 3 times, then raises RetryError wrapping the original
+        with pytest.raises((RateLimitError, RetryError)):
+            await mock_service.chat("Test query")
 
-    def test_handles_timeout_error(self, mock_service):
-        """Should handle timeout errors appropriately."""
+    @pytest.mark.asyncio
+    async def test_handles_timeout_error(self, mock_service):
+        """Should raise timeout error after retry exhaustion."""
         from openai import APITimeoutError
+        from tenacity import RetryError
 
         mock_service.client.chat.completions.create.side_effect = APITimeoutError(
             request=Mock()
         )
 
-        with pytest.raises(APITimeoutError):
-            mock_service.chat("Test query")
+        # The service retries 3 times, then raises RetryError wrapping the original
+        with pytest.raises((APITimeoutError, RetryError)):
+            await mock_service.chat("Test query")
 
 
 class TestCitationParsing:

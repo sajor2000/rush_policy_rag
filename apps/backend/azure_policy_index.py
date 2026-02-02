@@ -388,7 +388,8 @@ class PolicySearchIndex:
             SimpleField(
                 name="chunk_index",
                 type=SearchFieldDataType.Int32,
-                sortable=True
+                sortable=True,
+                filterable=True  # Required for context expansion (sibling chunk retrieval)
             ),
 
             # Enhanced metadata fields

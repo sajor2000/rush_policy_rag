@@ -12,6 +12,9 @@ azure-search-documents>=11.6.0b8
 azure-identity>=1.15.0
 azure-storage-blob>=12.27.1
 
+# Azure Communication Services (for email notifications)
+azure-communication-email>=1.0.0
+
 # Azure AD token validation dependencies
 pyjwt[crypto]>=2.9.0
 cachetools>=5.3.0
@@ -51,6 +54,7 @@ promptflow-tools>=1.4.0
 ragas>=0.2.0
 datasets>=2.18.0
 langchain-openai>=0.1.0
+deepeval>=0.21.0
 
 # Observability (Azure AI Foundry tracing + OpenTelemetry)
 azure-monitor-opentelemetry>=1.6.0

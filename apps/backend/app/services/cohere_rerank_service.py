@@ -2,7 +2,12 @@
 Cohere Rerank Service
 
 Provides cross-encoder reranking for negation-aware search.
-Uses Cohere Rerank 3.5 deployed on Azure AI Foundry.
+Supports Cohere Rerank v3.5 and v4.0 deployed on Azure AI Foundry.
+
+Rerank 4.0 Pro (Dec 2025):
+- Healthcare-optimized: "tuned for healthcare, finance, government"
+- Higher accuracy than v3.5 with same latency
+- Supports v2 API endpoint format
 
 Why cross-encoder beats Azure's L2 semantic reranker for negation:
 - Azure L2 is a bi-encoder: embeds query and document separately, then compares
@@ -15,6 +20,8 @@ Best Practices (per Cohere docs):
 - Field order matters: put most important fields first (title, ref#), content last
 - Content field is most likely to be truncated at 4096 token context limit
 - Relevance scores are normalized [0,1] - use threshold to filter low-relevance docs
+- Optimal top_n: 3-5 documents (reduces "lost in middle" effect)
+- Healthcare threshold: 0.4+ for precision (default 0.25 may be too permissive)
 """
 
 import logging
@@ -73,19 +80,19 @@ class CohereRerankService:
         api_key: str,
         top_n: int = 5,
         min_score: float = DEFAULT_MIN_SCORE,
-        model_name: str = "cohere-rerank-v3-5"
+        model_name: str = "Cohere-rerank-v4.0-pro"
     ):
         """
         Initialize Cohere client for Azure AI Foundry deployment.
 
         Args:
             endpoint: Azure AI Foundry endpoint URL (with or without /v1/rerank)
-                      e.g., https://Cohere-rerank-v3-5-beomo.eastus2.models.ai.azure.com/v1/rerank
+                      e.g., https://Cohere-rerank-v4-0-pro-beomo.eastus2.models.ai.azure.com/v1/rerank
             api_key: API key from Azure AI Foundry deployment
             top_n: Default number of documents to return after reranking
             min_score: Minimum relevance score threshold (0.0-1.0). Documents below
                        this score are filtered out. Per Cohere best practices.
-            model_name: Cohere model name (default: cohere-rerank-v3-5)
+            model_name: Cohere model name (default: Cohere-rerank-v4.0-pro)
         """
         self.top_n = top_n
         self.min_score = min_score
@@ -95,10 +102,14 @@ class CohereRerankService:
         self._configured = False
 
         if endpoint and api_key:
-            # Normalize endpoint - ensure it ends with /v1/rerank
+            # Normalize endpoint - handle both v1 and v2 API formats
+            # v1: https://xxx.models.ai.azure.com/v1/rerank
+            # v2: https://xxx.services.ai.azure.com/providers/cohere/v2/rerank
             self.endpoint = endpoint.rstrip('/')
-            if not self.endpoint.endswith('/v1/rerank'):
+            if '/rerank' not in self.endpoint:
+                # Legacy format without path - append v1/rerank
                 self.endpoint = f"{self.endpoint}/v1/rerank"
+            # Otherwise use endpoint as-is (supports v2 format)
             self.api_key = api_key
 
             # Headers for Azure AI Foundry

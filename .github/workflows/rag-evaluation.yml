@@ -1,0 +1,194 @@
+name: RAG Evaluation
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly evaluation every Monday at 6 AM UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - quick
+          - weekly
+
+env:
+  PYTHON_VERSION: '3.11'
+  AOAI_ENDPOINT: ${{ secrets.AOAI_ENDPOINT }}
+  AOAI_API_KEY: ${{ secrets.AOAI_API_KEY }}
+  AOAI_EVAL_DEPLOYMENT: gpt-4.1-mini
+  AOAI_CHAT_DEPLOYMENT: gpt-4.1
+  SEARCH_ENDPOINT: ${{ secrets.SEARCH_ENDPOINT }}
+  SEARCH_API_KEY: ${{ secrets.SEARCH_API_KEY }}
+  COHERE_RERANK_ENDPOINT: ${{ secrets.COHERE_RERANK_ENDPOINT }}
+  COHERE_RERANK_API_KEY: ${{ secrets.COHERE_RERANK_API_KEY }}
+
+jobs:
+  # Pre-production evaluation on PR/push
+  pre-prod-evaluation:
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'weekly')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          cd apps/backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create reports directory
+        run: mkdir -p apps/backend/reports
+
+      # Gate 2-3: DeepEval CI/CD Tests
+      - name: Run DeepEval Tests (Gates 2-3)
+        id: deepeval
+        run: |
+          cd apps/backend
+          pytest tests/test_rag_evaluation.py -v --tb=short \
+            --junitxml=reports/junit.xml \
+            -x  # Stop on first failure for fast feedback
+        env:
+          DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE: 240
+          DEEPEVAL_TIMEOUT_SECONDS: 600
+          BACKEND_URL: http://localhost:8000
+        continue-on-error: true
+
+      - name: Check test results
+        if: steps.deepeval.outcome == 'failure'
+        run: |
+          echo "::error::DeepEval tests failed. Check the test results for details."
+          exit 1
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pre-prod-test-results
+          path: |
+            apps/backend/reports/
+          retention-days: 30
+
+      - name: Post test summary
+        if: always()
+        run: |
+          echo "## Pre-Production Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.deepeval.outcome }}" == "success" ]; then
+            echo "✅ All gates passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Weekly production monitoring
+  weekly-evaluation:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'weekly')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          cd apps/backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create directories
+        run: |
+          mkdir -p apps/backend/data
+          mkdir -p eval_reports
+
+      - name: Generate weekly sample
+        run: |
+          python scripts/integrate_realistic_questions.py \
+            --weekly-eval --sample 50 --seed $(date +%W)
+
+      - name: Run weekly evaluation
+        run: |
+          python scripts/weekly_eval.py \
+            --local-queries apps/backend/data/weekly_eval_queries.json \
+            ${{ github.event_name == 'workflow_dispatch' && '--dry-run' || '' }}
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+
+      - name: Upload weekly report
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-${{ github.run_number }}
+          path: eval_reports/
+          retention-days: 90
+
+      - name: Post weekly summary
+        if: always()
+        run: |
+          echo "## Weekly Evaluation Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Week: $(date +%W)" >> $GITHUB_STEP_SUMMARY
+          echo "Sample size: 50 queries" >> $GITHUB_STEP_SUMMARY
+          if [ -f eval_reports/eval_report_*.json ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Metrics Summary" >> $GITHUB_STEP_SUMMARY
+            cat eval_reports/eval_report_*.json | jq -r '.summary | to_entries[] | "- \(.key): \(.value)"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Report parsing failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Quick smoke test for hotfixes
+  quick-test:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'quick'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          cd apps/backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run critical tests only
+        run: |
+          cd apps/backend
+          pytest tests/test_rag_evaluation.py -v -m "critical" --tb=short
+        env:
+          DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE: 120

@@ -137,7 +137,7 @@ ADVERSARIAL_PATTERNS = [
     "without read-back", "without authentication", "without verification",
     # Role-play / jailbreak attempts
     "pretend you're", "pretend you are", "act as if", "imagine you're",
-    "forget your rules", "new instructions",
+    "forget your rules", "forget your previous", "new instructions",
     # "ignore" patterns - must be specific to avoid false positives
     "ignore your", "ignore my", "ignore the rules", "ignore safety",
     "ignore previous", "ignore these", "ignore all",
@@ -341,6 +341,11 @@ def is_unclear_query(query: str) -> bool:
     # Single character or very short (under 3 chars)
     if len(query_stripped) <= 2:
         logger.info(f"Unclear query detected: too short ({len(query_stripped)} chars)")
+        return True
+
+    # Punctuation-only queries (e.g., "...", "???", "---")
+    if all(c in '.,!?-_…;:\'"()[]{}' for c in query_stripped):
+        logger.info("Unclear query detected: punctuation only")
         return True
 
     # Common vague words that need clarification

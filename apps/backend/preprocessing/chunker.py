@@ -338,6 +338,16 @@ class PolicyChunker:
         chunks = []
         chunk_counter = 0
 
+        # Generate unique prefix from source file to prevent chunk ID collisions
+        # Use reference_number if available, otherwise hash of filename
+        if metadata.reference_number:
+            chunk_prefix = metadata.reference_number
+        else:
+            # Create short hash from source filename for uniqueness
+            import hashlib
+            file_hash = hashlib.md5(source_file.encode()).hexdigest()[:8]
+            chunk_prefix = f"doc_{file_hash}"
+
         try:
             # Use Docling's hierarchical chunker
             doc_chunks = list(self.chunker.chunk(dl_doc=doc))
@@ -374,11 +384,11 @@ class PolicyChunker:
             # Split if too large
             if len(text) > self.max_chunk_size:
                 sub_texts = self._split_oversized(text, self.max_chunk_size)
-                parent_id = f"{metadata.reference_number or 'doc'}_{chunk_counter}"
+                parent_id = f"{chunk_prefix}_{chunk_counter}"
                 for i, sub_text in enumerate(sub_texts):
                     if len(sub_text) >= self.min_chunk_size:
                         chunk = self._create_policy_chunk(
-                            chunk_id=f"{metadata.reference_number or 'doc'}_{chunk_counter}_{i}",
+                            chunk_id=f"{chunk_prefix}_{chunk_counter}_{i}",
                             text=sub_text,
                             metadata=metadata,
                             section_number=section_number,
@@ -394,7 +404,7 @@ class PolicyChunker:
                 chunk_counter += 1
             else:
                 chunk = self._create_policy_chunk(
-                    chunk_id=f"{metadata.reference_number or 'doc'}_{chunk_counter}",
+                    chunk_id=f"{chunk_prefix}_{chunk_counter}",
                     text=text,
                     metadata=metadata,
                     section_number=section_number,
@@ -535,13 +545,21 @@ class PolicyChunker:
         chunks = []
         chunk_counter = 0
 
+        # Generate unique prefix from source file to prevent chunk ID collisions
+        if metadata.reference_number:
+            chunk_prefix = metadata.reference_number
+        else:
+            import hashlib
+            file_hash = hashlib.md5(source_file.encode()).hexdigest()[:8]
+            chunk_prefix = f"doc_{file_hash}"
+
         # Simple paragraph-based chunking
         sub_texts = self._split_oversized(full_text, self.max_chunk_size)
 
         for i, text in enumerate(sub_texts):
             if len(text) >= self.min_chunk_size:
                 chunk = self._create_policy_chunk(
-                    chunk_id=f"{metadata.reference_number or 'doc'}_{chunk_counter}",
+                    chunk_id=f"{chunk_prefix}_{chunk_counter}",
                     text=text,
                     metadata=metadata,
                     section_number="",

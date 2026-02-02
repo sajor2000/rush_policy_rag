@@ -67,19 +67,22 @@ class Settings(BaseSettings):
     USE_ON_YOUR_DATA: bool = False  # Enable Azure OpenAI "On Your Data" for vectorSemanticHybrid
 
     # Cohere Rerank (cross-encoder for negation-aware search)
-    # Deploy Cohere Rerank 3.5 on Azure AI Foundry as serverless API
+    # Supports v3.5 and v4.0 deployed on Azure AI Foundry
+    # v4.0 Pro (Dec 2025): Healthcare-optimized, higher accuracy
     USE_COHERE_RERANK: bool = False  # Feature flag: use Cohere instead of On Your Data
-    COHERE_RERANK_ENDPOINT: Optional[str] = None  # e.g., https://cohere-rerank-v3-5-xyz.eastus.models.ai.azure.com/
+    COHERE_RERANK_ENDPOINT: Optional[str] = None  # Supports v1 and v2 API formats
     COHERE_RERANK_API_KEY: Optional[str] = None
-    # Per industry best practices: retrieve 100+ docs, rerank to top 5-10
-    COHERE_RERANK_TOP_N: int = 10  # Increased for multi-policy queries (was 5)
-    # Healthcare needs higher precision - calibrated for policy domain
-    # Raised from 0.15 to 0.25 to reduce low-relevance "related" results (David feedback)
-    COHERE_RERANK_MIN_SCORE: float = 0.25  # Increased threshold (was 0.15)
+    # Number of documents to retain after reranking
+    # 5 docs provides good coverage while avoiding "lost in middle" attention decay
+    COHERE_RERANK_TOP_N: int = 5
+    # Healthcare-calibrated precision threshold
+    # 0.40 balances precision vs recall for Cohere 4.0 Pro
+    COHERE_RERANK_MIN_SCORE: float = 0.40
     # Number of documents to retrieve before reranking (higher = better recall)
     COHERE_RETRIEVE_TOP_K: int = 100  # Industry standard: 100-150 candidates
-    # Model name for Cohere rerank (configurable for version upgrades)
-    COHERE_RERANK_MODEL: str = "cohere-rerank-v3-5"
+    # Model name for Cohere rerank (v4.0 Pro recommended for healthcare)
+    # Must match exact Azure AI Foundry deployment name
+    COHERE_RERANK_MODEL: str = "Cohere-rerank-v4.0-pro"
     
     # Surge capacity policy deprioritization
     # Penalty multiplier for surge level/capacity-based policies (0.0-1.0)
@@ -120,6 +123,14 @@ class Settings(BaseSettings):
     CACHE_SEARCH_SIZE: int = 500  # Search results cache (TTL, ~25MB)
     CACHE_RESPONSE_TTL: int = 86400  # Response cache TTL: 24 hours
     CACHE_SEARCH_TTL: int = 21600  # Search cache TTL: 6 hours
+
+    # Context Expansion - Parent-child chunk retrieval for complete procedural context
+    # Addresses "lost in middle" problem by providing coherent policy sections
+    CONTEXT_EXPANSION_ENABLED: bool = True  # Master enable/disable
+    CONTEXT_EXPANSION_TOP_N: int = 3  # Number of top results to expand
+    CONTEXT_EXPANSION_INCLUDE_PARENT: bool = True  # Fetch parent chunks
+    CONTEXT_EXPANSION_INCLUDE_SIBLINGS: bool = True  # Fetch adjacent chunks
+    CONTEXT_EXPANSION_MAX_SIBLINGS: int = 1  # Max siblings on each side (1 = ±1)
 
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:

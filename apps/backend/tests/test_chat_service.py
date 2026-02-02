@@ -363,3 +363,121 @@ def test_score_windowing_with_different_thresholds():
         window_threshold=0.4  # Keep >= 0.4 (1.0 * 0.4)
     )
     assert len(filtered_lenient) == 4, f"Lenient threshold should keep 4, got {len(filtered_lenient)}"
+
+
+# ============================================================================
+# Lost-in-Middle Reordering Tests
+# ============================================================================
+
+def test_reorder_for_attention_basic():
+    """Test that reorder_for_attention places top docs at start/end positions."""
+    search_index = DummySearchIndex()
+    service = ChatService(search_index=search_index)
+
+    # 5 docs sorted by relevance (best first)
+    mock_reranked = [
+        MockRerankResult(score=0.95, content="Doc 1 - best", reference_number="1"),
+        MockRerankResult(score=0.85, content="Doc 2 - 2nd best", reference_number="2"),
+        MockRerankResult(score=0.75, content="Doc 3 - 3rd best", reference_number="3"),
+        MockRerankResult(score=0.65, content="Doc 4 - 4th best", reference_number="4"),
+        MockRerankResult(score=0.55, content="Doc 5 - 5th best", reference_number="5"),
+    ]
+
+    reordered = service._reorder_for_attention(mock_reranked)
+
+    # Check positions: START and END should have highest-ranked docs
+    # Expected: [doc1, doc3, doc5, doc4, doc2]
+    #             ^     ^     ^     ^     ^
+    #           pos0  pos1  pos2  pos3  pos4(END)
+    assert len(reordered) == 5, "Should preserve all documents"
+    assert reordered[0].reference_number == "1", "Best doc should be at START (pos 0)"
+    assert reordered[-1].reference_number == "2", "2nd best doc should be at END"
+    assert reordered[1].reference_number == "3", "3rd best doc should be near start (pos 1)"
+
+
+def test_reorder_for_attention_small_list():
+    """Test that reordering handles small lists (<=2) correctly."""
+    search_index = DummySearchIndex()
+    service = ChatService(search_index=search_index)
+
+    # 2 docs - should return unchanged
+    mock_2 = [
+        MockRerankResult(score=0.9, content="Doc 1", reference_number="1"),
+        MockRerankResult(score=0.8, content="Doc 2", reference_number="2"),
+    ]
+    reordered_2 = service._reorder_for_attention(mock_2)
+    assert len(reordered_2) == 2
+    assert reordered_2[0].reference_number == "1"
+    assert reordered_2[1].reference_number == "2"
+
+    # 1 doc - should return unchanged
+    mock_1 = [MockRerankResult(score=0.9, content="Doc 1", reference_number="1")]
+    reordered_1 = service._reorder_for_attention(mock_1)
+    assert len(reordered_1) == 1
+    assert reordered_1[0].reference_number == "1"
+
+    # Empty list - should return empty
+    reordered_0 = service._reorder_for_attention([])
+    assert len(reordered_0) == 0
+
+
+def test_reorder_for_attention_even_count():
+    """Test reordering with even number of documents."""
+    search_index = DummySearchIndex()
+    service = ChatService(search_index=search_index)
+
+    # 6 docs
+    mock_reranked = [
+        MockRerankResult(score=0.9, content=f"Doc {i+1}", reference_number=str(i+1))
+        for i in range(6)
+    ]
+
+    reordered = service._reorder_for_attention(mock_reranked)
+
+    # Expected: [doc1, doc3, doc5, doc6, doc4, doc2]
+    #             ^     ^     ^     ^     ^     ^
+    #           pos0  pos1  pos2  pos3  pos4  pos5(END)
+    assert len(reordered) == 6
+    assert reordered[0].reference_number == "1", "Best at START"
+    assert reordered[-1].reference_number == "2", "2nd best at END"
+    assert reordered[1].reference_number == "3", "3rd near start"
+    assert reordered[-2].reference_number == "4", "4th near end"
+
+
+def test_reorder_for_attention_preserves_all_docs():
+    """Test that reordering preserves all documents (no loss)."""
+    search_index = DummySearchIndex()
+    service = ChatService(search_index=search_index)
+
+    mock_reranked = [
+        MockRerankResult(score=0.9 - i*0.1, content=f"Doc {i+1}", reference_number=str(i+1))
+        for i in range(10)
+    ]
+
+    reordered = service._reorder_for_attention(mock_reranked)
+
+    # Check no docs lost
+    assert len(reordered) == 10
+    original_refs = {r.reference_number for r in mock_reranked}
+    reordered_refs = {r.reference_number for r in reordered}
+    assert original_refs == reordered_refs, "Should preserve all document references"
+
+
+def test_reorder_for_attention_three_docs():
+    """Test reordering with exactly 3 documents (edge case)."""
+    search_index = DummySearchIndex()
+    service = ChatService(search_index=search_index)
+
+    mock_reranked = [
+        MockRerankResult(score=0.9, content="Doc 1 - best", reference_number="1"),
+        MockRerankResult(score=0.7, content="Doc 2 - middle", reference_number="2"),
+        MockRerankResult(score=0.5, content="Doc 3 - worst", reference_number="3"),
+    ]
+
+    reordered = service._reorder_for_attention(mock_reranked)
+
+    # Expected: [doc1, doc3, doc2]
+    assert len(reordered) == 3
+    assert reordered[0].reference_number == "1", "Best at START"
+    assert reordered[-1].reference_number == "2", "2nd best at END"
+    assert reordered[1].reference_number == "3", "3rd (worst) in middle"
