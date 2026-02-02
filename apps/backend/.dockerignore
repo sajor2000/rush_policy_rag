@@ -1,55 +1,91 @@
-# Python
+# ===========================================
+# FastAPI Production .dockerignore
+# Based on Docker + Azure best practices
+# ===========================================
+
+# Python bytecode & cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Virtual environments (CRITICAL - can be 400MB+)
+# Virtual environments (CRITICAL - 400MB-2GB)
 env/
 venv/
 .venv/
 .venv
+ENV/
+.python-version
 
-# Node / frontend artifacts that might sit above backend root
-node_modules/
-.next/
-
-# Git & tooling
+# Version control
 .git/
+.github/
 .gitignore
-.DS_Store
 
-# Env/config
-.env*
+# Environment files (secrets - never include)
+.env
+.env.*
+!.env.example
 
-# Editor
+# Editor & IDE
 .idea/
 .vscode/
+*.swp
+*.swo
 
 # Build outputs
 dist/
 build/
+*.egg-info/
 coverage/
-
-# Docker
-Dockerfile.*
-.dockerignore
+htmlcov/
 
 # Test files (not needed in production)
 tests/
 data/
 *.test.py
+*_test.py
+test_*.py
 conftest.py
 pytest.ini
 requirements-test.txt
+.coverage
 
-# DeepEval cache
+# Evaluation tools (not needed in production)
 .deepeval/
 
-# Misc
-*.log
-tmp/
+# Documentation (not needed in production)
 *.md
+docs/
+README*
+CHANGELOG*
+LICENSE*
+
+# Debug & logs
+*.log
+pip-log.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (prevent recursive include)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Node artifacts (if accidentally present)
+node_modules/
+.next/
+
+# Misc
+tmp/
+*.tmp
+scripts/
+
+# Keep prompt file (required for RAG)
 !policytech_prompt.txt
