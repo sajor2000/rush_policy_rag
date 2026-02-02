@@ -6,6 +6,12 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Virtual environments (CRITICAL - can be 400MB+)
+env/
+venv/
+.venv/
+.venv
+
 # Node / frontend artifacts that might sit above backend root
 node_modules/
 .next/
@@ -17,9 +23,6 @@ node_modules/
 
 # Env/config
 .env*
-env/
-venv/
-.venv/
 
 # Editor
 .idea/
@@ -34,6 +37,19 @@ coverage/
 Dockerfile.*
 .dockerignore
 
+# Test files (not needed in production)
+tests/
+data/
+*.test.py
+conftest.py
+pytest.ini
+requirements-test.txt
+
+# DeepEval cache
+.deepeval/
+
 # Misc
 *.log
 tmp/
+*.md
+!policytech_prompt.txt
