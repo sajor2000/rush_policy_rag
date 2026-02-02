@@ -26,7 +26,7 @@
   --rush-light-gray: #F5F5F5;
 
   /* Semantic tokens mapped to Rush palette (HSL for Tailwind) */
-  --background: 148 68% 93%;
+  --background: 0 0% 100%;
   --foreground: 0 4% 36%;
   --border: 0 1% 68%;
   --card: 0 0% 96%;
