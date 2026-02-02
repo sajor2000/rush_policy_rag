@@ -8,6 +8,7 @@ export interface Source {
   date_updated?: string;
   date_approved?: string;
   document_owner?: string;
+  page_number?: number;  // 1-indexed page number for PDF navigation
   match_type?: "verified" | "related";  // verified = exact match, related = fallback
 }
 

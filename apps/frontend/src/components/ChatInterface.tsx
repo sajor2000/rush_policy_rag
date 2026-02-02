@@ -15,7 +15,7 @@ import {
   type Source,
   type Evidence,
 } from "@/lib/api";
-import { POLICYTECH_URL, PAGE_RANGE_BUFFER, MAX_DEEP_SEARCH_RESULTS } from "@/lib/constants";
+import { POLICYTECH_URL, MAX_DEEP_SEARCH_RESULTS } from "@/lib/constants";
 
 interface Message {
   role: "user" | "assistant";
@@ -179,13 +179,8 @@ export default function ChatInterface() {
         responseContent = `Found **${result.total_instances} result${result.total_instances !== 1 ? 's' : ''}** for "${searchTerm}" in **${result.policy_title}** (Ref #${result.policy_ref}):\n\n`;
 
         result.instances.slice(0, MAX_DEEP_SEARCH_RESULTS).forEach((instance, idx) => {
-          // Show estimated page range (±PAGE_RANGE_BUFFER) since exact page numbers may not be available
-          let pageInfo = "N/A";
-          if (instance.page_number) {
-            const minPage = Math.max(1, instance.page_number - PAGE_RANGE_BUFFER);
-            const maxPage = instance.page_number + PAGE_RANGE_BUFFER;
-            pageInfo = `Pages ~${minPage}-${maxPage}`;
-          }
+          // Show actual page number from index
+          const pageInfo = instance.page_number ? `Page ${instance.page_number}` : "N/A";
           const sectionInfo = instance.section ? `, Section ${instance.section}` : "";
           responseContent += `**${idx + 1}. ${pageInfo}${sectionInfo}**\n`;
           // Show FULL chunk content - no truncation to help users find exact text
@@ -195,9 +190,6 @@ export default function ChatInterface() {
         if (result.total_instances > MAX_DEEP_SEARCH_RESULTS) {
           responseContent += `_Showing first ${MAX_DEEP_SEARCH_RESULTS} of ${result.total_instances} results._\n\n`;
         }
-
-        // Add helpful tip (View PDF button is rendered by ChatMessage component)
-        responseContent += `---\n_Page numbers are estimated. Use Ctrl+F in PDF to find exact text._`;
       }
 
       // Build policy info for View PDF button

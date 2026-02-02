@@ -155,6 +155,7 @@ export default function ChatMessage({
         section: e.section,
         applies_to: e.applies_to,
         date_updated: e.date_updated,
+        page_number: e.page_number,
       }));
   }, [sources, evidence]);
 
@@ -323,11 +324,18 @@ export default function ChatMessage({
                             <p className="font-medium text-sm text-gray-900 group-hover:text-rush-legacy truncate">
                               {item.title}
                             </p>
-                            {ref !== "N/A" && (
-                              <p className="text-xs text-gray-500 mt-0.5">
-                                Reference #{ref}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {ref !== "N/A" && (
+                                <span className="text-xs text-gray-500">
+                                  Reference #{ref}
+                                </span>
+                              )}
+                              {item.page_number && (
+                                <span className="text-[10px] text-rush-legacy bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium">
+                                  Page {item.page_number}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {/* Chevron indicator */}

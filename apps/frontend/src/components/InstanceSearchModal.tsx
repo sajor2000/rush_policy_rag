@@ -64,13 +64,10 @@ export default function InstanceSearchModal({
     }
   }, []);
 
-  // Helper to format page display - show estimated range since exact page may not be available
+  // Helper to format page display - show actual page number from index
   const formatPageDisplay = (pageNumber: number | null): string => {
     if (!pageNumber) return "N/A";
-    // Show as estimated range (±1 page) since page numbers may be approximate
-    const minPage = Math.max(1, pageNumber - 1);
-    const maxPage = pageNumber + 1;
-    return `~${minPage}-${maxPage}`;
+    return `${pageNumber}`;
   };
 
   // Reset state when modal opens
@@ -241,8 +238,8 @@ export default function InstanceSearchModal({
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-rush-sage/40 text-rush-legacy rounded" title="Page numbers are estimated from chunk position">
-                          Pages {formatPageDisplay(instance.page_number)}
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-rush-sage/40 text-rush-legacy rounded" title="Page number from document">
+                          Page {formatPageDisplay(instance.page_number)}
                         </span>
                         {instance.section && (
                           <span className="text-xs text-muted-foreground">
@@ -284,9 +281,9 @@ export default function InstanceSearchModal({
                     </div>
                   </div>
                 ))}
-                {/* Disclaimer about page estimates */}
+                {/* Tip for PDF navigation */}
                 <p className="text-xs text-gray-400 text-center mt-3 italic">
-                  💡 Page numbers are estimated. Use "Copy" button to search exact text in PDF (Ctrl+F).
+                  💡 Click arrow to jump to page in PDF, or use "Copy" to search exact text (Ctrl+F).
                 </p>
               </div>
             )}
