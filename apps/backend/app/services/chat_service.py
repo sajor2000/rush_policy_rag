@@ -1308,13 +1308,21 @@ Policy excerpt:"""
                             if i < len(original_docs)
                         ]
                         logger.info("cRAG: using relevant doc indices despite low aggregate score")
-                
+                else:
+                    # Unknown action type - log warning and use original docs (fail-open)
+                    logger.warning(
+                        f"cRAG: Unknown action type '{corrective_action.action}' - using original docs"
+                    )
+                    docs_for_rerank = original_docs
+
                 if not docs_for_rerank:
                     logger.info("cRAG filtering produced no docs; reverting to original candidate set")
                     docs_for_rerank = original_docs
-                
+
             except Exception as e:
+                # Reset to known good state on exception (avoid partial filtering)
                 logger.warning(f"Corrective RAG check failed (non-critical): {e}")
+                docs_for_rerank = original_docs
 
             if forced_ref_numbers:
                 existing_refs = {doc.get("reference_number") for doc in docs_for_rerank}

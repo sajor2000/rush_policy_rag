@@ -287,8 +287,9 @@ class TestCohereRerankServiceErrorHandling:
             pass  # Or raise error - both are acceptable
 
     def test_handles_timeout(self, mock_service):
-        """Should handle timeout errors."""
+        """Should handle timeout errors with retries."""
         import httpx
+        from tenacity import RetryError
 
         mock_service._client.post.side_effect = httpx.TimeoutException("Timeout")
 
@@ -296,11 +297,12 @@ class TestCohereRerankServiceErrorHandling:
             {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
         ]
 
-        # Should handle timeout gracefully
+        # With TransportError in retry list, timeouts are now retried 3 times
+        # then raise RetryError (which wraps the original TimeoutException)
         try:
             results = mock_service.rerank("test query", documents)
-        except httpx.TimeoutException:
-            pass  # Expected for some implementations
+        except (httpx.TimeoutException, RetryError):
+            pass  # Expected - retries exhausted
 
 
 class TestNegationHandling:

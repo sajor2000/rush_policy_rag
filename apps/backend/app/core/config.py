@@ -231,6 +231,27 @@ class Settings(BaseSettings):
                     "USE_COHERE_RERANK=true but missing: " + ", ".join(missing_cohere)
                 )
 
+        # Validate cRAG configuration bounds
+        if self.CRAG_MIN_DOCS_FOR_COHERE > self.CRAG_MAX_DOCS_FOR_COHERE:
+            critical_errors.append(
+                f"CRAG_MIN_DOCS_FOR_COHERE ({self.CRAG_MIN_DOCS_FOR_COHERE}) > "
+                f"CRAG_MAX_DOCS_FOR_COHERE ({self.CRAG_MAX_DOCS_FOR_COHERE}) - invalid bounds"
+            )
+        if self.CRAG_MIN_DOCS_FOR_COHERE < 1:
+            critical_errors.append(
+                f"CRAG_MIN_DOCS_FOR_COHERE ({self.CRAG_MIN_DOCS_FOR_COHERE}) must be >= 1"
+            )
+        if self.CRAG_MAX_DOCS_FOR_COHERE > 10000:
+            warnings.append(
+                f"CRAG_MAX_DOCS_FOR_COHERE ({self.CRAG_MAX_DOCS_FOR_COHERE}) exceeds Cohere limit of 10,000"
+            )
+
+        # Validate Cohere score threshold
+        if not (0.0 <= self.COHERE_RERANK_MIN_SCORE <= 1.0):
+            critical_errors.append(
+                f"COHERE_RERANK_MIN_SCORE ({self.COHERE_RERANK_MIN_SCORE}) must be between 0.0 and 1.0"
+            )
+
         # AAD config required when auth is enabled (not enforced by default)
         if self.REQUIRE_AAD_AUTH:
             missing_auth = []

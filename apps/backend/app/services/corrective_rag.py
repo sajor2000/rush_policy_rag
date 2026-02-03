@@ -15,6 +15,7 @@ Based on: Yan et al. 2024 - "Corrective Retrieval Augmented Generation"
 
 import logging
 import re
+from functools import lru_cache
 from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -381,13 +382,11 @@ class CorrectiveRAGService:
         return [documents[i] for i in sorted_indices if i < len(documents)]
 
 
-# Singleton instance
-_corrective_rag_service: Optional[CorrectiveRAGService] = None
-
-
+@lru_cache(maxsize=1)
 def get_corrective_rag_service() -> CorrectiveRAGService:
-    """Get or create the Corrective RAG service singleton."""
-    global _corrective_rag_service
-    if _corrective_rag_service is None:
-        _corrective_rag_service = CorrectiveRAGService()
-    return _corrective_rag_service
+    """
+    Get or create the Corrective RAG service singleton.
+
+    Uses lru_cache for thread-safe lazy initialization.
+    """
+    return CorrectiveRAGService()

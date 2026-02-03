@@ -261,7 +261,8 @@ class CohereRerankService:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((httpx.HTTPStatusError,)),
+        # Retry on HTTP errors AND network/timeout errors for production resilience
+        retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TransportError)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
     def rerank(
@@ -324,11 +325,12 @@ class CohereRerankService:
             self._log_score_distribution(reranked, query)
 
             # LOW_RETRIEVAL logging - grep logs for these to find synonym gaps
+            # Note: Truncate query to avoid logging PHI (HIPAA compliance)
             if not reranked:
-                logger.warning(f"LOW_RETRIEVAL: query='{query}' zero_results")
+                logger.warning(f"LOW_RETRIEVAL: query='{query[:50]}...' zero_results")
             elif reranked[0].cohere_score < 0.3:
                 logger.warning(
-                    f"LOW_RETRIEVAL: query='{query}' top_score={reranked[0].cohere_score:.3f}"
+                    f"LOW_RETRIEVAL: query='{query[:50]}...' top_score={reranked[0].cohere_score:.3f}"
                 )
 
             # Log top results for debugging
@@ -398,10 +400,11 @@ class CohereRerankService:
         }
 
         # Async retry with exponential backoff (matches sync rerank behavior)
+        # Retry on HTTP errors AND network/timeout errors for production resilience
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=1, min=2, max=10),
-            retry=retry_if_exception_type((httpx.HTTPStatusError,)),
+            retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TransportError)),
             reraise=True
         ):
             with attempt:
@@ -416,11 +419,12 @@ class CohereRerankService:
                     self._log_score_distribution(reranked, query)
 
                     # LOW_RETRIEVAL logging - grep logs for these to find synonym gaps
+                    # Note: Truncate query to avoid logging PHI (HIPAA compliance)
                     if not reranked:
-                        logger.warning(f"LOW_RETRIEVAL: query='{query}' zero_results")
+                        logger.warning(f"LOW_RETRIEVAL: query='{query[:50]}...' zero_results")
                     elif reranked[0].cohere_score < 0.3:
                         logger.warning(
-                            f"LOW_RETRIEVAL: query='{query}' top_score={reranked[0].cohere_score:.3f}"
+                            f"LOW_RETRIEVAL: query='{query[:50]}...' top_score={reranked[0].cohere_score:.3f}"
                         )
 
                     if reranked:
