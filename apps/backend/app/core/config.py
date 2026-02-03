@@ -132,6 +132,13 @@ class Settings(BaseSettings):
     CONTEXT_EXPANSION_INCLUDE_SIBLINGS: bool = True  # Fetch adjacent chunks
     CONTEXT_EXPANSION_MAX_SIBLINGS: int = 1  # Max siblings on each side (1 = ±1)
 
+    # Corrective RAG (cRAG) Document Filtering
+    # Controls how many documents pass to Cohere for cross-encoder reranking
+    # Ensures consistent behavior across all query types
+    CRAG_MIN_DOCS_FOR_COHERE: int = 20   # Minimum docs to pass (guarantees variety)
+    CRAG_MAX_DOCS_FOR_COHERE: int = 35   # Maximum docs to pass (bounds Cohere cost)
+    CRAG_MAX_AMBIGUOUS_DOCS: int = 20    # Max ambiguous docs to include per case
+
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""

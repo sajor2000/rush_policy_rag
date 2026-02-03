@@ -19,6 +19,8 @@ from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,7 +43,7 @@ class QualityAssessment:
 @dataclass
 class CorrectiveAction:
     """Action to take based on retrieval quality assessment."""
-    action: str  # "proceed", "decompose", "refuse"
+    action: str  # "proceed", "decompose", "proceed_fallback", "refuse"
     relevant_docs: List[int]  # Indices of relevant docs to use
     sub_queries: List[str] = field(default_factory=list)  # For decomposition
     message: str = ""
@@ -69,10 +71,10 @@ class CorrectiveRAGService:
     RELEVANT_THRESHOLD = 0.6
     AMBIGUOUS_THRESHOLD = 0.3
 
-    # Maximum ambiguous documents to pass to Cohere reranking
-    # Increased from 2 to 20 to give Cohere 4.0 Pro sufficient candidates
-    # Cohere's cross-encoder is much better at semantic ranking than term matching
-    MAX_AMBIGUOUS_FOR_RERANK = 20
+    # Document count bounds are now configurable via settings:
+    # - settings.CRAG_MIN_DOCS_FOR_COHERE (default: 20)
+    # - settings.CRAG_MAX_DOCS_FOR_COHERE (default: 35)
+    # - settings.CRAG_MAX_AMBIGUOUS_DOCS (default: 20)
     
     # Healthcare-specific terms that indicate high relevance
     HEALTHCARE_SIGNAL_TERMS = [
@@ -170,23 +172,33 @@ class CorrectiveRAGService:
     ) -> CorrectiveAction:
         """
         Determine what corrective action to take based on quality assessments.
-        
+
         Args:
             query: Original user query
             assessments: Quality assessments for each document
-            
+
         Returns:
             CorrectiveAction indicating what to do next
+
+        Design principle: Always pass a meaningful but bounded set of documents
+        to Cohere (min 20, max 35) for consistent behavior across all query types.
         """
         relevant = [a for a in assessments if a.quality == RetrievalQuality.RELEVANT]
         ambiguous = [a for a in assessments if a.quality == RetrievalQuality.AMBIGUOUS]
-        
+
+        # Get configurable bounds
+        max_ambiguous = settings.CRAG_MAX_AMBIGUOUS_DOCS
+        min_docs = settings.CRAG_MIN_DOCS_FOR_COHERE
+        max_docs = settings.CRAG_MAX_DOCS_FOR_COHERE
+
         # Case 1: Enough relevant documents - proceed with generation
         # Also include top ambiguous docs to give Cohere more candidates
         if len(relevant) >= self.MIN_RELEVANT_DOCS:
             # Include relevant + top ambiguous for Cohere to rank
-            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:self.MAX_AMBIGUOUS_FOR_RERANK]
+            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:max_ambiguous]
             combined = relevant + top_ambiguous
+            # Apply bounds
+            combined = self._bound_doc_list(combined, assessments, min_docs, max_docs)
             logger.info(
                 f"cRAG: {len(relevant)} relevant + {len(top_ambiguous)} ambiguous "
                 f"→ {len(combined)} docs for Cohere reranking"
@@ -196,14 +208,16 @@ class CorrectiveRAGService:
                 relevant_docs=[a.doc_index for a in combined],
                 message=f"Passing {len(combined)} docs to Cohere"
             )
-        
+
         # Case 2: Some relevant + ambiguous - proceed with caution
         # Pass more candidates to Cohere 4.0 Pro for cross-encoder reranking
         if len(relevant) >= 1 and len(ambiguous) >= 1:
-            # Take all relevant + top N ambiguous (default 20)
+            # Take all relevant + top N ambiguous
             # Cohere's semantic understanding will rank better than term matching
-            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:self.MAX_AMBIGUOUS_FOR_RERANK]
+            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:max_ambiguous]
             combined = relevant + top_ambiguous
+            # Apply bounds
+            combined = self._bound_doc_list(combined, assessments, min_docs, max_docs)
             logger.info(
                 f"cRAG: {len(relevant)} relevant + {len(top_ambiguous)} ambiguous "
                 f"(of {len(ambiguous)} total) → {len(combined)} docs for Cohere reranking"
@@ -213,12 +227,14 @@ class CorrectiveRAGService:
                 relevant_docs=[a.doc_index for a in combined],
                 message=f"Passing {len(combined)} docs to Cohere (relevant + top ambiguous)"
             )
-        
+
         # Case 3: Only ambiguous documents - try query decomposition or pass to Cohere
         if len(ambiguous) >= 2:
             sub_queries = self._decompose_query(query)
             # Sort and limit ambiguous docs for Cohere reranking
-            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:self.MAX_AMBIGUOUS_FOR_RERANK]
+            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:max_ambiguous]
+            # Apply bounds
+            top_ambiguous = self._bound_doc_list(top_ambiguous, assessments, min_docs, max_docs)
             if sub_queries:
                 logger.info(f"cRAG: Only ambiguous docs - decomposing query into {len(sub_queries)} sub-queries")
                 return CorrectiveAction(
@@ -235,14 +251,60 @@ class CorrectiveRAGService:
                     relevant_docs=[a.doc_index for a in top_ambiguous],
                     message=f"Passing {len(top_ambiguous)} ambiguous docs to Cohere"
                 )
-        
-        # Case 4: Insufficient quality - refuse to generate
-        logger.warning(f"cRAG: Insufficient retrieval quality - refusing to generate")
-        return CorrectiveAction(
-            action="refuse",
-            relevant_docs=[],
-            message="Unable to find sufficiently relevant policy documents"
+
+        # Case 4: Insufficient quality - pass top-scoring docs anyway
+        # Let Cohere's cross-encoder make the final judgment instead of refusing
+        # This ensures consistent 20-35 doc candidate set for ALL queries
+        top_docs = sorted(assessments, key=lambda a: a.score, reverse=True)[:min_docs]
+        logger.warning(
+            f"cRAG: Low quality retrieval - passing top {len(top_docs)} docs to Cohere anyway"
         )
+        return CorrectiveAction(
+            action="proceed_fallback",
+            relevant_docs=[a.doc_index for a in top_docs],
+            message=f"Low quality - letting Cohere decide on {len(top_docs)} candidates"
+        )
+
+    def _bound_doc_list(
+        self,
+        doc_assessments: List[QualityAssessment],
+        all_assessments: List[QualityAssessment],
+        min_docs: int,
+        max_docs: int
+    ) -> List[QualityAssessment]:
+        """
+        Ensure document count is within configured bounds.
+
+        If below minimum, pad with top-scoring docs from all assessments.
+        If above maximum, truncate to max.
+
+        Args:
+            doc_assessments: Currently selected assessments
+            all_assessments: All available assessments (for padding)
+            min_docs: Minimum docs to return
+            max_docs: Maximum docs to return
+
+        Returns:
+            List of assessments within bounds
+        """
+        # Cap at maximum
+        if len(doc_assessments) > max_docs:
+            return doc_assessments[:max_docs]
+
+        # Pad to minimum if needed
+        if len(doc_assessments) < min_docs:
+            existing_indices = {a.doc_index for a in doc_assessments}
+            # Get remaining docs sorted by score
+            remaining = sorted(
+                [a for a in all_assessments if a.doc_index not in existing_indices],
+                key=lambda a: a.score,
+                reverse=True
+            )
+            # Add enough to reach minimum
+            needed = min_docs - len(doc_assessments)
+            doc_assessments = list(doc_assessments) + remaining[:needed]
+
+        return doc_assessments
 
     def _decompose_query(self, query: str) -> List[str]:
         """

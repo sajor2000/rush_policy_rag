@@ -1281,10 +1281,20 @@ Policy excerpt:"""
                     assessments=quality_assessments
                 )
                 
-                if corrective_action.action == "refuse":
-                    logger.warning("cRAG: insufficient quality; proceeding with unfiltered document set")
-                    docs_for_rerank = original_docs[: settings.COHERE_RETRIEVE_TOP_K]
-                else:
+                if corrective_action.action in ("refuse", "proceed_fallback"):
+                    # Use cRAG's selected indices even for low-quality retrievals
+                    if corrective_action.relevant_docs:
+                        docs_for_rerank = [
+                            original_docs[i] for i in corrective_action.relevant_docs
+                            if i < len(original_docs)
+                        ]
+                        logger.info(f"cRAG fallback: using {len(docs_for_rerank)} top-scoring docs")
+                    else:
+                        # True refuse - no viable docs, use configured minimum
+                        min_docs = settings.CRAG_MIN_DOCS_FOR_COHERE
+                        docs_for_rerank = original_docs[:min_docs]
+                        logger.warning(f"cRAG refuse: using first {len(docs_for_rerank)} docs")
+                elif corrective_action.action in ("proceed", "decompose"):
                     filtered_docs = crag_service.filter_documents_by_quality(
                         docs_for_rerank, quality_assessments, corrective_action
                     )
