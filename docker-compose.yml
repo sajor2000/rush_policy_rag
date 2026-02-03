@@ -16,7 +16,7 @@ services:
 
       # Azure OpenAI
       - AOAI_ENDPOINT=${AOAI_ENDPOINT}
-      - AOAI_API=${AOAI_API}
+      - AOAI_API_KEY=${AOAI_API_KEY}
       - AOAI_CHAT_DEPLOYMENT=${AOAI_CHAT_DEPLOYMENT:-gpt-4.1}
       - AOAI_EMBEDDING_DEPLOYMENT=${AOAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-large}
 

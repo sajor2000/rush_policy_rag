@@ -2,19 +2,19 @@
 
 > RUSH Policy RAG Agent - Documentation Hub
 >
-> Last Updated: 2026-01-31
+> Last Updated: 2026-02-03
 
 ## Quick Links
 
 | I want to... | Go to |
 |--------------|-------|
-| Get onboarded as a new engineer | [ONBOARDING.md](ONBOARDING.md) |
-| Understand dev vs prod | [DEV_PROD_PLAN.md](DEV_PROD_PLAN.md) |
-| Set up my development environment | [Root README](../README.md) |
+| **Get running in 30 minutes** | [QUICK_START.md](QUICK_START.md) |
+| Understand RAG design decisions | [RAG_DESIGN.md](RAG_DESIGN.md) |
+| See architecture diagrams | [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) |
+| Full onboarding guide | [ONBOARDING.md](ONBOARDING.md) |
 | Deploy to Azure | [DEPLOYMENT.md](../DEPLOYMENT.md) |
 | Understand scripts and tooling | [SCRIPTS.md](SCRIPTS.md) |
 | Configure environment variables | [ENV_VARS.md](ENV_VARS.md) |
-| Understand the architecture | [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) |
 | Run tests | [TESTING.md](TESTING.md) |
 | Update policies monthly | [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) |
 
@@ -26,20 +26,22 @@
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [ONBOARDING.md](ONBOARDING.md) | New engineer start-here guide | All |
-| [DEV_PROD_PLAN.md](DEV_PROD_PLAN.md) | Dev vs prod architecture and promotion flow | All |
-| [README.md](../README.md) | Project overview, quick start | All |
-| [CLAUDE.md](../CLAUDE.md) | Comprehensive development guide | Developers |
+| [QUICK_START.md](QUICK_START.md) | **30-minute setup guide** | All |
+| [ONBOARDING.md](ONBOARDING.md) | Full onboarding guide | All |
+| [README.md](../README.md) | Project overview | All |
+| [CLAUDE.md](../CLAUDE.md) | AI assistant development guide | Developers |
 | [ENV_VARS.md](ENV_VARS.md) | Environment configuration | All |
-| [SCRIPTS.md](SCRIPTS.md) | Script map and usage notes | Developers |
+| [SCRIPTS.md](SCRIPTS.md) | Script reference | Developers |
 
 ### Architecture
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [RushPolicyAssistant_Architecture.pdf](RushPolicyAssistant_Architecture.pdf) | Azure Cloud Architecture diagram (visual) | All |
-| [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | System architecture diagrams | Architects |
-| [Backend README](../apps/backend/README.md) | Backend architecture & API | Developers |
+| [RAG_DESIGN.md](RAG_DESIGN.md) | **RAG architecture decisions** | Developers |
+| [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) | **Visual system diagrams** | All |
+| [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical review document | Architects |
+| [RushPolicyAssistant_Architecture.pdf](RushPolicyAssistant_Architecture.pdf) | Azure cloud diagram | All |
+| [Backend README](../apps/backend/README.md) | Backend architecture | Developers |
 | [Frontend README](../apps/frontend/README.md) | Frontend architecture | Developers |
 
 ### Deployment
@@ -78,25 +80,32 @@
 ```
 docs/
 ├── README.md                    # This file (documentation index)
-├── ONBOARDING.md                # New engineer start-here guide
+├── QUICK_START.md               # 30-minute new engineer guide
+├── RAG_DESIGN.md                # RAG architecture decisions
+├── ARCHITECTURE_DIAGRAMS.md     # Visual system diagrams (Mermaid)
+├── ONBOARDING.md                # Full onboarding guide
 ├── DEV_PROD_PLAN.md             # Dev vs prod plan
 ├── SCRIPTS.md                   # Script reference
 ├── ENV_VARS.md                  # Environment variables reference
 ├── TESTING.md                   # Testing guide
+├── RAG_TESTING_PLAN.md          # RAG evaluation strategy
 ├── SECURITY.md                  # Security documentation
 ├── TROUBLESHOOTING.md           # Common issues & solutions
 ├── CHANGELOG.md                 # Release history
-├── RushPolicyAssistant_Architecture.pdf # Azure cloud architecture (visual)
-├── TECHNICAL_ARCHITECTURE_PWC.md # Architecture overview
+├── TECHNICAL_ARCHITECTURE_PWC.md # Technical review document
+├── RushPolicyAssistant_Architecture.pdf # Azure cloud architecture
 ├── MONTHLY_UPDATE_PROCEDURES.md # Policy updates
 ├── MONTHLY_DOCUMENT_UPDATE_GUIDE.md # Document sync
-├── deployment-rollback-tags.txt # Git tags for rollback
 ├── baselines/                   # Performance baselines
 │   └── on_your_data_baseline_*.json
-└── archive/                     # Historical documents
-    ├── phase1-completion-summary.md
-    ├── deployment-completion-summary.md
-    └── ... (legacy docs)
+└── archive/                     # Historical documents (not actively maintained)
+    ├── README.md                # Archive explanation
+    ├── FIXES_APPLIED.md
+    ├── FIXES_SUMMARY.md
+    ├── CODE_AUDIT_FIXES.md
+    ├── CODE_AUDIT_FIXES_SUMMARY.md
+    ├── IMPLEMENTATION_SUMMARY.md
+    └── RAG_OPTIMIZATION_SPRINT_PLAN.md
 ```
 
 ---
@@ -111,17 +120,18 @@ docs/
 
 | Document | Status | Last Verified |
 |----------|--------|---------------|
-| README.md | ✅ Current | 2026-01-11 |
-| CLAUDE.md | ✅ Current | 2026-01-11 |
+| QUICK_START.md | ✅ Current | 2026-02-03 |
+| RAG_DESIGN.md | ✅ Current | 2026-02-03 |
+| ARCHITECTURE_DIAGRAMS.md | ✅ Current | 2026-02-03 |
+| CLAUDE.md | ✅ Current | 2026-02-03 |
+| README.md | ✅ Current | 2026-02-03 |
+| ONBOARDING.md | ✅ Current | 2026-01-31 |
 | ENV_VARS.md | ✅ Current | 2026-01-11 |
 | DEPLOYMENT.md | ✅ Current | 2026-01-11 |
-| ONBOARDING.md | ✅ Current | 2026-01-31 |
-| DEV_PROD_PLAN.md | ✅ Current | 2026-01-31 |
 | SCRIPTS.md | ✅ Current | 2026-01-31 |
+| RAG_TESTING_PLAN.md | ✅ Current | 2026-01-31 |
 | Backend README | ✅ Current | 2026-01-11 |
 | Frontend README | ✅ Current | 2026-01-11 |
-| TECHNICAL_ARCHITECTURE_PWC.md | ✅ Current | 2026-01-11 |
-| CHANGELOG.md | ✅ Current | 2026-01-11 |
 | archive/* | 📁 Archived | N/A |
 
 ---

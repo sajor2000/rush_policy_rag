@@ -13,10 +13,17 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 
 ## New Engineer? Start Here
 
-- Start-here onboarding: [docs/ONBOARDING.md](docs/ONBOARDING.md)
-- Script map: [docs/SCRIPTS.md](docs/SCRIPTS.md)
-- Environment variables: [docs/ENV_VARS.md](docs/ENV_VARS.md)
-- Dev/Prod plan (per architecture PDF): [docs/DEV_PROD_PLAN.md](docs/DEV_PROD_PLAN.md)
+**Get running in 30 minutes:** [docs/QUICK_START.md](docs/QUICK_START.md)
+
+| I want to... | Go to |
+|--------------|-------|
+| Get running quickly | [QUICK_START.md](docs/QUICK_START.md) |
+| Understand RAG architecture | [RAG_DESIGN.md](docs/RAG_DESIGN.md) |
+| See architecture diagrams | [ARCHITECTURE_DIAGRAMS.md](docs/ARCHITECTURE_DIAGRAMS.md) |
+| Full onboarding guide | [ONBOARDING.md](docs/ONBOARDING.md) |
+| Script reference | [SCRIPTS.md](docs/SCRIPTS.md) |
+| Environment variables | [ENV_VARS.md](docs/ENV_VARS.md) |
+| Deploy to Azure | [DEPLOYMENT.md](DEPLOYMENT.md) |
 
 ## Deployment Team - Start Here
 

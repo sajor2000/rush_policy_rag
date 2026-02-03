@@ -40,7 +40,7 @@ load_dotenv(env_path)
 # ============================================================================
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-TEST_DATASET_PATH = Path(__file__).parent.parent / "data" / "deepeval_test_dataset.json"
+TEST_DATASET_PATH = Path(__file__).parent.parent / "data" / "test_dataset_v5.json"
 
 
 # ============================================================================
