@@ -14,7 +14,7 @@ Thank you for your interest in contributing to the RUSH Policy RAG system. This 
 
 ## Code of Conduct
 
-Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md) to maintain a respectful and inclusive community.
+Please maintain a respectful and inclusive community when contributing to this project.
 
 ## Getting Started
 

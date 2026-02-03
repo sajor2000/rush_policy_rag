@@ -37,10 +37,8 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 
 | Script | Purpose | Notes |
 | --- | --- | --- |
-| `scripts/full_pipeline_ingest.py` | End-to-end ingest with timing | Clears index by default |
-| `scripts/checkpointed_pipeline.py` | Resumable ingest with checkpoints | Supports `--resume` |
-| `scripts/rebuild_index.py` | Rebuild search index + synonym map | One-time migrations |
-| `scripts/mark_v1_baseline.py` | Set version baseline on blobs + chunks | Run once |
+| `scripts/full_pipeline_ingest.py` | End-to-end ingest with timing | **Recommended** - clears index by default |
+| `scripts/local_folder_ingest.py` | Ingest from local folder | Alternative to full pipeline |
 | `scripts/upload_pdfs_to_blob.py` | Upload PDFs to `policies-active` | Enables PDF viewer |
 | `apps/backend/scripts/ingest_all_policies.py` | Ingest from blob or local folder | Primary ingest tool |
 | `apps/backend/scripts/reindex_specific_files.py` | Reindex named PDFs | Targeted updates |
@@ -51,14 +49,14 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | Script | Purpose | Notes |
 | --- | --- | --- |
 | `scripts/run_test_dataset.py` | Run local test dataset against API | Uses `apps/backend/data/test_dataset.json` |
-| `scripts/run_evaluation.py` | Run Azure + RAGAS evaluators | Exports JSON/CSV |
-| `scripts/run_enhanced_evaluation.py` | Enhanced eval suite (cohere/hallucination/risen) | Category flags |
-| `scripts/run_agent_evaluation.py` | Azure AI evaluators for reliability | Multi-mode |
-| `scripts/run_garak_adversarial.py` | Adversarial/jailbreak testing | Optional for security |
+| `scripts/run_enhanced_evaluation.py` | Enhanced eval suite (cohere/hallucination/risen) | **Recommended** - category flags |
+| `scripts/run_ragas_evaluation.py` | RAGAS evaluation metrics | Faithfulness, recall, precision |
 | `scripts/audit_evaluation_failures.py` | Classify evaluation failures | Evaluator vs RAG |
-| `scripts/review_responses.py` | Human review CLI for results | Interactive |
-| `scripts/generate_test_dataset.py` | Generate test cases from PDFs | Offline |
-| `scripts/generate_ceo_report.py` | Executive QA report | Optional |
+| `scripts/weekly_eval.py` | Weekly production evaluation | Email reports |
+| `scripts/generate_executive_report.py` | Executive usage report | AI-powered question classification |
+| `scripts/generate_test_dataset_v5.py` | Generate test cases from PDFs | Latest version |
+| `scripts/generate_test_dataset_from_pdfs.py` | Alternative test dataset generator | Uses PDF content |
+| `scripts/integrate_realistic_questions.py` | Integrate realistic staff questions | 100 production tests |
 
 ## Debugging and Utilities
 
@@ -66,7 +64,8 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | --- | --- | --- |
 | `scripts/debug_pdf_structure.py` | Inspect PDF checkbox layout | PyMuPDF |
 | `scripts/test_checkbox_extraction.py` | A/B checkbox extraction methods | Compares Docling vs pypdf |
-| `scripts/measure_backend_performance.py` | Latency baselines for endpoints | Uses `BACKEND_URL` |
+| `scripts/validate_metadata_extraction.py` | Validate PDF metadata extraction | Quality check |
+| `scripts/audit_quality.py` | Audit ingestion quality | Post-ingest validation |
 | `scripts/ssl_fix.py` | SSL fix for corporate proxy | Import first in scripts |
 
 ## Backend Scripts Folder (`apps/backend/scripts/`)
@@ -78,3 +77,21 @@ These are executed from `apps/backend/`:
 | `setup_azure_infrastructure.py` | Provision Azure services (search, storage, etc.) |
 | `ingest_all_policies.py` | Ingest from blob/local PDFs into Azure Search |
 | `reindex_specific_files.py` | Reindex a subset of PDFs |
+
+## Archived Scripts (`scripts/archive/`)
+
+These scripts are archived for historical reference. Use the active alternatives listed above.
+
+| Archived Script | Active Alternative | Notes |
+| --- | --- | --- |
+| `checkpointed_pipeline.py` | `full_pipeline_ingest.py` | Resumable ingest replaced by full pipeline |
+| `run_evaluation.py` | `run_enhanced_evaluation.py` | Legacy evaluator |
+| `run_agent_evaluation.py` | `run_enhanced_evaluation.py` | Legacy Azure AI evaluators |
+| `generate_test_dataset.py` | `generate_test_dataset_v5.py` | Older version |
+| `generate_test_dataset_v4.py` | `generate_test_dataset_v5.py` | Older version |
+| `generate_ceo_report.py` | `generate_executive_report.py` | Renamed and enhanced |
+| `review_responses.py` | `audit_evaluation_failures.py` | Human review CLI replaced |
+| `run_garak_adversarial.py` | N/A | Adversarial testing (optional) |
+| `rebuild_index.py` | `full_pipeline_ingest.py` | One-time migration script |
+| `mark_v1_baseline.py` | N/A | One-time baseline script |
+| `measure_backend_performance.py` | N/A | Manual latency testing |

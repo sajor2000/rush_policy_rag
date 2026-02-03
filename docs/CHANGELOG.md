@@ -119,7 +119,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Performance Baseline Script**: Enhanced `scripts/measure_backend_performance.py`
   - Captures P50/P95 latency metrics for health, search, and chat endpoints
   - JSON output to `docs/baselines/` for before/after comparisons
-- **Single Backend Simplification Plan**: Documented FastAPI-only roadmap in `docs/SINGLE_BACKEND_SIMPLIFICATION.md` and linked it from README/DEPLOYMENT so all contributors follow the new architecture direction.
+- **Single Backend Simplification Plan**: Documented FastAPI-only roadmap (architecture now in CLAUDE.md) so all contributors follow the new architecture direction.
 - **PyMuPDF Checkbox Extraction**: Added PyMuPDF-first extraction strategy for "Applies To" checkboxes
   - `_extract_applies_to_from_raw_pdf()` method in chunker.py (lines 687-750)
   - Fallback chain: PyMuPDF → Docling → Regex
@@ -161,7 +161,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`/serverless/agent-proxy/`**: Deleted deprecated Azure Function proxy (2025-11-28)
   - All traffic now flows through FastAPI backend
   - Single-backend simplification complete
-  - See `docs/SINGLE_BACKEND_SIMPLIFICATION.md` for migration details
+  - Architecture details now in CLAUDE.md
 - Duplicate `env.example` file (kept `.env.example`)
 - Empty `test_pdfs/` directory
 - Unused `apps/frontend/.replit` config file

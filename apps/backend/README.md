@@ -117,7 +117,7 @@ The ingestion pipeline uses IBM Docling for PDF processing:
 2. **Docling Processing** → TableFormer table extraction + checkbox detection
 3. **Chunking** → Hierarchical section-aware chunking (~1,500 chars)
 4. **Embedding** → Generate 3072-dim vectors (text-embedding-3-large)
-5. **Indexing** → Upload to Azure AI Search with 36-field schema
+5. **Indexing** → Upload to Azure AI Search with 29-field schema
 6. **Sync** → Copy to `policies-active` with content hash metadata
 
 ### Key Features
@@ -161,7 +161,7 @@ python scripts/ingest_all_policies.py --force-reindex
 
 ## Azure AI Search Schema
 
-The `rush-policies` index uses a 36-field schema:
+The `rush-policies` index uses a 29-field schema:
 
 ### Core Fields
 | Field | Type | Purpose |

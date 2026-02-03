@@ -323,11 +323,17 @@ az containerapp env show --name $ENV_NAME --resource-group $RESOURCE_GROUP --que
 
 ## Step 8: Build and Deploy Backend
 
+> **CRITICAL**: If building locally (not using `az acr build`), always use `--platform linux/amd64`:
+> ```bash
+> docker build --platform linux/amd64 -t ${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG -f apps/backend/Dockerfile apps/backend
+> ```
+> See [CLAUDE.md](CLAUDE.md) for the recommended local build workflow.
+
 ### 8.1 Build the Backend Container Image
 
 ```bash
 cd apps/backend
-az acr build --registry $ACR_NAME --image policytech-backend:latest .
+az acr build --registry $ACR_NAME --image rush-policy-backend:latest .
 cd ../..
 ```
 
@@ -345,7 +351,7 @@ az containerapp create \
   --name rush-policy-backend \
   --resource-group $RESOURCE_GROUP \
   --environment $ENV_NAME \
-  --image ${ACR_NAME}.azurecr.io/policytech-backend:latest \
+  --image ${ACR_NAME}.azurecr.io/rush-policy-backend:latest \
   --registry-server ${ACR_NAME}.azurecr.io \
   --registry-username $ACR_NAME \
   --registry-password "$ACR_PASSWORD" \
@@ -402,11 +408,17 @@ curl https://$BACKEND_URL/health
 
 ## Step 9: Build and Deploy Frontend
 
+> **CRITICAL**: If building locally (not using `az acr build`), always use `--platform linux/amd64`:
+> ```bash
+> docker build --platform linux/amd64 -t ${ACR_NAME}.azurecr.io/rush-policy-frontend:$TAG -f apps/frontend/Dockerfile apps/frontend
+> ```
+> See [CLAUDE.md](CLAUDE.md) for the recommended local build workflow.
+
 ### 9.1 Build the Frontend Container Image
 
 ```bash
 cd apps/frontend
-az acr build --registry $ACR_NAME --image policytech-frontend:latest --build-arg BACKEND_URL=https://$BACKEND_URL .
+az acr build --registry $ACR_NAME --image rush-policy-frontend:latest --build-arg BACKEND_URL=https://$BACKEND_URL .
 cd ../..
 ```
 
@@ -417,7 +429,7 @@ az containerapp create \
   --name rush-policy-frontend \
   --resource-group $RESOURCE_GROUP \
   --environment $ENV_NAME \
-  --image ${ACR_NAME}.azurecr.io/policytech-frontend:latest \
+  --image ${ACR_NAME}.azurecr.io/rush-policy-frontend:latest \
   --registry-server ${ACR_NAME}.azurecr.io \
   --registry-username $ACR_NAME \
   --registry-password "$ACR_PASSWORD" \
@@ -585,26 +597,42 @@ az containerapp show \
 
 When you need to update the deployed application:
 
+> **Recommended**: Use the local Docker build workflow in [CLAUDE.md](CLAUDE.md) with `--platform linux/amd64` for reliable builds.
+
 ### Update Backend Only
 
 ```bash
-cd apps/backend
-az acr build --registry $ACR_NAME --image policytech-backend:latest .
+# Using az acr build (cloud build)
+az acr build --registry $ACR_NAME --image rush-policy-backend:latest apps/backend
+
+# OR using local Docker (recommended - explicit platform)
+TAG=$(git rev-parse --short HEAD)
+docker build --platform linux/amd64 -t ${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG -f apps/backend/Dockerfile apps/backend
+docker push ${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG
+
+# Deploy
 az containerapp update \
   --name rush-policy-backend \
   --resource-group $RESOURCE_GROUP \
-  --image ${ACR_NAME}.azurecr.io/policytech-backend:latest
+  --image ${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG
 ```
 
 ### Update Frontend Only
 
 ```bash
-cd apps/frontend
-az acr build --registry $ACR_NAME --image policytech-frontend:latest .
+# Using az acr build (cloud build)
+az acr build --registry $ACR_NAME --image rush-policy-frontend:latest apps/frontend
+
+# OR using local Docker (recommended - explicit platform)
+TAG=$(git rev-parse --short HEAD)
+docker build --platform linux/amd64 -t ${ACR_NAME}.azurecr.io/rush-policy-frontend:$TAG -f apps/frontend/Dockerfile apps/frontend
+docker push ${ACR_NAME}.azurecr.io/rush-policy-frontend:$TAG
+
+# Deploy
 az containerapp update \
   --name rush-policy-frontend \
   --resource-group $RESOURCE_GROUP \
-  --image ${ACR_NAME}.azurecr.io/policytech-frontend:latest
+  --image ${ACR_NAME}.azurecr.io/rush-policy-frontend:$TAG
 ```
 
 ---
@@ -747,7 +775,7 @@ az deployment group create \
 - Bicep templates default to GHCR
 
 **Option B: Azure Container Registry (ACR)** - Used by manual CLI deployment
-- Images: `${ACR_NAME}.azurecr.io/policytech-backend:latest`
+- Images: `${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG`
 - Auth: ACR admin credentials or managed identity
 - Requires updating Bicep `registries` section
 

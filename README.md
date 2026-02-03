@@ -35,73 +35,79 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 
 Targets **RU-Azure-NonProd** / `RU-A-NonProd-AI-Innovation-RG` per `docs/RushPolicyAssistant_Architecture.pdf`.
 
+**CRITICAL**: Always build with `--platform linux/amd64` for Azure Container Apps.
+
 ```bash
 # Login + select subscription
 az login
 az account set --subscription "RU-Azure-NonProd"
+az acr login --name aiinnovation
 
-# Step 1: Build Backend
-cd apps/backend
-az acr build --registry aiinnovation --image policytech-backend:latest .
+# Get current commit for tagging
+TAG=$(git rev-parse --short HEAD)
+
+# Step 1: Build and push backend (linux/amd64 required)
+docker build --platform linux/amd64 \
+  -t aiinnovation.azurecr.io/rush-policy-backend:$TAG \
+  -f apps/backend/Dockerfile apps/backend
+docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
 # Step 2: Deploy Backend
 az containerapp update \
-  --name rush-policy-backend \
-  --resource-group RU-A-NonProd-AI-Innovation-RG \
-  --image aiinnovation.azurecr.io/policytech-backend:latest
+  -n rush-policy-backend \
+  -g RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
-# Step 3: Get backend URL for frontend build
-BACKEND_URL=$(az containerapp show \
-  --name rush-policy-backend \
-  --resource-group RU-A-NonProd-AI-Innovation-RG \
-  --query properties.configuration.ingress.fqdn -o tsv)
+# Step 3: Build and push frontend (linux/amd64 required)
+docker build --platform linux/amd64 \
+  -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG \
+  -f apps/frontend/Dockerfile apps/frontend
+docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
 
-# Step 4: Build Frontend
-cd ../frontend
-az acr build --registry aiinnovation --image policytech-frontend:latest \
-  --build-arg BACKEND_URL="https://$BACKEND_URL" .
-
-# Step 5: Deploy Frontend
+# Step 4: Deploy Frontend
 az containerapp update \
-  --name rush-policy-frontend \
-  --resource-group RU-A-NonProd-AI-Innovation-RG \
-  --image aiinnovation.azurecr.io/policytech-frontend:latest
+  -n rush-policy-frontend \
+  -g RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-frontend:$TAG
 ```
 
 ### Deploy from Terminal (Prod)
 
-Targets **RU-Azure-Prod** / `RU-A-Prod-AI-Innovation-RG`. Backend FQDN is TBD; use the CLI to fetch it.
+Targets **RU-Azure-Prod** / `RU-A-Prod-AI-Innovation-RG`.
+
+**CRITICAL**: Always build with `--platform linux/amd64` for Azure Container Apps.
 
 ```bash
 az login
 az account set --subscription "RU-Azure-Prod"
+az acr login --name aiinnovation
 
-# Build backend
-cd apps/backend
-az acr build --registry aiinnovation --image policytech-backend:latest .
+# Get current commit for tagging
+TAG=$(git rev-parse --short HEAD)
+
+# Build and push backend (linux/amd64 required)
+docker build --platform linux/amd64 \
+  -t aiinnovation.azurecr.io/rush-policy-backend:$TAG \
+  -f apps/backend/Dockerfile apps/backend
+docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
 # Deploy backend
 az containerapp update \
-  --name rush-policy-backend \
-  --resource-group RU-A-Prod-AI-Innovation-RG \
-  --image aiinnovation.azurecr.io/policytech-backend:latest
+  -n rush-policy-backend \
+  -g RU-A-Prod-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
-# Get backend URL for frontend build (TBD in docs)
-BACKEND_URL=$(az containerapp show \
-  --name rush-policy-backend \
-  --resource-group RU-A-Prod-AI-Innovation-RG \
-  --query properties.configuration.ingress.fqdn -o tsv)
-
-# Build frontend
-cd ../frontend
-az acr build --registry aiinnovation --image policytech-frontend:latest \
-  --build-arg BACKEND_URL="https://$BACKEND_URL" .
+# Build and push frontend (linux/amd64 required)
+docker build --platform linux/amd64 \
+  -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG \
+  -f apps/frontend/Dockerfile apps/frontend
+docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
 
 # Deploy frontend
 az containerapp update \
-  --name rush-policy-frontend \
-  --resource-group RU-A-Prod-AI-Innovation-RG \
-  --image aiinnovation.azurecr.io/policytech-frontend:latest
+  -n rush-policy-frontend \
+  -g RU-A-Prod-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-frontend:$TAG
 ```
 
 ### Non-Prod URLs (RU-Azure-NonProd)
@@ -353,6 +359,5 @@ Internal use only - Rush University System for Health
 
 - **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 - **Development Guide**: [CLAUDE.md](CLAUDE.md)
-- **Production Deployment Summary**: [docs/deployment-completion-summary.md](docs/deployment-completion-summary.md)
 - **Changelog**: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 - **Policy Admin**: https://rushumc.navexone.com/

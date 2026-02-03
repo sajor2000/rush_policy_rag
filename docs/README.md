@@ -71,7 +71,7 @@
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines | Contributors |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines | Contributors |
 
 ---
 

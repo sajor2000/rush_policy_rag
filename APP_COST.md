@@ -30,7 +30,7 @@
 
 **Tech Stack**: FastAPI backend + Next.js 14 frontend + Azure OpenAI "On Your Data" (vectorSemanticHybrid)
 
-**Architecture Status**: ✅ COMPLETED - See [`docs/SINGLE_BACKEND_SIMPLIFICATION.md`](docs/SINGLE_BACKEND_SIMPLIFICATION.md)
+**Architecture Status**: ✅ COMPLETED - See [CLAUDE.md](CLAUDE.md) for architecture details
 
 ---
 
