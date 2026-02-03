@@ -17,7 +17,7 @@ export default function ErrorMessage({
       className="flex flex-col items-center gap-4 p-6 bg-card border border-card-border rounded-lg max-w-md mx-auto"
       data-testid="error-message"
     >
-      <div className="w-12 h-12 rounded-full bg-rush-sage flex items-center justify-center">
+      <div className="w-12 h-12 rounded-full bg-rush-light-gray border border-rush-gray/30 flex items-center justify-center">
         <AlertCircle className="h-6 w-6 text-rush-legacy" />
       </div>
       <div className="text-center space-y-2">

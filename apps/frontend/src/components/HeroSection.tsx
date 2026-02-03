@@ -26,7 +26,7 @@ export default function HeroSection({ onGetStarted }: { onGetStarted: () => void
           </p>
 
           {/* Monthly Update Notice */}
-          <div className="bg-rush-sage/30 border border-rush-legacy/20 rounded-lg px-4 py-3 max-w-xl">
+          <div className="bg-white border border-rush-gray/30 rounded-lg px-4 py-3 max-w-xl">
             <p className="text-sm text-muted-foreground">
               {syncInfo && syncInfo.last_sync_date_display !== "Unknown" ? (
                 <>

@@ -351,7 +351,7 @@ export default function ChatInterface() {
         {messages.length === 0 ? (
           <div className="flex-1 flex items-center justify-center py-12">
             <div className="text-center space-y-4 max-w-md">
-              <div className="w-16 h-16 mx-auto rounded-full bg-rush-sage flex items-center justify-center">
+              <div className="w-16 h-16 mx-auto rounded-full bg-rush-light-gray border border-rush-gray/30 flex items-center justify-center">
                 <Sparkles className="h-8 w-8 text-rush-legacy" />
               </div>
               <h3 className="text-xl font-semibold text-foreground">
@@ -396,7 +396,7 @@ export default function ChatInterface() {
             )}
             {/* Device Ambiguity Clarification UI */}
             {showClarification && (
-              <div className="p-4 bg-rush-light-pink border-l-4 border-rush-yellow rounded-lg mb-4 shadow-md">
+              <div className="p-4 bg-white border border-rush-gray/30 rounded-lg mb-4 shadow-sm">
                 <p className="text-sm font-medium text-rush-charcoal mb-3">
                   {showClarification.message}
                 </p>
@@ -405,7 +405,7 @@ export default function ChatInterface() {
                     <button
                       key={idx}
                       onClick={() => handleClarificationChoice(opt)}
-                      className="text-left px-4 py-2 bg-white border border-rush-legacy/30 rounded-md hover:bg-rush-legacy/5 transition-colors"
+                      className="text-left px-4 py-2 bg-rush-light-gray border border-rush-gray/30 rounded-md hover:bg-rush-legacy/10 transition-colors"
                     >
                       <span className="font-medium text-rush-legacy">{opt.label}</span>
                     </button>
@@ -522,7 +522,7 @@ export default function ChatInterface() {
 
           {/* Search Modes Help Tooltip */}
           {showDeepSearchHelp && (
-            <div className="mb-3 p-3 bg-rush-sage/30 border border-rush-legacy/20 rounded-lg text-sm relative">
+            <div className="mb-3 p-3 bg-white border border-rush-gray/30 rounded-lg text-sm relative">
               <button
                 type="button"
                 onClick={() => setShowDeepSearchHelp(false)}
@@ -625,12 +625,14 @@ export default function ChatInterface() {
 
           {/* Document Sync Date Disclaimer */}
           <div className="mt-4 pt-3 border-t border-border/50">
-            <div className="bg-rush-light-pink border border-rush-yellow/50 rounded-md p-2.5 text-center">
+            <div className="bg-white border border-rush-gray/30 rounded-md p-2.5 text-center">
               <p className="text-[11px] text-rush-charcoal">
-                <span className="font-semibold">Documents indexed: January 22, 2026</span>
+                <span className="font-semibold">Policies last uploaded: January 22, 2026</span>
+                <span className="mx-1.5">•</span>
+                <span className="text-[10px]">Updated monthly</span>
               </p>
               <p className="text-[10px] text-rush-charcoal mt-1">
-                Recently updated or new policies may not appear here yet. For the most current version, verify at{" "}
+                Changes made after this date are not available here. For the latest version, go to{" "}
                 <a
                   href={POLICYTECH_URL}
                   target="_blank"

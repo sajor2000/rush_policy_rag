@@ -180,7 +180,7 @@ export default function ChatMessage({
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-4 py-3 shadow-sm overflow-hidden",
-          isUser ? "bg-rush-growth text-white" : "bg-rush-sage text-foreground"
+          isUser ? "bg-rush-growth text-white" : "bg-white border border-rush-gray/30 text-foreground"
         )}
       >
         {isUser ? (
@@ -312,7 +312,7 @@ export default function ChatMessage({
                         <button
                           key={item.idx}
                           onClick={() => scrollToEvidence(item.idx)}
-                          className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-white to-rush-sage/20 hover:to-rush-sage/40 border border-rush-legacy/20 rounded-lg transition-all duration-200 group text-left shadow-sm hover:shadow"
+                          className="flex items-center gap-3 p-2.5 bg-white hover:bg-rush-light-gray border border-rush-legacy/20 rounded-lg transition-all duration-200 group text-left shadow-sm hover:shadow"
                         >
                           {/* Citation number badge */}
                           <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 text-xs font-bold bg-rush-legacy text-white rounded-md shadow-sm">
@@ -331,7 +331,7 @@ export default function ChatMessage({
                                 </span>
                               )}
                               {item.page_number && (
-                                <span className="text-[10px] text-rush-legacy bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium">
+                                <span className="text-[10px] text-rush-legacy bg-rush-light-gray px-1.5 py-0.5 rounded font-medium">
                                   Page {item.page_number}
                                 </span>
                               )}
@@ -469,7 +469,7 @@ export default function ChatMessage({
                             </span>
                             {/* Match type badge */}
                             {item.match_type === "verified" ? (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] text-rush-legacy bg-rush-sage/50 px-1.5 py-0.5 rounded font-medium">
+                              <span className="inline-flex items-center gap-0.5 text-[9px] text-rush-legacy bg-rush-light-gray px-1.5 py-0.5 rounded font-medium">
                                 <CheckCircle2 className="h-2.5 w-2.5" />
                                 Cited
                               </span>
@@ -483,7 +483,7 @@ export default function ChatMessage({
                               {item.title || "Policy"}
                             </span>
                             {item.reference_number && formatReferenceNumber(item.reference_number) !== "N/A" && (
-                              <span className="text-xs font-medium text-rush-legacy bg-rush-sage/30 px-1.5 py-0.5 rounded">
+                              <span className="text-xs font-medium text-rush-legacy bg-rush-light-gray px-1.5 py-0.5 rounded">
                                 Ref #{formatReferenceNumber(item.reference_number)}
                               </span>
                             )}
@@ -491,7 +491,7 @@ export default function ChatMessage({
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
                             <AppliesTo appliesTo={item.applies_to} />
                             {item.page_number && (
-                              <span className="text-[10px] text-rush-legacy bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium">
+                              <span className="text-[10px] text-rush-legacy bg-rush-light-gray px-1.5 py-0.5 rounded font-medium">
                                 Page {item.page_number}
                               </span>
                             )}

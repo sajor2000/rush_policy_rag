@@ -238,7 +238,7 @@ export default function InstanceSearchModal({
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-rush-sage/40 text-rush-legacy rounded" title="Page number from document">
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-rush-light-gray text-rush-legacy rounded" title="Page number from document">
                           Page {formatPageDisplay(instance.page_number)}
                         </span>
                         {instance.section && (
@@ -267,7 +267,7 @@ export default function InstanceSearchModal({
                         {instance.page_number && sourceFile && (
                           <button
                             onClick={() => handleInstanceClick(instance)}
-                            className="p-1.5 text-rush-legacy hover:bg-rush-sage/30 rounded transition-colors"
+                            className="p-1.5 text-rush-legacy hover:bg-rush-light-gray rounded transition-colors"
                             title="Jump to this section in PDF"
                           >
                             <ChevronRight className="h-4 w-4" />

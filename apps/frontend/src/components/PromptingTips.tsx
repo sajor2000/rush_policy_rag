@@ -44,7 +44,7 @@ export default function PromptingTips() {
             return (
               <Card
                 key={index}
-                className="p-6 bg-rush-sage border-l-4 border-l-rush-legacy hover-elevate"
+                className="p-6 bg-white border border-rush-gray/30 border-l-4 border-l-rush-legacy hover-elevate"
                 data-testid={`card-tip-${index}`}
               >
                 <div className="flex gap-4">

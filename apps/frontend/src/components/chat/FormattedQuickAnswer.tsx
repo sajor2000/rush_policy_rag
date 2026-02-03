@@ -118,7 +118,7 @@ export const FormattedTextSpan = React.memo(function FormattedTextSpan({
           >
             {match[4].trim()}
           </button>
-          <span className="text-xs bg-rush-sage/40 px-1 py-0.5 rounded text-rush-legacy font-medium">
+          <span className="text-xs bg-rush-light-gray px-1 py-0.5 rounded text-rush-legacy font-medium">
             #{refNum}
           </span>
           <span className="text-rush-gray">)</span>
@@ -135,9 +135,9 @@ export const FormattedTextSpan = React.memo(function FormattedTextSpan({
           key={keyIdx++}
           onClick={() => hasEvidence && onCitationClick?.(evidenceIdx)}
           className={cn(
-            "inline-flex items-center text-xs bg-rush-sage/40 px-1.5 py-0.5 rounded font-medium",
+            "inline-flex items-center text-xs bg-rush-light-gray px-1.5 py-0.5 rounded font-medium",
             hasEvidence
-              ? "text-rush-legacy hover:bg-rush-sage/60 cursor-pointer"
+              ? "text-rush-legacy hover:bg-rush-gray/20 cursor-pointer"
               : "text-rush-charcoal"
           )}
         >

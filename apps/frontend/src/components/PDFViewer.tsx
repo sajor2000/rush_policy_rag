@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import {
   Dialog,
@@ -67,6 +67,9 @@ export default function PDFViewer({
   const [scale, setScale] = useState(1.0);
   const [pdfLoading, setPdfLoading] = useState(false); // PDF document loading
   const [pdfError, setPdfError] = useState<string | null>(null); // PDF parse error
+  const [shouldRenderPdf, setShouldRenderPdf] = useState(false); // Control PDF mounting
+  const closingRef = useRef(false); // Track if we're in the middle of closing
+
   const handleAnnotationClick = useCallback(
     ({ pageNumber: targetPageNumber }: { pageNumber: number }) => {
       // PDF internal links (table of contents, related links) should navigate within the viewer
@@ -83,11 +86,21 @@ export default function PDFViewer({
 
   // When we receive a new URL, mark PDF as loading
   useEffect(() => {
-    if (pdfUrl) {
+    if (pdfUrl && isOpen && !closingRef.current) {
       setPdfLoading(true);
       setPdfError(null);
+      setShouldRenderPdf(true);
     }
-  }, [pdfUrl]);
+  }, [pdfUrl, isOpen]);
+
+  // Unmount PDF immediately when dialog starts closing to prevent layout issues
+  useEffect(() => {
+    if (!isOpen) {
+      // Immediately unmount PDF content to prevent cleanup-related distortion
+      setShouldRenderPdf(false);
+      closingRef.current = false;
+    }
+  }, [isOpen]);
 
   const onDocumentLoadSuccess = useCallback(
     ({ numPages }: { numPages: number }) => {
@@ -181,12 +194,20 @@ export default function PDFViewer({
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
-      onClose();
-      setPageNumber(1);
-      setScale(1.0);
-      setPdfLoading(false);
-      setPdfError(null);
-      setNumPages(null);
+      // Mark as closing and unmount PDF immediately BEFORE dialog animation
+      closingRef.current = true;
+      setShouldRenderPdf(false);
+
+      // Small delay to let PDF unmount before dialog closes
+      // This prevents react-pdf cleanup from causing layout distortion
+      setTimeout(() => {
+        onClose();
+        setPageNumber(1);
+        setScale(1.0);
+        setPdfLoading(false);
+        setPdfError(null);
+        setNumPages(null);
+      }, 50);
     }
   };
 
@@ -311,7 +332,7 @@ export default function PDFViewer({
             </div>
           )}
 
-          {pdfUrl && !error && (
+          {pdfUrl && !error && shouldRenderPdf && (
             <Document
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
