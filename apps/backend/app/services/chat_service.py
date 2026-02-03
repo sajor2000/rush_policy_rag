@@ -1612,10 +1612,13 @@ Policy excerpt:"""
             answer_text = _strip_references_from_negative_response(answer_text)
 
             # Check for NOT_FOUND patterns
+            not_found_with_evidence = False
             if self._is_not_found_response(answer_text):
-                # But if we have evidence, trust the response
+                # But if we have evidence, trust the evidence over the LLM's "not found"
+                # This handles cases where LLM says "could not find X" but retrieved relevant docs
                 if evidence_items:
-                    logger.info(f"NOT_FOUND override: {len(evidence_items)} evidence items exist")
+                    logger.info(f"NOT_FOUND override: {len(evidence_items)} evidence items exist - trusting evidence")
+                    not_found_with_evidence = True
                 else:
                     # Return clean NOT_FOUND with NO references
                     return ChatResponse(
@@ -1631,9 +1634,10 @@ Policy excerpt:"""
                     )
 
             # CRITICAL FIX: Check for refusal/out-of-scope responses
-            # Even if evidence was retrieved (e.g., keyword matches for "Chicago"),
-            # if the LLM says "I only answer RUSH policy questions", clear all citations
-            if _is_refusal_response(answer_text):
+            # Skip refusal check if we already determined this is NOT_FOUND with evidence
+            # (NOT_FOUND patterns overlap with refusal patterns like "could not find")
+            # Only apply refusal logic for genuine "I only answer RUSH policy questions" cases
+            if not not_found_with_evidence and _is_refusal_response(answer_text):
                 logger.info(f"Refusal response detected, clearing {len(evidence_items)} false positive citations")
                 # Return refusal with NO references (even if search found keyword matches)
                 return ChatResponse(

@@ -182,12 +182,19 @@ class CorrectiveRAGService:
         ambiguous = [a for a in assessments if a.quality == RetrievalQuality.AMBIGUOUS]
         
         # Case 1: Enough relevant documents - proceed with generation
+        # Also include top ambiguous docs to give Cohere more candidates
         if len(relevant) >= self.MIN_RELEVANT_DOCS:
-            logger.info(f"cRAG: {len(relevant)} relevant docs found - proceeding")
+            # Include relevant + top ambiguous for Cohere to rank
+            top_ambiguous = sorted(ambiguous, key=lambda a: a.score, reverse=True)[:self.MAX_AMBIGUOUS_FOR_RERANK]
+            combined = relevant + top_ambiguous
+            logger.info(
+                f"cRAG: {len(relevant)} relevant + {len(top_ambiguous)} ambiguous "
+                f"→ {len(combined)} docs for Cohere reranking"
+            )
             return CorrectiveAction(
                 action="proceed",
-                relevant_docs=[a.doc_index for a in relevant],
-                message=f"Found {len(relevant)} relevant documents"
+                relevant_docs=[a.doc_index for a in combined],
+                message=f"Passing {len(combined)} docs to Cohere"
             )
         
         # Case 2: Some relevant + ambiguous - proceed with caution
