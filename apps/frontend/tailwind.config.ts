@@ -9,9 +9,9 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        lg: ".25rem", /* 4px - Rush style guide */
+        md: ".25rem", /* 4px - Rush style guide */
+        sm: ".125rem", /* 2px */
       },
       colors: {
         // Rush University brand colors

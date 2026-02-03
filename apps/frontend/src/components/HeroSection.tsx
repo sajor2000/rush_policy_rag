@@ -13,7 +13,7 @@ export default function HeroSection({ onGetStarted }: { onGetStarted: () => void
     <section className="w-full py-12 md:py-16 lg:py-20">
       <div className="container max-w-5xl mx-auto px-4 md:px-6">
         <div className="flex flex-col items-center text-center space-y-6">
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold text-rush-legacy leading-tight">
+          <h1 className="text-4xl md:text-5xl font-semibold text-rush-legacy leading-tight">
             Policy answers when you need them most.
           </h1>
           <p className="text-2xl md:text-3xl text-foreground font-medium">

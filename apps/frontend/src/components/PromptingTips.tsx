@@ -44,12 +44,12 @@ export default function PromptingTips() {
             return (
               <Card
                 key={index}
-                className="p-6 hover-elevate"
+                className="p-6 bg-rush-sage border-l-4 border-l-rush-legacy hover-elevate"
                 data-testid={`card-tip-${index}`}
               >
                 <div className="flex gap-4">
                   <div className="flex-shrink-0">
-                    <div className="w-10 h-10 rounded-md bg-rush-sage flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-md bg-white flex items-center justify-center">
                       <Icon className="h-5 w-5 text-rush-legacy" />
                     </div>
                   </div>
