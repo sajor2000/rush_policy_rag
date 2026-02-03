@@ -613,10 +613,7 @@ export default function ChatInterface() {
               )}
             </Button>
           </form>
-          <p className="text-xs text-muted-foreground mt-3 text-center">
-            Press Enter to send • Shift + Enter for new line
-          </p>
-          <p className="text-[11px] text-muted-foreground mt-1 text-center">
+          <p className="text-[11px] text-muted-foreground mt-3 text-center">
             {deepSearchMode
               ? "Search Within Policy: Find ALL mentions of a word or phrase in a specific policy. Shows page numbers."
               : "Classic Q&A (Recommended): Ask any question, get a summarized answer with evidence from matching policies."
