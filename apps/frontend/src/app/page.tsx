@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef } from "react";
+import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import RushLogo from "@/components/RushLogo";
 import HeroSection from "@/components/HeroSection";
-import PolicyCategories from "@/components/PolicyCategories";
 import PromptingTips from "@/components/PromptingTips";
 import ChatInterface from "@/components/ChatInterface";
 import { POLICYTECH_URL } from "@/lib/constants";
@@ -36,8 +36,6 @@ export default function Home() {
       <main className="flex-1 flex flex-col">
         <HeroSection onGetStarted={scrollToChat} />
 
-        <PolicyCategories />
-
         <PromptingTips />
 
         <div ref={chatRef} className="flex-1 flex flex-col min-h-[600px] border-t border-border">
@@ -47,9 +45,17 @@ export default function Home() {
 
       <footer className="border-t border-border py-6 bg-card">
         <div className="container max-w-6xl mx-auto px-4">
-          <p className="text-sm text-center text-muted-foreground">
-            © 2025 Rush University System for Health. All rights reserved.
-          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-6 text-sm text-muted-foreground">
+            <p>&copy; 2026 Rush University System for Health. All rights reserved.</p>
+            <div className="flex gap-4">
+              <Link href="/terms" className="hover:text-rush-legacy transition-colors">
+                Terms of Use
+              </Link>
+              <Link href="/privacy" className="hover:text-rush-legacy transition-colors">
+                Privacy Policy
+              </Link>
+            </div>
+          </div>
         </div>
       </footer>
     </div>
