@@ -79,13 +79,17 @@ export default function ChatMessage({
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [highlightedEvidence, setHighlightedEvidence] = useState<number | null>(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const evidenceRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (copiedTimeoutRef.current) {
         clearTimeout(copiedTimeoutRef.current);
+      }
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
       }
     };
   }, []);
@@ -97,7 +101,10 @@ export default function ChatMessage({
       element.scrollIntoView({ behavior: "smooth", block: "center" });
       setHighlightedEvidence(idx);
       // Clear highlight after animation
-      setTimeout(() => setHighlightedEvidence(null), 2000);
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+      highlightTimeoutRef.current = setTimeout(() => setHighlightedEvidence(null), 2000);
     }
   }, []);
 

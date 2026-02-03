@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -52,13 +52,26 @@ export default function InstanceSearchModal({
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<InstanceSearchResponse | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Helper to copy text to clipboard
   const handleCopyText = useCallback(async (text: string, index: number) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000);
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = setTimeout(() => setCopiedIndex(null), 2000);
     } catch (err) {
       console.error("Failed to copy:", err);
     }
