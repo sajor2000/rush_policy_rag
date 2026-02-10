@@ -46,7 +46,8 @@ const securityHeaders = [
       "base-uri 'self'",
       "form-action 'self'",
       "object-src 'none'",
-      "upgrade-insecure-requests"
+      // Only upgrade insecure requests in production (breaks local HTTP dev server)
+      ...(process.env.NODE_ENV === 'production' ? ["upgrade-insecure-requests"] : [])
     ].join('; ')
   }
 ]
