@@ -29,6 +29,7 @@ load_dotenv(env_path)
 
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
+from app.core.security import escape_odata_string
 
 
 def diagnose(ref_number: str):
@@ -46,13 +47,15 @@ def diagnose(ref_number: str):
         credential=AzureKeyCredential(api_key)
     )
 
+    safe_ref = escape_odata_string(ref_number)
+
     print(f"\n{'='*70}")
     print(f"DIAGNOSTIC: Chunks for reference_number = '{ref_number}'")
     print(f"{'='*70}\n")
 
     results = list(client.search(
         search_text="*",
-        filter=f"reference_number eq '{ref_number}'",
+        filter=f"reference_number eq '{safe_ref}'",
         select=["id", "page_number", "chunk_index", "section",
                 "chunk_level", "content"],
         top=50,

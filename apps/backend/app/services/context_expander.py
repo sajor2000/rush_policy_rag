@@ -30,6 +30,7 @@ from typing import List, Dict, Optional, Set
 from dataclasses import dataclass, field
 
 from app.services.cohere_rerank_service import RerankResult
+from app.core.security import escape_odata_string
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +267,7 @@ class ContextExpander:
 
         try:
             # Search for chunks from this document
-            safe_source = source_file.replace("'", "''")
+            safe_source = escape_odata_string(source_file)
             filter_expr = f"source_file eq '{safe_source}'"
 
             # Use a content prefix for matching (first 200 chars to avoid edge cases)
@@ -316,8 +317,8 @@ class ContextExpander:
             return None
 
         try:
-            safe_source = source_file.replace("'", "''")
-            filter_expr = f"source_file eq '{safe_source}' and chunk_index eq {chunk_index}"
+            safe_source = escape_odata_string(source_file)
+            filter_expr = f"source_file eq '{safe_source}' and chunk_index eq {int(chunk_index)}"
 
             results = self.search_index.search_client.search(
                 search_text="*",

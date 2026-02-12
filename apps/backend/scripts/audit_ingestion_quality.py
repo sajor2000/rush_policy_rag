@@ -38,6 +38,7 @@ load_dotenv(env_path)
 
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
+from app.core.security import escape_odata_string
 
 
 @dataclass
@@ -146,12 +147,12 @@ class IngestionAuditor:
         audit = FileAudit(filename=filename)
 
         # Escape single quotes for OData filter
-        escaped_filename = filename.replace("'", "''")
+        safe_filename = escape_odata_string(filename)
 
         # Fetch all chunks for this file
         results = list(self.client.search(
             '*',
-            filter=f"source_file eq '{escaped_filename}'",
+            filter=f"source_file eq '{safe_filename}'",
             top=500,
             select=','.join([
                 'id', 'title', 'reference_number', 'section', 'applies_to',

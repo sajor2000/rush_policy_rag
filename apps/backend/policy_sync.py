@@ -490,9 +490,10 @@ class PolicySyncManager:
             # Check for version conflicts (concurrent updates)
             search_client = self.search_index.get_search_client()
             safe_filename = escape_odata_string(filename)
+            safe_version = escape_odata_string(new_version)
             existing_new_version = list(search_client.search(
                 search_text="*",
-                filter=f"source_file eq '{safe_filename}' and version_number eq '{new_version}'",
+                filter=f"source_file eq '{safe_filename}' and version_number eq '{safe_version}'",
                 select=["id"],
                 top=1
             ))
@@ -1314,11 +1315,13 @@ if __name__ == "__main__":
 
             try:
                 search_client = sync.search_index.get_search_client()
+                safe_ref = escape_odata_string(ref_number)
+                safe_to_ver = escape_odata_string(to_version)
 
                 # Find current active version
                 current_results = list(search_client.search(
                     search_text="*",
-                    filter=f"reference_number eq '{ref_number}' and policy_status eq 'ACTIVE'",
+                    filter=f"reference_number eq '{safe_ref}' and policy_status eq 'ACTIVE'",
                     select=["id", "version_number", "source_file"],
                     top=1
                 ))
@@ -1334,7 +1337,7 @@ if __name__ == "__main__":
                 # Find target version chunks
                 target_results = list(search_client.search(
                     search_text="*",
-                    filter=f"reference_number eq '{ref_number}' and version_number eq '{to_version}'",
+                    filter=f"reference_number eq '{safe_ref}' and version_number eq '{safe_to_ver}'",
                     select=["id", "policy_status"],
                     top=1000
                 ))
@@ -1348,7 +1351,7 @@ if __name__ == "__main__":
                 # Mark current version as SUPERSEDED
                 current_chunks = list(search_client.search(
                     search_text="*",
-                    filter=f"reference_number eq '{ref_number}' and policy_status eq 'ACTIVE'",
+                    filter=f"reference_number eq '{safe_ref}' and policy_status eq 'ACTIVE'",
                     select=["id"],
                     top=1000
                 ))

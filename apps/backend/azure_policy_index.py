@@ -66,7 +66,7 @@ from preprocessing.chunker import PolicyChunk
 # Import extracted modules for backward compatibility
 # These were extracted as part of tech debt refactoring
 from app.services.search_result import SearchResult, format_rag_context
-from app.core.security import build_source_file_filter
+from app.core.security import build_source_file_filter, escape_odata_string
 from app.services.search_synonyms import (
     SYNONYMS,
     SYNONYM_MAP_NAME,
@@ -1171,9 +1171,10 @@ if __name__ == "__main__":
             print("-" * 60)
 
             search_client = index.get_search_client()
+            safe_ref = escape_odata_string(ref_number)
             results = list(search_client.search(
                 search_text="*",
-                filter=f"reference_number eq '{ref_number}'",
+                filter=f"reference_number eq '{safe_ref}'",
                 select=["id", "title", "reference_number", "version_number", "policy_status",
                         "effective_date", "source_file", "section", "applies_to"],
                 top=100
@@ -1213,9 +1214,10 @@ if __name__ == "__main__":
             print("-" * 60)
 
             search_client = index.get_search_client()
+            safe_ref = escape_odata_string(ref_number)
             results = list(search_client.search(
                 search_text="*",
-                filter=f"reference_number eq '{ref_number}'",
+                filter=f"reference_number eq '{safe_ref}'",
                 select=["version_number", "policy_status", "effective_date", "superseded_by"],
                 top=1000
             ))

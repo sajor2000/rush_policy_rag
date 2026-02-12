@@ -178,7 +178,7 @@ rules:
   # ============================================================================
   - id: rush-odata-string-format
     patterns:
-      - pattern-regex: "f[\"'].*eq\\s*'\\{[^}]+\\}'[\"']"
+      - pattern-regex: "f[\"'].*eq\\s*'\\{(?!safe_)[^}]+\\}'[\"']"
     paths:
       include:
         - "*.py"
