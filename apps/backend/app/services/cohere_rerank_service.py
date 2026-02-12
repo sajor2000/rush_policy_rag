@@ -56,6 +56,7 @@ class RerankResult:
     title: str
     reference_number: str
     source_file: str
+    policy_number: str = ""
     section: str = ""
     applies_to: str = ""
     page_number: Optional[int] = None  # 1-indexed page number for PDF navigation
@@ -245,6 +246,7 @@ class CohereRerankService:
                 content=original_doc.get("content", ""),
                 title=original_doc.get("title", ""),
                 reference_number=original_doc.get("reference_number", ""),
+                policy_number=original_doc.get("policy_number", ""),
                 source_file=original_doc.get("source_file", ""),
                 section=original_doc.get("section", ""),
                 applies_to=original_doc.get("applies_to", ""),

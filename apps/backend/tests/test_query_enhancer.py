@@ -17,7 +17,11 @@ from pathlib import Path
 # Add parent directory to path so imports work standalone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.services.query_enhancer import normalize_query_punctuation, detect_policy_number
+from app.services.query_enhancer import (
+    normalize_query_punctuation,
+    normalize_location_context,
+    detect_policy_number,
+)
 
 
 # ============================================================================
@@ -73,6 +77,19 @@ class TestNormalizeQueryPunctuation:
         assert normalize_query_punctuation("  extra   spaces  ") == "extra spaces"
 
 
+class TestNormalizeLocationContext:
+    """Tests for location/punctuation normalization preserving policy IDs."""
+
+    def test_policy_decimal_preserved(self):
+        normalized, _ = normalize_location_context("What is HR-C 05.00?")
+        assert normalized == "What is HR-C 05.00?"
+
+    def test_policy_decimal_not_split_when_followed_by_text(self):
+        normalized, _ = normalize_location_context("Summarize HR-C 05.00 policy")
+        assert "05.00" in normalized
+        assert "05. 00" not in normalized
+
+
 # ============================================================================
 # Bug 2: Policy number detection
 # ============================================================================
@@ -118,6 +135,11 @@ class TestDetectPolicyNumber:
         result = detect_policy_number("HR-C 5.00")
         assert result is not None
         assert result[0] == "HR-C 05.00"
+
+    def test_malformed_hr_code_normalized(self):
+        result = detect_policy_number("What is HR-C 0.600 Time and Attendance Recording?")
+        assert result is not None
+        assert result[0] == "HR-C 06.00"
 
     # --- Should NOT match (false positive prevention) ---
 

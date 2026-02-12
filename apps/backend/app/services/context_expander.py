@@ -93,6 +93,32 @@ class ContextExpander:
         self.include_parent = include_parent
         self.include_siblings = include_siblings
         self.max_siblings = max_siblings
+        self._supports_chunk_index_filter = self._detect_chunk_index_filter_support()
+
+        if self.include_siblings and not self._supports_chunk_index_filter:
+            self.include_siblings = False
+            logger.warning(
+                "Context expansion sibling mode disabled: live index does not support "
+                "filtering on chunk_index. Continuing without sibling fetch."
+            )
+
+    def _detect_chunk_index_filter_support(self) -> bool:
+        """
+        Check whether chunk_index is filterable in the active Azure Search index.
+        """
+        try:
+            index_name = getattr(self.search_index, "index_name", "")
+            index_client = getattr(self.search_index, "index_client", None)
+            if not index_name or index_client is None:
+                return False
+
+            index = index_client.get_index(index_name)
+            for field in index.fields:
+                if field.name == "chunk_index":
+                    return bool(getattr(field, "filterable", False))
+        except Exception as e:
+            logger.warning(f"Unable to inspect chunk_index filter capability: {e}")
+        return False
 
     async def expand_context(
         self,
@@ -166,8 +192,10 @@ class ContextExpander:
         content_hash = hash(rr.content[:100]) if rr.content else 0
         seen_content.add(content_hash)
 
-        # Step 1: Find current chunk's index by searching for matching content
-        current_chunk_index = await self._find_chunk_index(rr.source_file, rr.content)
+        current_chunk_index = None
+        if self.include_siblings and self.max_siblings > 0:
+            # Step 1: Find current chunk's index by searching for matching content
+            current_chunk_index = await self._find_chunk_index(rr.source_file, rr.content)
 
         if current_chunk_index is not None and self.include_siblings and self.max_siblings > 0:
             # Step 2: Fetch previous sibling(s)

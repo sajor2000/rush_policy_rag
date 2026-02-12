@@ -188,6 +188,15 @@ docker run -p 3000:3000 -e BACKEND_URL=http://backend:8000 rush-policy-frontend
 - Backend must have `STORAGE_CONNECTION_STRING` configured
 - Check browser console for CORS errors
 
+### Rush logo not showing in production
+
+The Dockerfile copies `public` into the Next.js standalone bundle so `server.js` serves `/rush-logo.jpg`. After deploying:
+
+1. **Verify in container** (optional):  
+   `docker run --rm --entrypoint sh <frontend-image> -c "ls -la /app/public/rush-logo.jpg"`
+2. **Verify in browser**: Open the production URL, DevTools → Network, reload; confirm the request to `rush-logo.jpg` returns **200** (not 404).
+3. If still 404, rebuild the frontend image with `--no-cache` and redeploy (e.g. push to `main` to trigger CI/CD).
+
 ## Design Guidelines
 
 See `design_guidelines.md` for complete RUSH brand specifications including:

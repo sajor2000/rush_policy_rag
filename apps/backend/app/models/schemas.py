@@ -11,6 +11,7 @@ class EvidenceItem(BaseModel):
     citation: str
     title: str
     reference_number: str = ""
+    policy_number: str = ""
     section: str = ""
     applies_to: str = ""
     document_owner: Optional[str] = None
@@ -31,6 +32,7 @@ class SearchResultItem(BaseModel):
     title: str
     section: str = ""
     reference_number: str = ""
+    policy_number: str = ""
     applies_to: str = ""
 
     # Dates and ownership

@@ -89,9 +89,17 @@ class TestOutOfScopeDetection:
             "Can I accept verbal medication orders?",
             "What is the hand-off communication procedure?",
             "Where can I find the latex allergy policy?",
+            "What are the levels of warning with or without suspension?",
         ]
         for query in in_scope_queries:
             assert is_out_of_scope_query(query) is False, f"False positive: {query}"
+
+    def test_suspension_does_not_match_pension_keyword(self):
+        """Regression: substring matching must not classify suspension as pension."""
+        assert is_out_of_scope_query(
+            "What are the levels of warning with or without suspension?"
+        ) is False
+        assert is_out_of_scope_query("What are the pension contribution rules?") is True
 
     def test_case_insensitive_detection(self):
         """Out-of-scope detection should be case insensitive."""

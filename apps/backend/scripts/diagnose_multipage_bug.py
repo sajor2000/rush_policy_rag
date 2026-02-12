@@ -34,7 +34,7 @@ from azure.core.credentials import AzureKeyCredential
 def diagnose(ref_number: str):
     endpoint = os.environ.get("SEARCH_ENDPOINT")
     api_key = os.environ.get("SEARCH_API_KEY")
-    index_name = os.environ.get("SEARCH_INDEX_NAME", "rush-policies")
+    index_name = os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active")
 
     if not endpoint or not api_key:
         print("ERROR: SEARCH_ENDPOINT and SEARCH_API_KEY must be set in .env")

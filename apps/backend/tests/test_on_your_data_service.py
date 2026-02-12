@@ -198,7 +198,7 @@ class TestOnYourDataServiceConfiguration:
 
         # The service should have proper search configuration
         assert service.search_endpoint is not None
-        assert service.index_name == "rush-policies"  # default
+        assert service.index_name == "rush-policies-active"  # default alias
         assert service.semantic_config == "default-semantic"  # default
 
     @patch.dict("os.environ", {

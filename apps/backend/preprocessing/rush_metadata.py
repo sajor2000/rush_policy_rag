@@ -127,6 +127,7 @@ class RUSHPolicyMetadata:
         applies_to_*: Boolean flags for each entity
     """
     title: str = ""
+    policy_number: str = ""
     reference_number: str = ""
     document_owner: str = ""
     approvers: str = ""

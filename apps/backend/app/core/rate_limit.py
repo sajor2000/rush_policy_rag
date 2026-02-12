@@ -26,8 +26,13 @@ def get_real_client_ip(request: Request) -> str:
     # Check X-Forwarded-For (standard header, may contain chain of proxies)
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
-        # First IP is the original client (format: "client, proxy1, proxy2")
-        return forwarded_for.split(",")[0].strip()
+        # Use rightmost client IP — Azure Container Apps appends the real
+        # client IP, so second-to-last is the actual client before our proxy.
+        # This prevents spoofing via user-controlled leftmost IPs.
+        ips = [ip.strip() for ip in forwarded_for.split(",")]
+        if len(ips) >= 2:
+            return ips[-2]
+        return ips[0]
 
     # Check X-Real-IP (used by nginx and some proxies)
     real_ip = request.headers.get("X-Real-IP")

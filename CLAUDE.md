@@ -62,39 +62,32 @@ az account show  # Verify: should show "RU-Azure-NonProd"
 
 ## Container Deployment (ACR → Azure Container Apps)
 
-**CRITICAL**: Always build for `linux/amd64` platform. Azure Container Apps runs Linux containers. Never build for macOS/arm64.
+**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required. This builds on Azure's infrastructure and pushes to ACR automatically.
 
 ### Deploy Backend
 ```bash
-az acr login --name aiinnovation
 TAG=$(git rev-parse --short HEAD)
-docker build --platform linux/amd64 -t aiinnovation.azurecr.io/rush-policy-backend:$TAG -f apps/backend/Dockerfile apps/backend
-docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
+az acr build --registry aiinnovation --platform linux/amd64 --image rush-policy-backend:$TAG --file apps/backend/Dockerfile apps/backend
 az containerapp update -n rush-policy-backend -g RU-A-NonProd-AI-Innovation-RG --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 ```
 
 ### Deploy Frontend
 ```bash
-az acr login --name aiinnovation
 TAG=$(git rev-parse --short HEAD)
-docker build --platform linux/amd64 -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG -f apps/frontend/Dockerfile apps/frontend
-docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
+az acr build --registry aiinnovation --platform linux/amd64 --image rush-policy-frontend:$TAG --file apps/frontend/Dockerfile apps/frontend
 az containerapp update -n rush-policy-frontend -g RU-A-NonProd-AI-Innovation-RG --image aiinnovation.azurecr.io/rush-policy-frontend:$TAG
 ```
 
 ### Deploy Both (Full Deployment)
 ```bash
-az acr login --name aiinnovation
 TAG=$(git rev-parse --short HEAD)
 
 # Backend
-docker build --platform linux/amd64 -t aiinnovation.azurecr.io/rush-policy-backend:$TAG -f apps/backend/Dockerfile apps/backend
-docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
+az acr build --registry aiinnovation --platform linux/amd64 --image rush-policy-backend:$TAG --file apps/backend/Dockerfile apps/backend
 az containerapp update -n rush-policy-backend -g RU-A-NonProd-AI-Innovation-RG --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
 # Frontend
-docker build --platform linux/amd64 -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG -f apps/frontend/Dockerfile apps/frontend
-docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
+az acr build --registry aiinnovation --platform linux/amd64 --image rush-policy-frontend:$TAG --file apps/frontend/Dockerfile apps/frontend
 az containerapp update -n rush-policy-frontend -g RU-A-NonProd-AI-Innovation-RG --image aiinnovation.azurecr.io/rush-policy-frontend:$TAG
 ```
 

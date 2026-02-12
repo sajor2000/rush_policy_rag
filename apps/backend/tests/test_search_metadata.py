@@ -23,6 +23,20 @@ def test_search_result_to_item_includes_page_number():
     assert item["reference_number"] == "528"
 
 
+def test_search_result_to_item_includes_policy_number():
+    """Verify canonical policy_number is preserved in conversion."""
+    result = SearchResult(
+        content="Shift differentials are paid for weekends and holidays.",
+        title="Shift Differentials",
+        reference_number="1209",
+        policy_number="HR-C 05.00",
+    )
+    item = search_result_to_item(result)
+
+    assert item["policy_number"] == "HR-C 05.00"
+    assert item["reference_number"] == "1209"
+
+
 def test_search_result_to_item_includes_enhanced_metadata():
     """Verify category, subcategory, and regulatory fields are preserved."""
     result = SearchResult(

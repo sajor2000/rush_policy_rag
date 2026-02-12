@@ -10,6 +10,11 @@ export async function GET(
     const { filename } = await params;
     const pdfFilename = filename.join("/");
 
+    // Path traversal prevention
+    if (filename.some(part => part.includes('..') || part.includes('\\')) || pdfFilename.startsWith('/')) {
+      return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
+    }
+
     if (!pdfFilename.endsWith(".pdf")) {
       return NextResponse.json(
         { error: "Only PDF files are supported" },

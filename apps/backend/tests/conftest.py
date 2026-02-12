@@ -53,6 +53,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "deepeval: mark test as requiring DeepEval")
     config.addinivalue_line("markers", "integration: mark test as integration test requiring backend")
     config.addinivalue_line("markers", "slow: mark test as slow running")
+    config.addinivalue_line("markers", "security: marks security audit tests")
+    config.addinivalue_line("markers", "prompt_injection: marks prompt injection tests")
+    config.addinivalue_line("markers", "rag_security: marks RAG-specific security tests")
+    config.addinivalue_line("markers", "api_security: marks API-level security tests")
 
 
 # ============================================================================

@@ -32,7 +32,8 @@ def validate_folder_path(folder_path: str) -> Path:
     try:
         abs_path = Path(folder_path).resolve()
     except (ValueError, OSError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid path: {e}")
+        logger.error(f"Invalid path: {e}")
+        raise HTTPException(status_code=400, detail="Invalid folder path")
 
     # Check if path is within any allowed base directory
     for allowed_base in ALLOWED_BASE_PATHS:
@@ -81,7 +82,8 @@ async def create_index(
         search_index.create_index()
         return {"status": "success", "message": "Index created/updated"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Index creation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create search index")
 
 @router.post("/upload-folder")
 async def upload_folder(
@@ -127,7 +129,8 @@ async def upload_folder(
             "chunks_failed": upload_result['failed']
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Folder processing failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process folder")
 
 
 # ============================================================================

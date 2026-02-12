@@ -28,6 +28,7 @@ class SearchResult:
         date_updated: Last update date string
         score: Azure AI Search relevance score
         reference_number: Policy reference number (e.g., "486")
+        policy_number: Canonical coded policy identifier (e.g., "HR-C 05.00")
         reranker_score: Semantic reranker score (if enabled)
         source_file: Source PDF filename
         document_owner: Department/person responsible for policy
@@ -54,6 +55,7 @@ class SearchResult:
     # Search scoring
     score: float = 0.0
     reference_number: str = ""
+    policy_number: str = ""
     reranker_score: Optional[float] = None
 
     # Source tracking
@@ -104,7 +106,7 @@ class SearchResult:
             except (IndexError, AttributeError):
                 ref_part = "N/A"
 
-        reference_display = self.reference_number or ref_part
+        reference_display = self.reference_number or self.policy_number or ref_part
 
         return f"""┌────────────────────────────────────────────────────────────┐
 │ POLICY: {self.title}
@@ -204,6 +206,7 @@ def search_result_to_item(result: SearchResult) -> dict:
         "title": result.title,
         "section": result.section,
         "reference_number": result.reference_number,
+        "policy_number": result.policy_number,
         "applies_to": result.applies_to,
         "date_updated": result.date_updated,
         "date_approved": result.date_approved,

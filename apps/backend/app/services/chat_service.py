@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import re
-from typing import Optional, List, Dict, Tuple, Set
+from typing import Optional, List, Dict, Tuple, Set, Any
 from collections import defaultdict
 from app.models.schemas import ChatRequest, ChatResponse, EvidenceItem
 from app.core.prompts import RISEN_PROMPT, NOT_FOUND_MESSAGE, LLM_UNAVAILABLE_MESSAGE
@@ -531,6 +531,23 @@ Policy excerpt:"""
         """Append domain hints and collect target references."""
         return _apply_policy_hints_standalone(query)
 
+    def _should_force_oyd_for_policy_query(
+        self,
+        query: str,
+        ref_result: Optional[Tuple[str, str]]
+    ) -> bool:
+        """
+        Route HR-coded policy lookups through On Your Data path.
+
+        This avoids known Cohere-path regressions for direct policy ID queries while
+        preserving Cohere behavior for general natural-language requests.
+        """
+        if ref_result:
+            return True
+
+        # Catch malformed-but-intentional HR policy code variants (e.g., "HR-C 0.600").
+        return re.search(r"\bHR-[A-Za-z]\s*\d", query, re.IGNORECASE) is not None
+
     # ========================================================================
     # Instance Search Handler - "find X in policy Y" queries
     # ========================================================================
@@ -551,6 +568,8 @@ Policy excerpt:"""
 
         # Resolve policy name to reference number if needed
         resolved_policy = _resolve_policy_identifier(policy_id)
+        detected_policy = _detect_policy_number_standalone(policy_id)
+        canonical_policy_number = detected_policy[0] if detected_policy else ""
         logger.info(f"Instance search: term='{search_term}', policy='{policy_id}' -> resolved='{resolved_policy}'")
 
         # Create service and search
@@ -633,6 +652,7 @@ Policy excerpt:"""
                 citation=f"{result.policy_title} (Ref: {resolved_policy})",
                 title=result.policy_title,
                 reference_number=resolved_policy,
+                policy_number=canonical_policy_number,
                 section=section_str,
                 page_number=instance.page_number,
                 source_file=result.source_file,
@@ -645,7 +665,8 @@ Policy excerpt:"""
                 "citation": f"{result.policy_title} (Ref: {resolved_policy})",
                 "source_file": result.source_file,
                 "title": result.policy_title,
-                "reference_number": resolved_policy
+                "reference_number": resolved_policy,
+                "policy_number": canonical_policy_number
             })
 
         return ChatResponse(
@@ -705,22 +726,6 @@ Policy excerpt:"""
                 safety_flags=["UNCLEAR_QUERY"]
             )
 
-        # Out-of-scope detection (topics with no policies)
-        if self._is_out_of_scope_query(request.message):
-            logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
-            out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
-            return ChatResponse(
-                response=out_of_scope_msg,
-                summary=out_of_scope_msg,
-                evidence=[],
-                raw_response="",
-                sources=[],
-                chunks_used=0,
-                found=False,
-                confidence="high",
-                safety_flags=["OUT_OF_SCOPE"]
-            )
-
         # Device ambiguity detection - Ask for clarification before searching
         # Must run BEFORE cache check to ensure disambiguation always triggers
         ambiguity_config = self.detect_device_ambiguity(request.message)
@@ -760,6 +765,31 @@ Policy excerpt:"""
         if ref_result:
             _, odata = ref_result
             filter_expr = f"({filter_expr}) and ({odata})" if filter_expr else odata
+
+        # Targeted stability bypass: HR-coded policy lookups use OYD directly.
+        force_oyd = self._should_force_oyd_for_policy_query(request.message, ref_result)
+        if force_oyd and self.on_your_data_service and self.on_your_data_service.is_configured:
+            logger.info("Policy-number/HR-coded query detected; routing to On Your Data path")
+            response = await self._chat_with_on_your_data(request, filter_expr)
+            if self.cache_service and self.cache_service.should_cache_response(response):
+                self.cache_service.set_response(request.message, response, filter_expr)
+            return response
+
+        # Out-of-scope detection only for non-policy-targeted queries.
+        if not force_oyd and self._is_out_of_scope_query(request.message):
+            logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
+            out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
+            return ChatResponse(
+                response=out_of_scope_msg,
+                summary=out_of_scope_msg,
+                evidence=[],
+                raw_response="",
+                sources=[],
+                chunks_used=0,
+                found=False,
+                confidence="high",
+                safety_flags=["OUT_OF_SCOPE"]
+            )
 
         # ===================================================================
         # RESPONSE CACHE CHECK (Cold Start Optimization)
@@ -836,13 +866,6 @@ Policy excerpt:"""
                 yield sse_event("done", {"type": "done"})
                 return
 
-            if self._is_out_of_scope_query(request.message):
-                out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
-                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": out_of_scope_msg})
-                yield sse_event("metadata", {"type": "metadata", "confidence": "high", "found": False, "chunks_used": 0})
-                yield sse_event("done", {"type": "done"})
-                return
-
             # Device ambiguity detection
             ambiguity_config = self.detect_device_ambiguity(request.message)
             if ambiguity_config:
@@ -870,6 +893,40 @@ Policy excerpt:"""
             if ref_result:
                 _, odata = ref_result
                 filter_expr = f"({filter_expr}) and ({odata})" if filter_expr else odata
+
+            # Targeted stability bypass for streaming too: HR-coded policy lookups use OYD.
+            force_oyd = self._should_force_oyd_for_policy_query(request.message, ref_result)
+            if force_oyd and self.on_your_data_service and self.on_your_data_service.is_configured:
+                oyd_response = await self._chat_with_on_your_data(request, filter_expr)
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": oyd_response.response})
+                yield sse_event(
+                    "evidence",
+                    {
+                        "type": "evidence",
+                        "items": [
+                            item.model_dump() if hasattr(item, "model_dump") else item.dict()
+                            for item in oyd_response.evidence
+                        ],
+                    },
+                )
+                yield sse_event("sources", {"type": "sources", "items": oyd_response.sources})
+                yield sse_event("metadata", {
+                    "type": "metadata",
+                    "confidence": oyd_response.confidence,
+                    "confidence_score": oyd_response.confidence_score,
+                    "found": oyd_response.found,
+                    "chunks_used": oyd_response.chunks_used,
+                    "safety_flags": oyd_response.safety_flags,
+                })
+                yield sse_event("done", {"type": "done"})
+                return
+
+            if not force_oyd and self._is_out_of_scope_query(request.message):
+                out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
+                yield sse_event("answer_chunk", {"type": "answer_chunk", "content": out_of_scope_msg})
+                yield sse_event("metadata", {"type": "metadata", "confidence": "high", "found": False, "chunks_used": 0})
+                yield sse_event("done", {"type": "done"})
+                return
 
             # Status: Searching
             yield sse_event("status", {"type": "status", "message": "Searching policies..."})
@@ -919,6 +976,7 @@ Policy excerpt:"""
                     "content": sr.content,
                     "title": sr.title,
                     "reference_number": sr.reference_number,
+                    "policy_number": getattr(sr, 'policy_number', ''),
                     "source_file": sr.source_file,
                     "section": sr.section,
                     "applies_to": getattr(sr, 'applies_to', ''),
@@ -941,6 +999,7 @@ Policy excerpt:"""
                         content=doc.get('content', ''),
                         title=doc.get('title', ''),
                         reference_number=doc.get('reference_number', ''),
+                        policy_number=doc.get('policy_number', ''),
                         source_file=doc.get('source_file', ''),
                         section=doc.get('section', ''),
                         applies_to=doc.get('applies_to', ''),
@@ -985,6 +1044,7 @@ Policy excerpt:"""
                         "citation": f"[{ref_num}] {title}" if ref_num else title,
                         "title": title,
                         "reference_number": ref_num,
+                        "policy_number": result.policy_number or "",
                         "section": section,
                         "applies_to": result.applies_to or '',
                         "source_file": result.source_file or '',
@@ -1042,6 +1102,7 @@ Policy excerpt:"""
                                 "source_file": ev.get("source_file", ""),
                                 "title": ev["title"],
                                 "reference_number": ev.get("reference_number"),
+                                "policy_number": ev.get("policy_number"),
                                 "section": ev.get("section"),
                                 "applies_to": ev.get("applies_to"),
                                 "match_type": ev.get("match_type", "verified")
@@ -1113,8 +1174,12 @@ Policy excerpt:"""
 
         # Early unclear query detection (gibberish, single chars, vague)
         # Skip if filter_expr contains a policy number filter (search.ismatch)
-        has_policy_filter = filter_expr and "search.ismatch" in filter_expr
-        if not has_policy_filter and self._is_unclear_query(request.message):
+        has_policy_filter = bool(filter_expr and "search.ismatch" in filter_expr)
+        policy_routed_query = has_policy_filter or self._should_force_oyd_for_policy_query(
+            request.message,
+            _detect_policy_number_standalone(request.message),
+        )
+        if not policy_routed_query and self._is_unclear_query(request.message):
             logger.info(f"Unclear query detected: {request.message[:50]}...")
             # NO references for clarification requests
             return ChatResponse(
@@ -1130,7 +1195,7 @@ Policy excerpt:"""
             )
 
         # Early out-of-scope detection
-        if self._is_out_of_scope_query(request.message):
+        if not policy_routed_query and self._is_out_of_scope_query(request.message):
             logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
             # NO references for out-of-scope responses
             out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic is outside my scope."
@@ -1240,6 +1305,7 @@ Policy excerpt:"""
                     "content": sr.content,
                     "title": sr.title,
                     "reference_number": sr.reference_number,
+                    "policy_number": getattr(sr, 'policy_number', ''),
                     "source_file": sr.source_file,
                     "section": sr.section,
                     "applies_to": getattr(sr, 'applies_to', ''),
@@ -1274,6 +1340,7 @@ Policy excerpt:"""
                                     "content": sr.content,
                                     "title": sr.title,
                                     "reference_number": sr.reference_number,
+                                    "policy_number": getattr(sr, 'policy_number', ''),
                                     "source_file": sr.source_file,
                                     "section": sr.section,
                                     "applies_to": getattr(sr, 'applies_to', ''),
@@ -1452,6 +1519,7 @@ Policy excerpt:"""
                             content=rr.content,
                             title=rr.title,
                             reference_number=rr.reference_number,
+                            policy_number=rr.policy_number,
                             source_file=rr.source_file,
                             section=rr.section,
                             applies_to=rr.applies_to,
@@ -1476,6 +1544,7 @@ Policy excerpt:"""
                         content=doc.get("content", ""),
                         title=doc.get("title", ""),
                         reference_number=ref,
+                        policy_number=doc.get("policy_number", ""),
                         source_file=doc.get("source_file", ""),
                         section=doc.get("section", ""),
                         applies_to=doc.get("applies_to", ""),
@@ -1589,6 +1658,7 @@ Policy excerpt:"""
                         citation=f"{title} (Ref #{rr.reference_number})" if rr.reference_number else title,
                         title=title,
                         reference_number=rr.reference_number,
+                        policy_number=rr.policy_number,
                         section=rr.section,
                         applies_to=rr.applies_to,
                         source_file=rr.source_file,
@@ -1599,6 +1669,7 @@ Policy excerpt:"""
                     sources.append({
                         "title": title,
                         "reference_number": rr.reference_number,
+                        "policy_number": rr.policy_number,
                         "section": rr.section,
                         "source_file": rr.source_file,
                         "cohere_score": rr.cohere_score
@@ -2008,8 +2079,12 @@ Policy excerpt:"""
 
         # Early unclear query detection (gibberish, single chars, vague)
         # Skip if filter_expr contains a policy number filter (search.ismatch)
-        has_policy_filter = filter_expr and "search.ismatch" in filter_expr
-        if not has_policy_filter and self._is_unclear_query(request.message):
+        has_policy_filter = bool(filter_expr and "search.ismatch" in filter_expr)
+        policy_routed_query = has_policy_filter or self._should_force_oyd_for_policy_query(
+            request.message,
+            _detect_policy_number_standalone(request.message),
+        )
+        if not policy_routed_query and self._is_unclear_query(request.message):
             logger.info(f"Unclear query detected: {request.message[:50]}...")
             # NO references for clarification requests
             return ChatResponse(
@@ -2024,7 +2099,7 @@ Policy excerpt:"""
             )
 
         # FIX 2: Early out-of-scope detection (before any API calls)
-        if self._is_out_of_scope_query(request.message):
+        if not policy_routed_query and self._is_out_of_scope_query(request.message):
             logger.info(f"Out-of-scope query detected: {request.message[:50]}...")
             out_of_scope_msg = "I could not find this in RUSH clinical policies. This topic (parking, HR benefits, administrative matters) is outside my scope. Please contact Human Resources or the appropriate department."
             # NO references for out-of-scope responses
@@ -2186,6 +2261,7 @@ Policy excerpt:"""
 
                 # Use metadata from lookup, falling back to citation data
                 ref_num = ""
+                policy_num = ""
                 applies_to = ""
                 section = ""
                 date_updated = ""
@@ -2193,6 +2269,7 @@ Policy excerpt:"""
 
                 if metadata:
                     ref_num = metadata.get("reference_number", "")
+                    policy_num = metadata.get("policy_number", "")
                     applies_to = metadata.get("applies_to", "")
                     section = metadata.get("section", "") or cit.section
                     date_updated = metadata.get("date_updated", "")
@@ -2205,6 +2282,9 @@ Policy excerpt:"""
                         ref_match = re.search(r'([a-z]{2,4}[-_]?\d{2,4})', source_file.lower())
                         if ref_match:
                             ref_num = ref_match.group(1).upper().replace('_', '-')
+                if not policy_num:
+                    detected = _detect_policy_number_standalone(title)
+                    policy_num = detected[0] if detected else ""
 
                 evidence_items.append(
                     EvidenceItem(
@@ -2212,6 +2292,7 @@ Policy excerpt:"""
                         citation=f"{title} ({ref_num})" if ref_num else title,
                         title=title,
                         reference_number=ref_num,
+                        policy_number=policy_num,
                         section=section,
                         applies_to=applies_to,
                         date_updated=date_updated,
@@ -2228,6 +2309,7 @@ Policy excerpt:"""
                     "source_file": source_file,
                     "title": title,
                     "reference_number": ref_num,
+                    "policy_number": policy_num,
                     "section": section,
                     "applies_to": applies_to,
                     "date_updated": date_updated,
@@ -2265,6 +2347,7 @@ Policy excerpt:"""
                                                 citation=r.citation,
                                                 title=title,
                                                 reference_number=r.reference_number,
+                                                policy_number=getattr(r, "policy_number", ""),
                                                 section=r.section,
                                                 applies_to=r.applies_to,
                                                 source_file=r.source_file,
@@ -2279,6 +2362,7 @@ Policy excerpt:"""
                                             "source_file": r.source_file,
                                             "title": title,
                                             "reference_number": r.reference_number,
+                                            "policy_number": getattr(r, "policy_number", ""),
                                             "section": r.section,
                                             "applies_to": r.applies_to,
                                             "score": r.score,
@@ -2381,6 +2465,7 @@ Policy excerpt:"""
             "source_file": r.source_file,
             "title": r.title,
             "reference_number": r.reference_number,
+            "policy_number": getattr(r, "policy_number", ""),
             "section": r.section,
             "applies_to": r.applies_to,
             "date_updated": r.date_updated,

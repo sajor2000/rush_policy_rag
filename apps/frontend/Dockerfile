@@ -33,6 +33,10 @@ ENV NODE_ENV=production
 # Build the application
 RUN npm run build
 
+# Copy public and static into standalone so server.js serves them (Next.js self-hosting guidance)
+RUN cp -r /app/public /app/.next/standalone/ && \
+    cp -r /app/.next/static /app/.next/standalone/.next/
+
 # Production image, copy all the files and run next
 FROM node:20-alpine AS runner
 
@@ -45,11 +49,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy necessary files
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-
-# Automatically leverage output traces to reduce image size
+# Copy standalone bundle (includes public and .next/static from builder step above)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 

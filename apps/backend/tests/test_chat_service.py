@@ -1,6 +1,6 @@
 import asyncio
 
-from app.models.schemas import ChatRequest
+from app.models.schemas import ChatRequest, ChatResponse
 from app.services.chat_service import ChatService
 from app.services.on_your_data_service import OnYourDataResult, OnYourDataReference
 
@@ -34,6 +34,23 @@ class DummyOnYourDataService:
         )
 
 
+class DummyCohereRerankService:
+    def __init__(self):
+        self.is_configured = True
+
+
+def _ok_chat_response(text: str) -> ChatResponse:
+    return ChatResponse(
+        response=text,
+        summary=text,
+        evidence=[],
+        sources=[],
+        chunks_used=1,
+        found=True,
+        confidence="high",
+    )
+
+
 def test_chat_service_uses_on_your_data_when_available():
     search_index = DummySearchIndex()
     on_your_data = DummyOnYourDataService()
@@ -50,6 +67,219 @@ def test_chat_service_uses_on_your_data_when_available():
     assert response.evidence
     assert response.evidence[0].title == "Central Line Care"
     assert on_your_data.invocations == 1
+
+
+def test_policy_number_query_forces_targeted_oyd_bypass(monkeypatch):
+    """HR-coded queries should bypass Cohere path and route to OYD directly."""
+    from app.core.config import settings
+
+    search_index = DummySearchIndex()
+    on_your_data = DummyOnYourDataService()
+    cohere = DummyCohereRerankService()
+    service = ChatService(
+        search_index=search_index,
+        on_your_data_service=on_your_data,
+        cohere_rerank_service=cohere,
+    )
+    service.cache_service = None
+    service._openai_client = object()
+    monkeypatch.setattr(settings, "USE_COHERE_RERANK", True)
+
+    calls = []
+
+    async def fake_oyd(request, filter_expr):
+        calls.append(("oyd", filter_expr))
+        return _ok_chat_response("oyd")
+
+    async def fake_cohere(request, filter_expr):
+        calls.append(("cohere", filter_expr))
+        return _ok_chat_response("cohere")
+
+    monkeypatch.setattr(service, "_chat_with_on_your_data", fake_oyd)
+    monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
+
+    response = asyncio.run(service.process_chat(ChatRequest(message="Can you summarize HR-C 05.00?")))
+
+    assert response.response == "oyd"
+    assert calls
+    assert calls[0][0] == "oyd"
+    assert not any(kind == "cohere" for kind, _ in calls)
+    assert "policy_number eq 'HR-C 05.00'" in calls[0][1]
+
+
+def test_malformed_hr_code_still_forces_targeted_oyd_bypass(monkeypatch):
+    """Malformed HR code formats should still route to OYD bypass."""
+    from app.core.config import settings
+
+    search_index = DummySearchIndex()
+    on_your_data = DummyOnYourDataService()
+    cohere = DummyCohereRerankService()
+    service = ChatService(
+        search_index=search_index,
+        on_your_data_service=on_your_data,
+        cohere_rerank_service=cohere,
+    )
+    service.cache_service = None
+    service._openai_client = object()
+    monkeypatch.setattr(settings, "USE_COHERE_RERANK", True)
+
+    calls = []
+
+    async def fake_oyd(request, filter_expr):
+        calls.append(("oyd", filter_expr))
+        return _ok_chat_response("oyd")
+
+    async def fake_cohere(request, filter_expr):
+        calls.append(("cohere", filter_expr))
+        return _ok_chat_response("cohere")
+
+    monkeypatch.setattr(service, "_chat_with_on_your_data", fake_oyd)
+    monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
+
+    response = asyncio.run(service.process_chat(ChatRequest(message="What is HR-C 0.600?")))
+
+    assert response.response == "oyd"
+    assert calls
+    assert calls[0][0] == "oyd"
+    assert not any(kind == "cohere" for kind, _ in calls)
+
+
+def test_malformed_hr_code_with_out_of_scope_keyword_prefers_oyd(monkeypatch):
+    """Malformed HR-coded queries should still bypass OUT_OF_SCOPE keyword collisions."""
+    from app.core.config import settings
+
+    search_index = DummySearchIndex()
+    on_your_data = DummyOnYourDataService()
+    cohere = DummyCohereRerankService()
+    service = ChatService(
+        search_index=search_index,
+        on_your_data_service=on_your_data,
+        cohere_rerank_service=cohere,
+    )
+    service.cache_service = None
+    service._openai_client = object()
+    monkeypatch.setattr(settings, "USE_COHERE_RERANK", True)
+
+    calls = []
+
+    async def fake_cohere(request, filter_expr):
+        calls.append(("cohere", filter_expr))
+        return _ok_chat_response("cohere")
+
+    monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
+
+    response = asyncio.run(
+        service.process_chat(ChatRequest(message="What is HR-C 0.600 pension contributions?"))
+    )
+
+    assert response.found is True
+    assert "OUT_OF_SCOPE" not in response.safety_flags
+    assert on_your_data.invocations == 1
+    assert not any(kind == "cohere" for kind, _ in calls)
+
+
+def test_non_hr_query_uses_cohere_path_when_configured(monkeypatch):
+    """Non-targeted queries should continue through Cohere path."""
+    from app.core.config import settings
+
+    search_index = DummySearchIndex()
+    on_your_data = DummyOnYourDataService()
+    cohere = DummyCohereRerankService()
+    service = ChatService(
+        search_index=search_index,
+        on_your_data_service=on_your_data,
+        cohere_rerank_service=cohere,
+    )
+    service.cache_service = None
+    service._openai_client = object()
+    monkeypatch.setattr(settings, "USE_COHERE_RERANK", True)
+
+    calls = []
+
+    async def fake_oyd(request, filter_expr):
+        calls.append(("oyd", filter_expr))
+        return _ok_chat_response("oyd")
+
+    async def fake_cohere(request, filter_expr):
+        calls.append(("cohere", filter_expr))
+        return _ok_chat_response("cohere")
+
+    monkeypatch.setattr(service, "_chat_with_on_your_data", fake_oyd)
+    monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
+
+    response = asyncio.run(service.process_chat(ChatRequest(message="How do we clean central lines?")))
+
+    assert response.response == "cohere"
+    assert calls
+    assert calls[0][0] == "cohere"
+    assert not any(kind == "oyd" for kind, _ in calls)
+
+
+def test_policy_query_with_out_of_scope_keyword_prefers_oyd(monkeypatch):
+    """Policy-number queries should not be blocked as OUT_OF_SCOPE by keyword collisions."""
+    from app.core.config import settings
+
+    search_index = DummySearchIndex()
+    on_your_data = DummyOnYourDataService()
+    cohere = DummyCohereRerankService()
+    service = ChatService(
+        search_index=search_index,
+        on_your_data_service=on_your_data,
+        cohere_rerank_service=cohere,
+    )
+    service.cache_service = None
+    service._openai_client = object()
+    monkeypatch.setattr(settings, "USE_COHERE_RERANK", True)
+
+    calls = []
+
+    async def fake_cohere(request, filter_expr):
+        calls.append(("cohere", filter_expr))
+        return _ok_chat_response("cohere")
+
+    monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
+
+    response = asyncio.run(
+        service.process_chat(ChatRequest(message="Can you summarize HR-C 05.00 pension contributions?"))
+    )
+
+    assert response.found is True
+    assert "OUT_OF_SCOPE" not in response.safety_flags
+    assert on_your_data.invocations == 1
+    assert not any(kind == "cohere" for kind, _ in calls)
+
+
+def test_stream_policy_query_with_out_of_scope_keyword_prefers_oyd(monkeypatch):
+    """Streaming path should also bypass out-of-scope for policy-number queries."""
+    from app.core.config import settings
+
+    search_index = DummySearchIndex()
+    on_your_data = DummyOnYourDataService()
+    cohere = DummyCohereRerankService()
+    service = ChatService(
+        search_index=search_index,
+        on_your_data_service=on_your_data,
+        cohere_rerank_service=cohere,
+    )
+    service.cache_service = None
+    service._openai_client = object()
+    monkeypatch.setattr(settings, "USE_COHERE_RERANK", True)
+
+    async def collect():
+        chunks = []
+        async for event in service.process_chat_stream(
+            ChatRequest(message="Can you summarize HR-C 05.00 pension contributions?")
+        ):
+            chunks.append(event)
+        return chunks
+
+    events = asyncio.run(collect())
+    payload = "".join(events).lower()
+
+    assert on_your_data.invocations == 1
+    assert "outside my scope" not in payload
+    assert "event: answer_chunk" in payload
+    assert "event: done" in payload
 
 
 # ============================================================================

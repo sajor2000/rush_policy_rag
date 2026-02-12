@@ -16,7 +16,7 @@ import logging
 import os
 import uvicorn
 from typing import Dict, Any
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -32,6 +32,7 @@ from app.core.rate_limit import limiter  # Shared rate limiter with load balance
 from app.core.circuit_breaker import get_all_circuit_status
 from app.dependencies import lifespan, increment_requests, decrement_requests
 from app.api.routes import chat, admin, pdf, search
+from app.api.routes.admin import verify_admin_key
 
 # Optional instrumentation - gracefully handle missing dependencies
 try:
@@ -145,7 +146,44 @@ app.include_router(search.router, prefix="/api", tags=["Search (deprecated)"])
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint - returns 503 if critical services fail."""
+    """Public health check — returns status only (no architecture details)."""
+    from app.dependencies import get_search_index
+
+    health_status = "healthy"
+
+    # Check search index (critical service)
+    try:
+        search_index = get_search_index()
+        stats = search_index.get_stats()
+        if isinstance(stats, dict) and "error" in stats:
+            health_status = "degraded"
+    except RuntimeError:
+        health_status = "unhealthy"
+    except Exception:
+        health_status = "degraded"
+
+    # Check circuit breakers
+    circuit_breakers = get_all_circuit_status()
+    for cb_name, cb_status in circuit_breakers.items():
+        if cb_status.get("state") == "open":
+            health_status = "degraded"
+
+    response_body = {"status": health_status, "version": "3.0.0"}
+
+    if health_status == "unhealthy":
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=response_body
+        )
+
+    return response_body
+
+
+@app.get("/health/detailed")
+async def health_check_detailed(
+    _: str = Depends(verify_admin_key)
+):
+    """Admin-only detailed health check with architecture diagnostics."""
     from app.dependencies import get_search_index, get_on_your_data_service_dep
 
     health_status = "healthy"
@@ -159,7 +197,6 @@ async def health_check():
             health_status = "degraded"
             errors.append(f"search_index: {stats['error']}")
     except RuntimeError as e:
-        # RuntimeError indicates critical initialization failure
         health_status = "unhealthy"
         stats = {"error": str(e)}
         errors.append(f"search_index: {e}")
@@ -182,7 +219,6 @@ async def health_check():
 
     # Check circuit breakers
     circuit_breakers = get_all_circuit_status()
-    # Mark as degraded if any circuit breaker is open
     for cb_name, cb_status in circuit_breakers.items():
         if cb_status.get("state") == "open":
             health_status = "degraded"
@@ -205,7 +241,6 @@ async def health_check():
             errors.append(f"blob_storage: container '{CONTAINER_NAME}' not found")
     except Exception as e:
         blob_status = {"configured": False, "error": str(e)}
-        # Don't mark as degraded - blob storage is optional for core chat functionality
         logger.warning(f"Blob storage health check failed: {e}")
 
     response_body = {
@@ -217,11 +252,9 @@ async def health_check():
         "version": "3.0.0",
     }
 
-    # Only include errors if present
     if errors:
         response_body["errors"] = errors
 
-    # Return 503 if unhealthy (critical service down)
     if health_status == "unhealthy":
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

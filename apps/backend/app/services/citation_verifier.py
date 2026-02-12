@@ -79,8 +79,12 @@ class CitationVerifier:
         r'\b\d+\s*(?:mg|mcg|ml|cc|units?|iu)\b',  # Medication dosages
         r'\b\d+\s*(?:hours?|minutes?|days?|weeks?)\b',  # Timeframes
         r'\b\d+(?:\.\d+)?%\b',  # Percentages
-        r'\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b',  # Numbers
-        r'\bRef\s*#?\s*\d+\b',  # Policy references
+    ]
+
+    IDENTIFIER_LIKE_PATTERNS = [
+        r'^\d{1,3}\.\d{1,3}$',  # section/policy-like decimals (e.g., 6.03, 05.00)
+        r'^[A-Za-z]{2}-[A-Za-z]\s*\d{1,2}\.\d{1,2}$',  # HR-C 05.00 style
+        r'^Ref\s*#?\s*[A-Za-z0-9.\-]+$',  # cited policy identifiers
     ]
 
     def verify_response(
@@ -202,6 +206,14 @@ class CitationVerifier:
             claims.extend(matches)
         return claims
 
+    def _is_identifier_like_claim(self, claim: str) -> bool:
+        """Return True for policy/section identifiers that should not trigger hard blocking."""
+        stripped = claim.strip()
+        return any(
+            re.match(pattern, stripped, re.IGNORECASE)
+            for pattern in self.IDENTIFIER_LIKE_PATTERNS
+        )
+
     def verify_factual_claims(
         self,
         response: str,
@@ -239,7 +251,12 @@ class CitationVerifier:
             for match in matches:
                 match_lower = match.lower().strip()
                 normalized_match = re.sub(r'\s+', ' ', match_lower)
-                
+
+                # Policy identifiers/section labels are tracked separately and should
+                # not be treated as unverified factual hallucinations.
+                if self._is_identifier_like_claim(match):
+                    continue
+
                 found = False
                 
                 # First try: check combined context

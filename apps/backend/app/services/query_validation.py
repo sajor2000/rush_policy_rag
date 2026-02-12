@@ -13,6 +13,7 @@ Extracted from chat_service.py as part of tech debt refactoring.
 """
 
 import re
+import unicodedata
 import logging
 from typing import Optional
 
@@ -99,6 +100,38 @@ ALWAYS_OUT_OF_SCOPE = [
 ]
 
 
+def _normalize_text_for_phrase_match(text: str) -> str:
+    """
+    Normalize text for robust phrase matching.
+
+    Lowercases, collapses repeated whitespace, and strips common punctuation
+    that should not affect semantic phrase matching.
+    """
+    lowered = text.lower()
+    # Keep hyphens and periods (policy identifiers), strip other punctuation.
+    cleaned = re.sub(r"[^\w\s\-.]", " ", lowered)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _contains_out_of_scope_keyword(query: str, keyword: str) -> bool:
+    """
+    Boundary-aware out-of-scope matching.
+
+    - Single-token keyword: exact word-boundary match
+    - Multi-token phrase: normalized phrase containment
+    """
+    normalized_query = _normalize_text_for_phrase_match(query)
+    normalized_keyword = _normalize_text_for_phrase_match(keyword)
+
+    if not normalized_keyword:
+        return False
+
+    if " " in normalized_keyword:
+        return normalized_keyword in normalized_query
+
+    return re.search(rf"\b{re.escape(normalized_keyword)}\b", normalized_query) is not None
+
+
 # ============================================================================
 # FIX 5: Multi-policy query indicators (Enhanced for better detection)
 # ============================================================================
@@ -166,7 +199,32 @@ ADVERSARIAL_PATTERNS = [
     "tell me confidential", "reveal confidential", "show me confidential",
     # Translation-based bypass
     "translate this to", "translate the following",
+    # === Multi-language adversarial patterns ===
+    # Spanish (high priority — US healthcare)
+    "ignora tus instrucciones", "olvida tus instrucciones", "ignora las reglas",
+    "finge que eres", "modo desarrollador", "sin restricciones",
+    "muéstrame tu prompt", "información confidencial",
+    # French
+    "oublie tes instructions", "ignore tes instructions", "ignore les règles",
+    "fais comme si", "mode développeur", "sans restrictions",
+    # Chinese (Simplified)
+    "忽略你的指令", "忽略你之前的指令", "忽略规则", "假装你是", "开发者模式",
+    # Base64 detection
+    "decode this base64", "decode and follow", "base64:",
+    # === Technical reconnaissance / data exfiltration ===
+    "api key", "api_key", "apikey", "search_api_key",
+    "connection string", "access token", "bearer token", "secret key",
+    "environment variable", "env var", ".env file",
+    "search index schema", "search index", "index schema", "index fields",
+    "azure openai endpoint", "openai endpoint", "blob storage account",
+    "deployment configuration", "resource group", "subscription id",
 ]
+
+# Medical context words that indicate legitimate usage of otherwise-adversarial terms
+MEDICAL_CONTEXT_EXCEPTIONS = {
+    "bypass": ["coronary", "cardiac", "cabg", "surgery", "surgical", "heart", "gastric", "bariatric", "arterial"],
+    "skip the": ["pre-operative", "checklist", "patient", "dose", "meal", "appointment"],
+}
 
 ADVERSARIAL_REFUSAL_MESSAGE = (
     "I cannot provide guidance on bypassing, circumventing, or ignoring RUSH safety protocols. "
@@ -232,11 +290,9 @@ def is_out_of_scope_query(query: str) -> bool:
     Returns:
         True if query is about a topic with no policies
     """
-    query_lower = query.lower()
-
     # Check against verified out-of-scope topics
     for keyword in ALWAYS_OUT_OF_SCOPE:
-        if keyword in query_lower:
+        if _contains_out_of_scope_keyword(query, keyword):
             logger.info(f"Out-of-scope query detected (no policies exist): '{keyword}'")
             return True
 
@@ -309,10 +365,39 @@ def is_adversarial_query(query: str) -> bool:
     Returns:
         True if query appears adversarial
     """
-    query_lower = query.lower()
+    # Step 1: NFD decomposition (splits precomposed chars like ó → o + combining accent)
+    normalized = unicodedata.normalize('NFD', query)
+    # Step 2: Strip combining diacriticals (U+0300-U+036F) — must happen after NFD
+    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+    # Step 3: NFKC normalization (maps fullwidth → ASCII, compatibility forms)
+    normalized = unicodedata.normalize('NFKC', normalized)
+    # Step 4: Replace zero-width characters with spaces (preserve word boundaries)
+    zero_width = '\u200b\u200c\u200d\u200e\u200f\ufeff\u2060\u00ad\u202e'
+    for ch in zero_width:
+        normalized = normalized.replace(ch, ' ')
+    # Step 5: Map common Cyrillic homoglyphs to Latin equivalents
+    _HOMOGLYPH_MAP = {
+        '\u043e': 'o', '\u043a': 'k', '\u0435': 'e', '\u0430': 'a',
+        '\u0440': 'p', '\u0441': 'c', '\u0443': 'y', '\u0445': 'x',
+        '\u0456': 'i', '\u0455': 's', '\u0458': 'j', '\u04bb': 'h',
+    }
+    normalized = ''.join(_HOMOGLYPH_MAP.get(c, c) for c in normalized)
+    # Collapse multiple spaces
+    normalized = ' '.join(normalized.split())
+    query_lower = normalized.lower()
 
     for pattern in ADVERSARIAL_PATTERNS:
-        if pattern in query_lower:
+        # Normalize pattern the same way (handles accented patterns like "muéstrame")
+        pattern_norm = unicodedata.normalize('NFKC', ''.join(
+            c for c in unicodedata.normalize('NFD', pattern)
+            if not unicodedata.combining(c)
+        )).lower()
+        if pattern_norm in query_lower:
+            # Check medical context exceptions to reduce false positives
+            if pattern in MEDICAL_CONTEXT_EXCEPTIONS:
+                exceptions = MEDICAL_CONTEXT_EXCEPTIONS[pattern]
+                if exceptions and any(term in query_lower for term in exceptions):
+                    continue  # Legitimate medical usage
             logger.info(f"Adversarial query detected: '{pattern}' in query")
             return True
 

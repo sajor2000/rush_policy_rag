@@ -8,6 +8,8 @@
  * Extracted from ChatMessage.tsx as part of tech debt refactoring.
  */
 
+import { sanitizeContent } from "./sanitize";
+
 import type { Evidence } from "@/lib/api";
 
 // ============================================================================
@@ -121,10 +123,12 @@ export function cleanSnippet(text: string): string {
     }
   }
 
-  return formattedLines
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n") // Max 2 consecutive newlines
-    .trim();
+  return sanitizeContent(
+    formattedLines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n") // Max 2 consecutive newlines
+      .trim()
+  );
 }
 
 /**

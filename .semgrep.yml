@@ -1,0 +1,218 @@
+rules:
+  # ============================================================================
+  # Rule 1: Hardcoded API Keys in Python
+  # ============================================================================
+  - id: rush-hardcoded-api-key
+    patterns:
+      - pattern-regex: (?i)(api_key|apikey|api-key)\s*[=:]\s*["'][a-zA-Z0-9+/=]{20,}["']
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+        - "*.example*"
+        - "conftest.py"
+    message: >
+      Hardcoded API key detected. Move to environment variable or Azure Key Vault.
+    severity: ERROR
+    metadata:
+      category: security
+      subcategory: secrets
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 2: Hardcoded Connection Strings
+  # ============================================================================
+  - id: rush-hardcoded-connection-string
+    patterns:
+      - pattern-regex: DefaultEndpointsProtocol=https?;AccountName=
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+        - "*.example*"
+    message: >
+      Hardcoded Azure connection string detected. Use environment variables or Azure Key Vault.
+    severity: ERROR
+    metadata:
+      category: security
+      subcategory: secrets
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 3: Raw Exception in HTTP Response
+  # ============================================================================
+  - id: rush-raw-exception-in-response
+    patterns:
+      - pattern-regex: "raise HTTPException\\(.*detail=.*(?:str\\(|f\"|f').*(?:\\be\\b|err|exception)"
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+    message: >
+      HTTPException exposes raw exception details. Use a generic error message instead.
+      Example: detail="An error occurred processing your request"
+    severity: WARNING
+    metadata:
+      category: security
+      subcategory: information-disclosure
+      cwe: "CWE-209: Generation of Error Message Containing Sensitive Information"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 4: CSP unsafe-eval
+  # ============================================================================
+  - id: rush-unsafe-eval-csp
+    patterns:
+      - pattern-regex: unsafe-eval
+    paths:
+      include:
+        - "*.js"
+        - "*.ts"
+        - "*.mjs"
+      exclude:
+        - "*node_modules*"
+        - "*test*"
+    message: >
+      CSP allows 'unsafe-eval' which permits eval() execution, weakening XSS protection.
+      Consider nonce-based CSP for production.
+    severity: WARNING
+    metadata:
+      category: security
+      subcategory: csp
+      cwe: "CWE-79: Cross-site Scripting"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 5: dangerouslySetInnerHTML Usage
+  # ============================================================================
+  - id: rush-dangerouslysetinnerhtml
+    patterns:
+      - pattern-regex: dangerouslySetInnerHTML
+    paths:
+      include:
+        - "*.tsx"
+        - "*.jsx"
+      exclude:
+        - "*node_modules*"
+    message: >
+      dangerouslySetInnerHTML bypasses React's XSS protection. Use DOMPurify or
+      render as text. If unavoidable, sanitize with DOMPurify.sanitize() first.
+    severity: ERROR
+    metadata:
+      category: security
+      subcategory: xss
+      cwe: "CWE-79: Cross-site Scripting"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 6: X-Forwarded-For Trust Without Validation
+  # ============================================================================
+  - id: rush-xff-trust
+    patterns:
+      - pattern-regex: "headers\\.get\\(.*X-Forwarded-For.*\\)"
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+    message: >
+      X-Forwarded-For header is trusted without validating the proxy chain.
+      Attackers can spoof this header to bypass rate limiting. Consider using
+      Azure-specific headers or configuring trusted proxies.
+    severity: WARNING
+    metadata:
+      category: security
+      subcategory: rate-limiting
+      cwe: "CWE-346: Origin Validation Error"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 7: Disabled Authentication
+  # ============================================================================
+  - id: rush-disabled-auth
+    patterns:
+      - pattern-regex: REQUIRE_AAD_AUTH.*(?:=|:)\s*(?:False|false)
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+    message: >
+      Azure AD authentication is disabled. Enable REQUIRE_AAD_AUTH=true for
+      production deployment to prevent unauthorized access.
+    severity: WARNING
+    metadata:
+      category: security
+      subcategory: authentication
+      cwe: "CWE-306: Missing Authentication for Critical Function"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 8: Unvalidated Query to LLM
+  # ============================================================================
+  - id: rush-unvalidated-query-to-llm
+    patterns:
+      - pattern-regex: '"content"\s*:\s*query\b'
+    paths:
+      include:
+        - "**/apps/backend/app/services/*.py"
+      exclude:
+        - "*test*"
+    message: >
+      User query passed directly to LLM without explicit sanitization.
+      Ensure validate_query() is called before passing to Azure OpenAI.
+    severity: WARNING
+    metadata:
+      category: security
+      subcategory: prompt-injection
+      cwe: "CWE-74: Improper Neutralization of Special Elements in Output"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 9: OData String Format Without Escaping
+  # ============================================================================
+  - id: rush-odata-string-format
+    patterns:
+      - pattern-regex: "f[\"'].*eq\\s*'\\{[^}]+\\}'[\"']"
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+        - "**/app/core/security.py"
+    message: >
+      OData filter uses f-string interpolation without escape_odata_string().
+      Use build_applies_to_filter() or escape_odata_string() from app.core.security.
+    severity: WARNING
+    metadata:
+      category: security
+      subcategory: injection
+      cwe: "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+    languages: [generic]
+
+  # ============================================================================
+  # Rule 10: .env File Reference in Code
+  # ============================================================================
+  - id: rush-env-file-reference
+    patterns:
+      - pattern-regex: '(?:open|read|load).*\.env\b'
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+        - "conftest.py"
+        - ".gitignore"
+    message: >
+      Direct .env file reference detected. In production, use Azure Key Vault
+      or Container Apps secrets instead of .env files.
+    severity: INFO
+    metadata:
+      category: security
+      subcategory: configuration
+    languages: [generic]

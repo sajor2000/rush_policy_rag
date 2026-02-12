@@ -56,7 +56,8 @@ async def search_instances(
         if len(body.policy_ref) < 1:
             raise ValueError("Policy reference required")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Search validation failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid search parameters")
 
     # Create service with search client
     service = InstanceSearchService(search_index.get_search_client())

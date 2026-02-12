@@ -220,6 +220,26 @@ class TestSynonymService:
             ])
             assert has_nicu_context, f"Query {i+1} missing NICU context: {result.expanded_query}"
 
+    def test_contains_term_uses_word_boundaries_for_short_terms(self, service):
+        """Regression: short term 'pe' must not match inside larger words."""
+        assert service._contains_term("supervisor entry editing", "pe") is False
+        assert service._contains_term("warning with suspension", "pe") is False
+        assert service._contains_term("PE prophylaxis guidance", "pe") is True
+
+    def test_no_substring_triggered_pe_expansion(self, service):
+        """Regression: suspension/supervisor queries must not add pulmonary embolism terms."""
+        query = "What are the levels of warning with or without suspension?"
+        result = service.expand_query(query)
+        expanded = result.expanded_query.lower()
+        assert "pulmonary embolism" not in expanded
+        assert "blood clot" not in expanded
+
+        query2 = "What is supervisor entry and editing?"
+        result2 = service.expand_query(query2)
+        expanded2 = result2.expanded_query.lower()
+        assert "pulmonary embolism" not in expanded2
+        assert "blood clot" not in expanded2
+
 
 def test_sample_queries():
     """Test a variety of sample queries that users might ask."""

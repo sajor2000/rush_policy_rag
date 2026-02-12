@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     AZURE_AD_CLIENT_ID: Optional[str] = None
     AZURE_AD_TOKEN_AUDIENCE: Optional[str] = None
     AZURE_AD_ALLOWED_CLIENT_IDS: str = ""
-    REQUIRE_AAD_AUTH: bool = False  # Set to True to enable Azure AD authentication
+    REQUIRE_AAD_AUTH: bool = True  # Secure by default; set False only for local dev via .env
 
     # CORS - stored as comma-separated string, parsed to list via property
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5000,http://127.0.0.1:3000,http://127.0.0.1:5000"
@@ -263,6 +263,13 @@ class Settings(BaseSettings):
                 critical_errors.append(
                     "REQUIRE_AAD_AUTH enabled but missing: " + ", ".join(missing_auth)
                 )
+
+        # Warn if auth is disabled
+        if not self.REQUIRE_AAD_AUTH:
+            import logging
+            logging.getLogger(__name__).warning(
+                "REQUIRE_AAD_AUTH is False — authentication is DISABLED"
+            )
 
         # Critical: Admin API key should be set in production
         # Detect production environment (Azure Container Apps sets these)

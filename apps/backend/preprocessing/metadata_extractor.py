@@ -19,6 +19,10 @@ from preprocessing.checkbox_extractor import extract_applies_to_from_text
 
 logger = logging.getLogger(__name__)
 
+POLICY_NUMBER_PATTERN = re.compile(
+    r'\b([A-Za-z]{2})\s*-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b'
+)
+
 
 def clean_filename(filename: str) -> str:
     """
@@ -38,6 +42,60 @@ def clean_filename(filename: str) -> str:
         .replace('  ', ' - ')
         .strip()
     )
+
+
+def normalize_policy_number(raw: str) -> str:
+    """
+    Normalize policy number to canonical format: XX-X NN.NN.
+
+    Handles common variants:
+    - HR-C05.00 -> HR-C 05.00
+    - HR-C 5.00 -> HR-C 05.00
+    - HR-C 0.600 -> HR-C 06.00
+    """
+    match = POLICY_NUMBER_PATTERN.search(raw or "")
+    if not match:
+        return ""
+
+    prefix = match.group(1).upper()
+    letter = match.group(2).upper()
+    major = match.group(3)
+    minor = match.group(4)
+
+    if minor is None:
+        number = major.zfill(2)
+        sub = "00"
+        return f"{prefix}-{letter} {number}.{sub}"
+
+    if len(minor) == 3 and major == "0":
+        digits = f"{major}{minor}".zfill(4)[:4]
+        number = digits[:2]
+        sub = digits[2:]
+        return f"{prefix}-{letter} {number}.{sub}"
+
+    number = major.zfill(2)
+    if len(minor) == 1:
+        sub = minor + "0"
+    else:
+        sub = minor[:2]
+
+    return f"{prefix}-{letter} {number}.{sub}"
+
+
+def extract_policy_number(
+    filename: Optional[str] = None,
+    text: Optional[str] = None,
+    title: Optional[str] = None
+) -> str:
+    """
+    Extract canonical policy number with source priority:
+    1) filename, 2) page/header text, 3) title fallback.
+    """
+    for source in (filename, text, title):
+        normalized = normalize_policy_number(source or "")
+        if normalized:
+            return normalized
+    return ""
 
 
 def extract_page_number(doc_chunk) -> Optional[int]:
@@ -244,6 +302,14 @@ def extract_fields_from_text(
                     metadata.title = title_text
                     break
 
+    # Canonical policy number extraction (filename -> text -> title fallback)
+    if not metadata.policy_number:
+        metadata.policy_number = extract_policy_number(
+            filename=filename,
+            text=text,
+            title=metadata.title
+        )
+
     # Reference number extraction (multiple patterns)
     # Valid ref numbers must contain at least one digit (e.g., "892", "IT-09.02", "POL-2023")
     # Reject pure words like "Document", "Number", "Policy" that regex may incorrectly capture
@@ -251,14 +317,14 @@ def extract_fields_from_text(
 
     if not metadata.reference_number:
         for pattern in [
-            r'Reference\s*Number[:\s]+([A-Za-z0-9\-\.]+)',
-            r'Policy\s*Number[:\s]+([A-Za-z0-9\-\.]+)',
-            r'Ref[:\s#]+([A-Za-z0-9\-\.]+)',
+            r'Reference\s*Number[:\s]+([A-Za-z0-9\-\.\s]+)',
+            r'Policy\s*Number[:\s]+([A-Za-z0-9\-\.\s]+)',
+            r'Ref[:\s#]+([A-Za-z0-9\-\.\s]+)',
             r'Reference[:\s]+(\d{3,6})',
         ]:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                candidate = match.group(1).strip()
+                candidate = ' '.join(match.group(1).strip().split())
                 # Validate: must contain at least one digit AND not be an invalid word
                 if (re.search(r'\d', candidate) and
                     candidate.lower() not in INVALID_REF_WORDS and

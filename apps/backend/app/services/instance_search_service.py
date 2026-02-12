@@ -21,6 +21,7 @@ import logging
 from typing import List, Optional
 from azure.search.documents import SearchClient
 from app.models.schemas import TermInstance, InstanceSearchResponse
+from app.services.query_enhancer import detect_policy_number
 
 logger = logging.getLogger(__name__)
 
@@ -152,16 +153,15 @@ class InstanceSearchService:
 
     def _get_policy_chunks(self, policy_ref: str) -> List[dict]:
         """Retrieve all chunks for a specific policy using Azure Search filter."""
-        # Escape single quotes for OData filter (OData uses '' to escape ')
-        safe_ref = policy_ref.replace("'", "''")
+        filter_expr = self._build_policy_scope_filter(policy_ref)
 
         # Use search with filter to get all chunks - filter is O(1) on indexed field
         results = list(self.search_client.search(
             search_text="*",
-            filter=f"reference_number eq '{safe_ref}'",
+            filter=filter_expr,
             select=[
                 "id", "content", "title", "section",
-                "source_file", "reference_number", "chunk_index"
+                "source_file", "reference_number", "policy_number", "chunk_index"
             ],
             top=1000,  # Get all chunks (most policies have <100 chunks)
             order_by=["chunk_index asc"]
@@ -240,18 +240,18 @@ class InstanceSearchService:
         This filters to a specific policy AND ranks chunks by relevance to the query.
         Perfect for "find the section about X in policy Y" questions.
         """
-        safe_ref = policy_ref.replace("'", "''")
+        filter_expr = self._build_policy_scope_filter(policy_ref)
 
         # Use semantic hybrid search within the filtered policy
         # This combines keyword matching with Azure's semantic ranker
         results = list(self.search_client.search(
             search_text=query,
-            filter=f"reference_number eq '{safe_ref}'",
+            filter=filter_expr,
             query_type="semantic",
             semantic_configuration_name="default-semantic",
             select=[
                 "id", "content", "title", "section",
-                "source_file", "reference_number", "chunk_index"
+                "source_file", "reference_number", "policy_number", "chunk_index"
             ],
             top=SEMANTIC_TOP_K,
             include_total_count=True
@@ -262,6 +262,21 @@ class InstanceSearchService:
             f"-> {len(results)} relevant chunks"
         )
         return results
+
+    def _build_policy_scope_filter(self, policy_ref: str) -> str:
+        """
+        Build policy filter expression for exact policy scoping.
+
+        For coded IDs (e.g., HR-C 05.00), search both canonical policy_number
+        and reference_number for backward compatibility.
+        """
+        detected = detect_policy_number(policy_ref)
+        if detected:
+            canonical = detected[0].replace("'", "''")
+            return f"(policy_number eq '{canonical}') or (reference_number eq '{canonical}')"
+
+        safe_ref = policy_ref.replace("'", "''")
+        return f"reference_number eq '{safe_ref}'"
 
     def _chunk_to_instance(self, chunk: dict, search_term: str) -> TermInstance:
         """

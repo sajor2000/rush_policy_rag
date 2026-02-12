@@ -117,7 +117,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         """Get client IP, respecting X-Forwarded-For header."""
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            ips = [ip.strip() for ip in forwarded.split(",")]
+            if len(ips) >= 2:
+                return ips[-2]
+            return ips[0]
         return request.client.host if request.client else "unknown"
 
 

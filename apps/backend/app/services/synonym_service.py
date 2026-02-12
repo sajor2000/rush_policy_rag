@@ -513,6 +513,25 @@ class SynonymService:
         normalized = re.sub(r"(\w+)'\b", r"\1", normalized)
         return normalized
 
+    def _contains_term(self, query: str, term: str) -> bool:
+        """
+        Check whether a term appears in a query using token-aware matching.
+
+        - Multi-word terms are matched as normalized phrases.
+        - Single-word terms require word boundaries to avoid substring collisions
+          (e.g., "pe" should not match "supervisor" or "suspension").
+        """
+        query_norm = " ".join(query.lower().split())
+        term_norm = " ".join(term.lower().split())
+
+        if not term_norm:
+            return False
+
+        if " " in term_norm:
+            return term_norm in query_norm
+
+        return re.search(rf"\b{re.escape(term_norm)}\b", query_norm) is not None
+
     def _apply_compound_expansions(
         self,
         query: str,
@@ -528,12 +547,11 @@ class SynonymService:
         - "NICU pain assessment" -> adds "neonatal FLACC N-PASS infant"
         - "pediatric pain policy" -> adds "PICU child Wong-Baker"
         """
-        query_lower = query.lower()
         all_expansions = []
         matched = False
 
         for (term1, term2), expansion in COMPOUND_EXPANSIONS.items():
-            if term1 in query_lower and term2 in query_lower:
+            if self._contains_term(query, term1) and self._contains_term(query, term2):
                 result.expansions_applied.append({
                     'compound': f"{term1}+{term2}",
                     'expansion': expansion
@@ -543,6 +561,7 @@ class SynonymService:
                 matched = True
 
         if matched:
+            query_lower = query.lower()
             # Combine all expansions, deduplicating terms
             combined_terms = set()
             for exp in all_expansions:
@@ -578,7 +597,7 @@ class SynonymService:
 
         # Priority 1: Multi-word CONTEXT_SPECIFIC phrases (device-specific)
         for phrase in sorted(CONTEXT_SPECIFIC_EXPANSIONS.keys(), key=len, reverse=True):
-            if len(phrase.split()) > 1 and phrase in query_lower:
+            if len(phrase.split()) > 1 and self._contains_term(query, phrase):
                 expansion = CONTEXT_SPECIFIC_EXPANSIONS[phrase]
                 # Only add terms not already present
                 new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
@@ -593,7 +612,7 @@ class SynonymService:
 
         # Priority 2: Single-word specific terms (device-specific)
         for term, expansion in CONTEXT_SPECIFIC_EXPANSIONS.items():
-            if len(term.split()) == 1 and term in query_lower:
+            if len(term.split()) == 1 and self._contains_term(query, term):
                 new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
                 if new_terms:
                     addition = ' '.join(new_terms[:4])
@@ -606,7 +625,7 @@ class SynonymService:
 
         # Priority 3: General clinical terms (non-device)
         for term, expansion in SINGLE_TERM_EXPANSIONS.items():
-            if term in query_lower:
+            if self._contains_term(query, term):
                 new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
                 if new_terms:
                     addition = ' '.join(new_terms[:4])
@@ -620,7 +639,7 @@ class SynonymService:
 
         # Priority 4: Neutral fallbacks (only if no specific match)
         for term, expansion in NEUTRAL_FALLBACKS.items():
-            if term in query_lower:
+            if self._contains_term(query, term):
                 new_terms = [w for w in expansion.split() if w.lower() not in query_lower]
                 if new_terms:
                     addition = ' '.join(new_terms[:4])
@@ -734,6 +753,11 @@ class SynonymService:
         if len(expanded_words_final) > max_words:
             expanded_query = ' '.join(expanded_words_final[:max_words])
             logger.info(f"Truncated expansion: {len(expanded_words_final)} -> {max_words} words")
+
+        # 8. Sanitize expanded query — remove injection-enabling characters
+        import re as _re
+        expanded_query = _re.sub(r'[\x00-\x1f\x7f-\x9f]', '', expanded_query)
+        expanded_query = _re.sub(r"[;'\"\\]", '', expanded_query)
 
         result.expanded_query = expanded_query
 

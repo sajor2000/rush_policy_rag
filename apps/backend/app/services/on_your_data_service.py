@@ -42,6 +42,7 @@ class OnYourDataReference:
     url: str = ""
     chunk_id: str = ""
     reference_number: str = ""
+    policy_number: str = ""
     section: str = ""
     applies_to: str = ""
     page_number: Optional[int] = None  # 1-indexed page number for PDF navigation
@@ -81,7 +82,7 @@ class OnYourDataService:
         # Azure AI Search configuration
         self.search_endpoint = os.environ.get("SEARCH_ENDPOINT")
         self.search_key = os.environ.get("SEARCH_API_KEY")
-        self.index_name = os.environ.get("SEARCH_INDEX_NAME", "rush-policies")
+        self.index_name = os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active")
         self.semantic_config = os.environ.get("SEARCH_SEMANTIC_CONFIG", "default-semantic")
         self.embedding_deployment = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
 
@@ -280,6 +281,11 @@ If the information is not in the provided documents, say so."""
                             filepath=cit.get('filepath', ''),
                             url=cit.get('url', ''),
                             chunk_id=cit.get('chunk_id', ''),
+                            reference_number=cit.get('reference_number', ''),
+                            policy_number=cit.get('policy_number', ''),
+                            section=cit.get('section', ''),
+                            applies_to=cit.get('applies_to', ''),
+                            page_number=cit.get('page_number'),
                             reranker_score=cit.get('reranker_score')
                         ))
                     elif hasattr(cit, 'content'):
@@ -289,6 +295,11 @@ If the information is not in the provided documents, say so."""
                             filepath=getattr(cit, 'filepath', ''),
                             url=getattr(cit, 'url', ''),
                             chunk_id=getattr(cit, 'chunk_id', ''),
+                            reference_number=getattr(cit, 'reference_number', ''),
+                            policy_number=getattr(cit, 'policy_number', ''),
+                            section=getattr(cit, 'section', ''),
+                            applies_to=getattr(cit, 'applies_to', ''),
+                            page_number=getattr(cit, 'page_number', None),
                             reranker_score=getattr(cit, 'reranker_score', None)
                         ))
 

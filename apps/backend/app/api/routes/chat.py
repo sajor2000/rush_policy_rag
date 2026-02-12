@@ -55,7 +55,8 @@ async def search_policies(
         validated_query = validate_query(body.query, max_length=500)
         filter_expr = build_applies_to_filter(body.filter_applies_to)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Search validation failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid search query")
 
     # Wrap synchronous search in thread to avoid blocking event loop
     results = await asyncio.to_thread(
@@ -95,7 +96,8 @@ async def chat(
         validated_message = validate_query(body.message, max_length=2000)
         body.message = validated_message
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Chat validation failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid message format")
 
     # Check circuit breaker before processing
     if is_circuit_open(azure_openai_breaker):
@@ -135,7 +137,8 @@ async def chat(
 
         return response
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Chat processing validation error: {e}")
+        raise HTTPException(status_code=400, detail="Unable to process request")
     except RateLimitError as e:
         # Azure OpenAI rate limit - return 429 with Retry-After header
         retry_after = 60  # Default 60 seconds

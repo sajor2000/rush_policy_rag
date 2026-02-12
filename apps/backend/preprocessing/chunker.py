@@ -62,6 +62,7 @@ from preprocessing.metadata_extractor import (
     extract_page_number_pymupdf,
     extract_section_info,
     extract_fields_from_text,
+    extract_policy_number,
 )
 
 logger = logging.getLogger(__name__)
@@ -322,6 +323,14 @@ class PolicyChunker:
         if not metadata.title:
             metadata.title = clean_filename(filename)
 
+        # Ensure canonical policy number is populated (source-priority extraction).
+        if not metadata.policy_number:
+            metadata.policy_number = extract_policy_number(
+                filename=filename,
+                text=full_text,
+                title=metadata.title
+            )
+
         return metadata
 
     def _chunk_document(
@@ -431,10 +440,10 @@ class PolicyChunker:
 
     def _create_policy_chunk(
         self,
-        chunk_id: str,
-        text: str,
-        metadata: RUSHPolicyMetadata,
-        section_number: str,
+            chunk_id: str,
+            text: str,
+            metadata: RUSHPolicyMetadata,
+            section_number: str,
         section_title: str,
         source_file: str,
         chunk_level: str = "semantic",
@@ -446,6 +455,7 @@ class PolicyChunker:
         return PolicyChunk(
             chunk_id=chunk_id,
             policy_title=metadata.title,
+            policy_number=metadata.policy_number,
             reference_number=metadata.reference_number,
             section_number=section_number,
             section_title=section_title,

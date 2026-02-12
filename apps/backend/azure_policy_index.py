@@ -83,7 +83,7 @@ AOAI_API_KEY = os.environ.get("AOAI_API_KEY")
 AOAI_EMBEDDING_DEPLOYMENT = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
 
 # Index configuration
-INDEX_NAME = "rush-policies"
+INDEX_NAME = os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active")
 EMBEDDING_DIMENSIONS = 3072  # text-embedding-3-large
 # Note: SYNONYM_MAP_NAME and SYNONYMS are now imported from app.services.search_synonyms
 
@@ -255,6 +255,14 @@ class PolicySearchIndex:
             # Reference number - for exact lookups
             SimpleField(
                 name="reference_number",
+                type=SearchFieldDataType.String,
+                filterable=True,
+                facetable=True
+            ),
+
+            # Canonical coded policy number (e.g., HR-C 05.00)
+            SimpleField(
+                name="policy_number",
                 type=SearchFieldDataType.String,
                 filterable=True,
                 facetable=True
@@ -784,6 +792,7 @@ class PolicySearchIndex:
                 "applies_to",
                 "date_updated",
                 "reference_number",
+                "policy_number",
                 "source_file",
                 "document_owner",
                 "date_approved",
@@ -853,6 +862,7 @@ class PolicySearchIndex:
                     date_updated=result.get("date_updated", ""),
                     score=result.get("@search.score", 0),
                     reference_number=result.get("reference_number", ""),
+                    policy_number=result.get("policy_number", ""),
                     reranker_score=result.get("@search.reranker_score"),
                     source_file=result.get("source_file", ""),
                     document_owner=result.get("document_owner", ""),
@@ -930,7 +940,7 @@ class PolicySearchIndex:
         """
         Retrieve metadata for a document by its source_file.
 
-        Returns the first chunk's metadata (applies_to, reference_number, etc.)
+        Returns the first chunk's metadata (applies_to, policy_number, reference_number, etc.)
         for the given source file.
 
         Args:
@@ -950,6 +960,7 @@ class PolicySearchIndex:
                 select=[
                     "applies_to",
                     "reference_number",
+                    "policy_number",
                     "section",
                     "date_updated",
                     "document_owner",
@@ -989,6 +1000,7 @@ class PolicySearchIndex:
                 return {
                     "applies_to": applies_to,
                     "reference_number": result.get("reference_number", ""),
+                    "policy_number": result.get("policy_number", ""),
                     "section": result.get("section", ""),
                     "date_updated": result.get("date_updated", ""),
                     "document_owner": result.get("document_owner", ""),

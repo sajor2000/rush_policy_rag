@@ -41,6 +41,10 @@ def build_source_file_filter(source_file: str) -> str:
     if not source_file or not source_file.strip():
         raise ValueError("source_file cannot be empty")
 
+    MAX_FILENAME_LENGTH = 255
+    if len(source_file.strip()) > MAX_FILENAME_LENGTH:
+        raise ValueError(f"Filename exceeds maximum length of {MAX_FILENAME_LENGTH}")
+
     safe_value = escape_odata_string(source_file.strip())
     return f"source_file eq '{safe_value}'"
 
@@ -84,7 +88,12 @@ def build_applies_to_filter(filter_value: Optional[str]) -> Optional[str]:
     """
     if not filter_value:
         return None
-        
+
+    # Length check first (prevents ReDoS and memory exhaustion)
+    MAX_FILTER_LENGTH = 100
+    if len(filter_value) > MAX_FILTER_LENGTH:
+        raise ValueError(f"Filter value exceeds maximum length of {MAX_FILTER_LENGTH}")
+
     # Allow only alphanumeric characters, spaces, and hyphens
     # This prevents OData injection attacks
     if not re.match(r'^[a-zA-Z0-9\s\-]+$', filter_value):

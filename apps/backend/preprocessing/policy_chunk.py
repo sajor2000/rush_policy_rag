@@ -27,6 +27,7 @@ class PolicyChunk:
     Attributes:
         chunk_id: Unique identifier for this chunk
         policy_title: Title of the source policy
+        policy_number: Canonical coded policy number (e.g., "HR-C 05.00")
         reference_number: Policy reference number (e.g., "528")
         section_number: Section number within policy
         section_title: Section title
@@ -39,6 +40,7 @@ class PolicyChunk:
     """
     chunk_id: str
     policy_title: str
+    policy_number: str
     reference_number: str
     section_number: str
     section_title: str
@@ -125,6 +127,7 @@ class PolicyChunk:
             "id": safe_id,
             "content": self.text,
             "title": self.policy_title,
+            "policy_number": self.policy_number,
             "reference_number": self.reference_number,
             "section": f"{self.section_number}. {self.section_title}" if self.section_number else "",
             "citation": self.get_citation(),
@@ -170,6 +173,7 @@ class PolicyChunk:
         return {
             "chunk_id": self.chunk_id,
             "policy_title": self.policy_title,
+            "policy_number": self.policy_number,
             "reference_number": self.reference_number,
             "section_number": self.section_number,
             "section_title": self.section_title,

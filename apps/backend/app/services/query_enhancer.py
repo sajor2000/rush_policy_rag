@@ -185,8 +185,10 @@ def normalize_location_context(query: str) -> Tuple[str, Optional[str]]:
     # Remove space before punctuation (e.g., "policy ?" -> "policy?")
     query = re.sub(r'\s+([?!.,;:])', r'\1', query)
 
-    # Ensure space after punctuation when followed by alphanumeric (not another punctuation)
-    query = re.sub(r'([?!.,;:])([a-zA-Z0-9])', r'\1 \2', query)
+    # Ensure space after punctuation when followed by alphanumeric (not another punctuation).
+    # Keep decimal numbers intact (e.g., policy codes "05.00" must NOT become "05. 00").
+    query = re.sub(r'([?!,;:])([a-zA-Z0-9])', r'\1 \2', query)
+    query = re.sub(r'(?<!\d)\.([a-zA-Z0-9])', r'. \1', query)
 
     if extracted:
         context = ', '.join(extracted)
@@ -291,10 +293,45 @@ def apply_policy_hints(query: str) -> Tuple[str, List[dict]]:
 # ============================================================================
 
 # Matches RUSH coded policy numbers: HR-C 05.00, HR-C 05, HR-C05.00, hr-c 05.00
+# Also tolerates malformed forms like HR-C 0.600 for normalization.
 # Dash is REQUIRED to avoid false positives on natural English (e.g., "do I 2")
 POLICY_NUMBER_PATTERN = re.compile(
-    r'\b([A-Za-z]{2})-\s*([A-Za-z])\s*(\d{1,2})\.?(\d{2})?\b'
+    r'\b([A-Za-z]{2})-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b'
 )
+
+
+def _normalize_policy_number_parts(prefix: str, letter: str, major: str, minor: Optional[str]) -> str:
+    """
+    Normalize policy number components into canonical format: XX-X NN.NN.
+
+    Handles known malformed user variants:
+    - HR-C05.00 -> HR-C 05.00
+    - HR-C 5.00 -> HR-C 05.00
+    - HR-C 0.600 -> HR-C 06.00
+    """
+    prefix = prefix.upper()
+    letter = letter.upper()
+
+    if minor is None:
+        number = major.zfill(2)
+        sub = "00"
+        return f"{prefix}-{letter} {number}.{sub}"
+
+    # Known malformed form where leading zero leaks into major and minor has 3 digits.
+    # Example: major=0, minor=600 -> combined 0600 -> 06.00
+    if len(minor) == 3 and major == "0":
+        digits = f"{major}{minor}".zfill(4)[:4]
+        number = digits[:2]
+        sub = digits[2:]
+        return f"{prefix}-{letter} {number}.{sub}"
+
+    number = major.zfill(2)
+    if len(minor) == 1:
+        sub = minor + "0"
+    else:
+        sub = minor[:2]
+
+    return f"{prefix}-{letter} {number}.{sub}"
 
 
 def detect_policy_number(query: str) -> Optional[Tuple[str, str]]:
@@ -317,13 +354,18 @@ def detect_policy_number(query: str) -> Optional[Tuple[str, str]]:
     match = POLICY_NUMBER_PATTERN.search(query)
     if not match:
         return None
-    prefix = match.group(1).upper()
-    letter = match.group(2).upper()
-    number = match.group(3).zfill(2)
-    sub = match.group(4) or "00"
-    normalized = f"{prefix}-{letter} {number}.{sub}"
-    # Use search.ismatch on title field — policy numbers are embedded in titles,
-    # not reliably in reference_number. Phrase search (quoted) ensures exact match.
-    odata = f"""search.ismatch('"{normalized}"', 'title', 'full', 'all')"""
+    normalized = _normalize_policy_number_parts(
+        prefix=match.group(1),
+        letter=match.group(2),
+        major=match.group(3),
+        minor=match.group(4),
+    )
+    # Prefer exact metadata filter on canonical policy_number.
+    # Keep title phrase matching as fallback for pre-migration indexes.
+    odata = (
+        f"(policy_number eq '{normalized}') or "
+        f"(reference_number eq '{normalized}') or "
+        f"(search.ismatch('\"{normalized}\"', 'title', 'full', 'all'))"
+    )
     logger.info(f"Detected policy number in query: '{query}' -> '{normalized}'")
     return normalized, odata
