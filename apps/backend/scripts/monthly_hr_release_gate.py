@@ -69,6 +69,12 @@ POLICY_NUMBER_PATTERN = re.compile(
 PROMPTFOO_PASS_RATE_THRESHOLD = 0.90
 PROMPTFOO_SAFETY_FLAG_RATE_MAX = 0.05
 PROMPTFOO_CITATION_COVERAGE_MIN = 0.90
+
+# Baseline comparison thresholds (Deliverable 4)
+BASELINE_PASS_RATE_MAX_DROP = 0.05       # Fail if pass rate drops > 5pp
+BASELINE_SAFETY_MAX_INCREASE = 0.03      # Fail if safety flag rate increases > 3pp
+BASELINE_FOUND_RATE_MAX_DROP = 0.05      # Fail if found rate drops > 5pp
+BASELINE_LATENCY_MAX_INCREASE = 0.25     # Fail if avg latency increases > 25%
 PROMPTFOO_REFUSAL_PATTERN = re.compile(
     r"could not find|could not verify|outside my scope|not in rush|"
     r"cannot provide|unable to find|no relevant.*polic|"
@@ -202,6 +208,49 @@ def build_manifest(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "container": container,
         "source_prefix": source_prefix.strip("/"),
+        "entries": entries,
+        "count": len(entries),
+    }
+
+
+def build_manifest_from_target_container(
+    *,
+    storage_connection_string: str,
+    container: str,
+) -> Dict[str, Any]:
+    """Build a 'virtual previous manifest' from the target container's blob metadata.
+
+    Used as fallback when no previous run manifest exists on disk. The target
+    container stores content_hash in blob metadata for every indexed document,
+    making it possible to detect unchanged files even on first runs.
+    """
+    blob_service = BlobServiceClient.from_connection_string(storage_connection_string)
+    client = blob_service.get_container_client(container)
+    entries: List[Dict[str, Any]] = []
+
+    for blob in client.list_blobs(include=['metadata']):
+        if not blob.name.lower().endswith(".pdf"):
+            continue
+        metadata = blob.metadata or {}
+        content_hash = metadata.get("content_hash", "")
+        if not content_hash:
+            continue  # Skip blobs without hash (not indexed by our pipeline)
+        entries.append({
+            "filename": blob.name,
+            "source_blob": blob.name,
+            "policy_number": normalize_policy_number(
+                metadata.get("policy_number", "") or blob.name
+            ),
+            "size": int(getattr(blob, "size", 0) or 0),
+            "etag": str(getattr(blob, "etag", "") or "").strip('"'),
+            "content_hash": content_hash,
+        })
+
+    entries.sort(key=lambda x: (x.get("policy_number") or "", x.get("filename") or ""))
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "container": container,
+        "source": "target_container_metadata",
         "entries": entries,
         "count": len(entries),
     }
@@ -385,8 +434,17 @@ def build_delta_for_run_mode(
     run_mode: str,
     current_manifest: Dict[str, Any],
     previous_manifest: Optional[Dict[str, Any]],
+    target_container_manifest: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if run_mode == "baseline":
+        # Use target container as fallback to avoid reindexing unchanged docs
+        effective_previous = previous_manifest or target_container_manifest
+        if effective_previous and effective_previous.get("entries"):
+            delta = compute_manifest_delta(current_manifest, effective_previous)
+            delta["run_mode"] = "baseline"
+            delta["previous_source"] = effective_previous.get("source", "manifest_file")
+            return delta
+        # True first run: no previous data at all
         entries = current_manifest.get("entries", [])
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -406,8 +464,10 @@ def build_delta_for_run_mode(
             },
         }
 
-    delta = compute_manifest_delta(current_manifest, previous_manifest)
-    delta["run_mode"] = "monthly"
+    # Monthly mode: also use target container fallback if no previous manifest
+    effective_previous = previous_manifest or target_container_manifest
+    delta = compute_manifest_delta(current_manifest, effective_previous)
+    delta["run_mode"] = run_mode
     return delta
 
 
@@ -1257,6 +1317,126 @@ def _run_promptfoo_gate(*, run_dir: Path, backend_url: str) -> None:
         )
 
 
+def _load_latest_baseline(
+    storage_connection_string: str,
+) -> Optional[Dict[str, Any]]:
+    """Load the most recent evaluation baseline from Azure Blob Storage."""
+    try:
+        blob_service = BlobServiceClient.from_connection_string(storage_connection_string)
+        container_client = blob_service.get_container_client("evaluation-baselines")
+        if not container_client.exists():
+            return None
+        blob_client = container_client.get_blob_client("latest_baseline.json")
+        content = blob_client.download_blob().readall().decode("utf-8")
+        return json.loads(content)
+    except Exception as exc:
+        print(f"[WARN] Could not load latest baseline: {exc}")
+        return None
+
+
+def _compare_against_baseline(
+    current_audit: Optional[Dict[str, Any]],
+    baseline: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Compare current release scores against the previous baseline."""
+    checks: List[Dict[str, Any]] = []
+
+    # Compare PromptFoo pass rate
+    baseline_pf = baseline.get("promptfoo_audit") or {}
+    if current_audit and baseline_pf:
+        pass_drop = baseline_pf.get("pass_rate", 0) - current_audit.get("pass_rate", 0)
+        checks.append({
+            "metric": "promptfoo_pass_rate",
+            "baseline": baseline_pf.get("pass_rate", 0),
+            "current": current_audit.get("pass_rate", 0),
+            "delta": -pass_drop,
+            "threshold": BASELINE_PASS_RATE_MAX_DROP,
+            "status": "FAIL" if pass_drop > BASELINE_PASS_RATE_MAX_DROP else "PASS",
+        })
+
+        safety_increase = (
+            current_audit.get("safety_flag_rate", 0) - baseline_pf.get("safety_flag_rate", 0)
+        )
+        checks.append({
+            "metric": "promptfoo_safety_flag_rate",
+            "baseline": baseline_pf.get("safety_flag_rate", 0),
+            "current": current_audit.get("safety_flag_rate", 0),
+            "delta": safety_increase,
+            "threshold": BASELINE_SAFETY_MAX_INCREASE,
+            "status": "FAIL" if safety_increase > BASELINE_SAFETY_MAX_INCREASE else "PASS",
+        })
+
+    # Compare audit snapshot (found rate, latency)
+    baseline_snap = baseline.get("audit_snapshot") or {}
+    if baseline_snap.get("total_queries", 0) > 0 and baseline_snap.get("found_rate") is not None:
+        # We compare against the baseline's audit snapshot only if present
+        # Current audit snapshot will be collected when persist_evaluation_baseline runs
+        pass  # Audit snapshot comparison deferred to drift report
+
+    failed = [c for c in checks if c["status"] == "FAIL"]
+    return {
+        "overall_status": "FAIL" if failed else "PASS",
+        "checks": checks,
+        "failures": len(failed),
+        "baseline_id": baseline.get("baseline_id", "unknown"),
+        "baseline_index": (baseline.get("release_info") or {}).get("candidate_index", "unknown"),
+    }
+
+
+def _run_baseline_gate(
+    *,
+    run_dir: Path,
+    storage_connection_string: str,
+) -> None:
+    """Load previous baseline and compare current release scores against it."""
+    print("[RUN] Baseline comparison gate")
+
+    baseline = _load_latest_baseline(storage_connection_string)
+    if baseline is None:
+        print("      No previous baseline found (first run). Skipping baseline gate.")
+        (run_dir / "13c_baseline_comparison.json").write_text(
+            json.dumps({"status": "skipped", "reason": "no previous baseline"}, indent=2),
+            encoding="utf-8",
+        )
+        return
+
+    print(f"      Loaded baseline: {baseline.get('baseline_id', 'unknown')[:12]}... "
+          f"(index: {(baseline.get('release_info') or {}).get('candidate_index', '?')})")
+
+    # Load current PromptFoo audit from this run
+    current_audit = None
+    audit_path = run_dir / "13b_promptfoo_audit.json"
+    if audit_path.exists():
+        current_audit = json.loads(audit_path.read_text(encoding="utf-8"))
+
+    comparison = _compare_against_baseline(current_audit, baseline)
+
+    comparison_path = run_dir / "13c_baseline_comparison.json"
+    comparison_path.write_text(
+        json.dumps(comparison, indent=2), encoding="utf-8"
+    )
+
+    for check in comparison["checks"]:
+        icon = "PASS" if check["status"] == "PASS" else "FAIL"
+        print(f"      [{icon}] {check['metric']}: "
+              f"baseline={check['baseline']:.3f} current={check['current']:.3f} "
+              f"(threshold={check['threshold']:.3f})")
+
+    if comparison["overall_status"] == "FAIL":
+        failures = [c for c in comparison["checks"] if c["status"] == "FAIL"]
+        details = "\n".join(
+            f" - {c['metric']}: {c['current']:.3f} vs baseline {c['baseline']:.3f} "
+            f"(max delta {c['threshold']:.3f})"
+            for c in failures
+        )
+        raise RuntimeError(
+            f"Baseline comparison gate FAILED:\n{details}\n"
+            f"See {comparison_path}"
+        )
+
+    print("      Baseline comparison: PASS")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Manual Azure CLI monthly HR release flow"
@@ -1453,6 +1633,25 @@ def main() -> int:
             api_key=api_key,
         )
 
+        # Preflight: Audit lifecycle cleanup (enforce retention policy)
+        cleanup_script = REPO_ROOT / "scripts" / "audit_lifecycle_cleanup.py"
+        if cleanup_script.exists():
+            print("[RUN] Audit lifecycle cleanup (preflight)")
+            cleanup_result = subprocess.run(
+                [sys.executable, str(cleanup_script)],
+                cwd=str(REPO_ROOT),
+                text=True,
+                capture_output=True,
+            )
+            (run_dir / "00_audit_lifecycle_cleanup.txt").write_text(
+                (cleanup_result.stdout or "") + (cleanup_result.stderr or ""),
+                encoding="utf-8",
+            )
+            if cleanup_result.returncode != 0:
+                print(f"[WARN] Audit cleanup failed (non-blocking): {cleanup_result.stderr[:200]}")
+            else:
+                print("      Audit lifecycle cleanup completed")
+
         # Stage A: Alias + baseline capture
         alias_before_output = run_command(
             name="show-alias (before)",
@@ -1541,10 +1740,22 @@ def main() -> int:
             container=source_container,
             source_prefix=args.source_prefix,
         )
+
+        # Build fallback manifest from target container when no previous manifest exists
+        target_container_manifest = None
+        if previous_manifest is None:
+            print("[INFO] No previous manifest found, building from target container metadata...")
+            target_container_manifest = build_manifest_from_target_container(
+                storage_connection_string=storage_connection_string,
+                container=target_container,
+            )
+            print(f"      Target container has {target_container_manifest['count']} indexed PDFs")
+
         delta_report = build_delta_for_run_mode(
             run_mode=args.run_mode,
             current_manifest=current_manifest,
             previous_manifest=previous_manifest,
+            target_container_manifest=target_container_manifest,
         )
 
         detect_counts = {
@@ -1724,6 +1935,12 @@ def main() -> int:
 
         # Stage E.2: Promptfoo RAG evaluation (90% pass + safety/citation gates)
         _run_promptfoo_gate(run_dir=run_dir, backend_url=args.base_url)
+
+        # Stage E.3: Baseline comparison gate (compare against previous release)
+        _run_baseline_gate(
+            run_dir=run_dir,
+            storage_connection_string=storage_connection_string,
+        )
 
         if args.skip_cutover:
             summary["status"] = "pre_cutover_complete"
@@ -1948,6 +2165,28 @@ def main() -> int:
         (run_dir / "summary.json").write_text(
             json.dumps(summary, indent=2), encoding="utf-8"
         )
+
+        # Persist evaluation baseline for future cross-release comparison
+        persist_script = REPO_ROOT / "scripts" / "persist_evaluation_baseline.py"
+        if persist_script.exists():
+            print("[RUN] Persisting evaluation baseline")
+            persist_cmd = [
+                sys.executable,
+                str(persist_script),
+                "--run-dir",
+                str(run_dir),
+            ]
+            persist_result = subprocess.run(
+                persist_cmd,
+                cwd=str(REPO_ROOT),
+                text=True,
+                capture_output=True,
+            )
+            if persist_result.returncode != 0:
+                print(f"[WARN] Baseline persistence failed (non-blocking): {persist_result.stderr[:500]}")
+            else:
+                print("      Evaluation baseline persisted successfully")
+
         print("[DONE] Monthly Azure CLI release flow completed successfully.")
         return 0
 

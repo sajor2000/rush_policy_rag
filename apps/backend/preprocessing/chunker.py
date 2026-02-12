@@ -331,6 +331,12 @@ class PolicyChunker:
                 title=metadata.title
             )
 
+        # Fallback: extract parenthesized document ID from filename as reference_number
+        if not metadata.reference_number and not metadata.policy_number:
+            doc_id_match = re.search(r'\((\d{2,6})\)', filename)
+            if doc_id_match:
+                metadata.reference_number = doc_id_match.group(1)
+
         return metadata
 
     def _chunk_document(

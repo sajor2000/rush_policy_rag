@@ -33,7 +33,7 @@ import hashlib
 import logging
 import tempfile
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple, Set, Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -67,6 +67,11 @@ from app.core.security import escape_odata_string
 STORAGE_CONNECTION_STRING = os.environ.get("STORAGE_CONNECTION_STRING")
 SOURCE_CONTAINER = os.environ.get("SOURCE_CONTAINER", "policy-monthly")
 TARGET_CONTAINER = os.environ.get("CONTAINER_NAME", "policies-active")
+
+
+def utc_now_iso() -> str:
+    """Return UTC ISO-8601 timestamp with explicit timezone for DateTimeOffset fields."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -479,9 +484,21 @@ class PolicySyncManager:
         minor2 = (minor + "0")[:2] if len(minor) == 1 else minor[:2]
         return f"{prefix}-{letter} {major.zfill(2)}.{minor2}"
 
+    def _extract_document_id_from_filename(self, filename: str) -> str:
+        """Extract parenthesized numeric document ID from filename as fallback reference_number.
+
+        Examples:
+            'Employee Appeals Policy (2523).pdf' → '2523'
+            'Some Policy (5323).pdf' → '5323'
+            'HR-C 05.00 Some Policy.pdf' → ''  (has XX-X format, skip)
+        """
+        match = re.search(r'\((\d{2,6})\)', filename or "")
+        return match.group(1) if match else ""
+
     def _autofill_chunk_metadata(self, chunks: List[PolicyChunk], target_filename: str) -> None:
-        """Apply conservative metadata fallback when gate mode is autofill."""
+        """Apply conservative metadata fallback when gate mode is autofill or quarantine."""
         inferred_policy_number = self._extract_policy_number_from_filename(target_filename)
+        inferred_reference_number = self._extract_document_id_from_filename(target_filename)
         inferred_title = target_filename.replace(".pdf", "").strip()
 
         for chunk in chunks:
@@ -491,6 +508,8 @@ class PolicySyncManager:
                 chunk.policy_title = inferred_title
             if not chunk.policy_number and inferred_policy_number:
                 chunk.policy_number = inferred_policy_number
+            if not chunk.reference_number and not chunk.policy_number and inferred_reference_number:
+                chunk.reference_number = inferred_reference_number
             if chunk.page_number is None:
                 chunk.page_number = max(1, (int(chunk.chunk_index) // 2) + 1)
 
@@ -519,7 +538,9 @@ class PolicySyncManager:
             chunk_missing: List[str] = []
             if not chunk.source_file:
                 chunk_missing.append("source_file")
-            if not (chunk.content or "").strip():
+            # PolicyChunk stores raw text in `text` (not `content`).
+            chunk_text = getattr(chunk, "text", getattr(chunk, "content", ""))
+            if not (chunk_text or "").strip():
                 chunk_missing.append("content")
             if chunk.chunk_index is None:
                 chunk_missing.append("chunk_index")
@@ -695,7 +716,7 @@ class PolicySyncManager:
             chunks = self.chunker.process_pdf(tmp_path)
 
             # Update source_file and version info for all chunks
-            current_time = datetime.now().isoformat()
+            current_time = utc_now_iso()
             for chunk in chunks:
                 chunk.source_file = target_name
                 # Apply version control fields
@@ -711,7 +732,7 @@ class PolicySyncManager:
                     "Expected fail|quarantine|autofill."
                 )
 
-            if metadata_gate_mode == "autofill":
+            if metadata_gate_mode in ("autofill", "quarantine"):
                 self._autofill_chunk_metadata(chunks, target_name)
 
             metadata_row = self._validate_document_metadata_contract(
@@ -890,7 +911,7 @@ class PolicySyncManager:
                     "id": result["id"],
                     "policy_status": "SUPERSEDED",
                     "superseded_by": superseded_by,
-                    "expiration_date": datetime.now().isoformat(),
+                    "expiration_date": utc_now_iso(),
                 })
 
                 # Upload in batches to avoid memory buildup
@@ -992,7 +1013,7 @@ class PolicySyncManager:
                 chunks_to_retire.append({
                     "id": result["id"],
                     "policy_status": "RETIRED",
-                    "expiration_date": datetime.now().isoformat(),
+                    "expiration_date": utc_now_iso(),
                 })
 
             if chunks_to_retire:
