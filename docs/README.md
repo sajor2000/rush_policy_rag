@@ -1,77 +1,87 @@
-# Documentation Index
+# RUSH Policy RAG — Documentation Index
 
-> RUSH Policy RAG Agent - Documentation Hub
+> This documentation describes the RUSH Policy RAG Agent, a read-only retrieval system that helps staff find approved policies from PolicyTech (NavexOne). The system does not create or modify policies. All documents are sourced from the authoritative PolicyTech platform via a monthly manual handoff, processed through a quality-gated pipeline, and made searchable via Azure AI Search.
 >
-> Last Updated: 2026-02-03
-
-## Quick Links
-
-| I want to... | Go to |
-|--------------|-------|
-| **Get running in 30 minutes** | [QUICK_START.md](QUICK_START.md) |
-| Understand RAG design decisions | [RAG_DESIGN.md](RAG_DESIGN.md) |
-| See architecture diagrams | [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) |
-| Full onboarding guide | [ONBOARDING.md](ONBOARDING.md) |
-| Deploy to Azure | [DEPLOYMENT.md](../DEPLOYMENT.md) |
-| Understand scripts and tooling | [SCRIPTS.md](SCRIPTS.md) |
-| Configure environment variables | [ENV_VARS.md](ENV_VARS.md) |
-| Run tests | [TESTING.md](TESTING.md) |
-| Update policies monthly | [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) |
+> Last Updated: 2026-02-12
 
 ---
 
-## Documentation Map
+## For Compliance Reviewers
 
-### Getting Started
+Start here to understand the system's security posture, audit trail, document sourcing, and quality assurance.
 
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [QUICK_START.md](QUICK_START.md) | **30-minute setup guide** | All |
-| [ONBOARDING.md](ONBOARDING.md) | Full onboarding guide | All |
-| [README.md](../README.md) | Project overview | All |
-| [CLAUDE.md](../CLAUDE.md) | AI assistant development guide | Developers |
-| [ENV_VARS.md](ENV_VARS.md) | Environment configuration | All |
-| [SCRIPTS.md](SCRIPTS.md) | Script reference | Developers |
+| Document | What It Answers |
+|----------|----------------|
+| [SECURITY.md](../SECURITY.md) | How is the system secured? (Auth, input validation, HIPAA controls) |
+| [SECURITY.md](SECURITY.md) | Detailed security architecture (encryption, headers, static analysis) |
+| [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) | How are inputs/outputs monitored and improved over time? |
+| [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md) | How do documents get from PolicyTech into the RAG system? |
+| [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical architecture review document |
+| [RAG_DESIGN.md](RAG_DESIGN.md) | Why were specific RAG design decisions made? |
+| [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) | Visual system diagrams (data flow, search pipeline) |
 
-### Architecture
+## For Operators
 
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [RAG_DESIGN.md](RAG_DESIGN.md) | **RAG architecture decisions** | Developers |
-| [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) | **Visual system diagrams** | All |
-| [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical review document | Architects |
-| [RushPolicyAssistant_Architecture.pdf](RushPolicyAssistant_Architecture.pdf) | Azure cloud diagram | All |
-| [Backend README](../apps/backend/README.md) | Backend architecture | Developers |
-| [Frontend README](../apps/frontend/README.md) | Frontend architecture | Developers |
+Monthly updates, deployment procedures, and troubleshooting.
 
-### Deployment
+| Document | What It Answers |
+|----------|----------------|
+| [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) | How do I process monthly policy updates? (Full procedures + quick reference) |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | How do I deploy to Azure Container Apps? |
+| [AZURE_INDEX_UPDATE_GUIDE.md](AZURE_INDEX_UPDATE_GUIDE.md) | How do I update the Azure Search index schema? |
+| [PDF_INDEXING_GUIDE.md](PDF_INDEXING_GUIDE.md) | How do I ingest and index PDFs? |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and solutions |
+| [APP_COST.md](APP_COST.md) | Azure cost breakdown and estimates |
 
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [DEPLOYMENT.md](../DEPLOYMENT.md) | Step-by-step Azure deployment | DevOps |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Deployment and runtime troubleshooting | DevOps |
+## For Developers
 
-### Operations
+Getting started, testing, and contributing.
 
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) | Policy update workflow | Operators |
-| [MONTHLY_DOCUMENT_UPDATE_GUIDE.md](MONTHLY_DOCUMENT_UPDATE_GUIDE.md) | Document sync procedures | Operators |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues & solutions | All |
+| Document | What It Answers |
+|----------|----------------|
+| [QUICK_START.md](QUICK_START.md) | How do I get running in 30 minutes? |
+| [ONBOARDING.md](ONBOARDING.md) | Full onboarding guide |
+| [ENV_VARS.md](ENV_VARS.md) | What environment variables are needed? |
+| [SCRIPTS.md](SCRIPTS.md) | What scripts are available and what do they do? |
+| [TESTING.md](TESTING.md) | How do I run tests? |
+| [RAG_TESTING_PLAN.md](RAG_TESTING_PLAN.md) | RAG evaluation strategy and metrics |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
+| [STYLE_GUIDE.md](STYLE_GUIDE.md) | RUSH brand style guide |
+| [CLAUDE.md](../CLAUDE.md) | AI assistant development instructions |
 
-### Quality & Security
+---
 
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [TESTING.md](TESTING.md) | Test strategy & commands | Developers |
-| [SECURITY.md](SECURITY.md) | Security architecture | Security Team |
-| [CHANGELOG.md](CHANGELOG.md) | Release history | All |
+## All Documents
 
-### Contributing
-
-| Document | Description | Audience |
-|----------|-------------|----------|
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines | Contributors |
+| Document | Purpose | Audience | Status | Last Verified |
+|----------|---------|----------|--------|---------------|
+| [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md) | PolicyTech → RAG document flow | Compliance, Operators | ✅ Current | 2026-02-12 |
+| [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) | Audit logging and RAG quality assessment | Compliance, Developers | ✅ Current | 2026-02-12 |
+| [SECURITY.md](../SECURITY.md) | Security policy and vulnerability reporting | Auditors | ✅ Current | 2026-02-12 |
+| [SECURITY.md](SECURITY.md) | Security architecture documentation | Security Team | ✅ Current | 2026-02-12 |
+| [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical architecture review | Architects | ✅ Current | 2026-02-12 |
+| [RAG_DESIGN.md](RAG_DESIGN.md) | RAG architecture decisions | Developers | ✅ Current | 2026-02-12 |
+| [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) | Visual system diagrams (Mermaid) | All | ✅ Current | 2026-02-03 |
+| [RushPolicyAssistant_Architecture.pdf](RushPolicyAssistant_Architecture.pdf) | Azure cloud diagram | All | ✅ Current | 2026-02-03 |
+| [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) | Monthly policy update workflow | Operators | ✅ Current | 2026-02-12 |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Step-by-step Azure deployment | DevOps | ✅ Current | 2026-01-11 |
+| [AZURE_INDEX_UPDATE_GUIDE.md](AZURE_INDEX_UPDATE_GUIDE.md) | Azure Search index update procedures | DevOps | ✅ Current | 2026-01-31 |
+| [PDF_INDEXING_GUIDE.md](PDF_INDEXING_GUIDE.md) | PDF ingestion and indexing guide | Operators | ✅ Current | 2026-01-31 |
+| [APP_COST.md](APP_COST.md) | Azure cost breakdown | Management | ✅ Current | 2026-02-10 |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and solutions | All | ✅ Current | 2026-01-31 |
+| [QUICK_START.md](QUICK_START.md) | 30-minute setup guide | Developers | ✅ Current | 2026-02-03 |
+| [ONBOARDING.md](ONBOARDING.md) | Full onboarding guide | Developers | ✅ Current | 2026-01-31 |
+| [ENV_VARS.md](ENV_VARS.md) | Environment variables reference | All | ✅ Current | 2026-02-12 |
+| [SCRIPTS.md](SCRIPTS.md) | Script reference | Developers | ✅ Current | 2026-02-12 |
+| [TESTING.md](TESTING.md) | Test strategy and commands | Developers | ✅ Current | 2026-02-12 |
+| [RAG_TESTING_PLAN.md](RAG_TESTING_PLAN.md) | RAG evaluation strategy | Developers | ✅ Current | 2026-01-31 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines | Contributors | ✅ Current | 2026-02-03 |
+| [STYLE_GUIDE.md](STYLE_GUIDE.md) | RUSH brand style guide | Contributors | ✅ Current | 2026-02-12 |
+| [CHANGELOG.md](CHANGELOG.md) | Release history | All | ✅ Current | 2026-02-03 |
+| [README.md](../README.md) | Project overview | All | ✅ Current | 2026-02-12 |
+| [CLAUDE.md](../CLAUDE.md) | AI assistant development guide | Developers | ✅ Current | 2026-02-12 |
+| [Backend README](../apps/backend/README.md) | Backend architecture | Developers | ✅ Current | 2026-01-11 |
+| [Frontend README](../apps/frontend/README.md) | Frontend architecture | Developers | ✅ Current | 2026-01-11 |
 
 ---
 
@@ -79,60 +89,30 @@
 
 ```
 docs/
-├── README.md                    # This file (documentation index)
-├── QUICK_START.md               # 30-minute new engineer guide
-├── RAG_DESIGN.md                # RAG architecture decisions
-├── ARCHITECTURE_DIAGRAMS.md     # Visual system diagrams (Mermaid)
-├── ONBOARDING.md                # Full onboarding guide
-├── DEV_PROD_PLAN.md             # Dev vs prod plan
-├── SCRIPTS.md                   # Script reference
-├── ENV_VARS.md                  # Environment variables reference
-├── TESTING.md                   # Testing guide
-├── RAG_TESTING_PLAN.md          # RAG evaluation strategy
-├── SECURITY.md                  # Security documentation
-├── TROUBLESHOOTING.md           # Common issues & solutions
-├── CHANGELOG.md                 # Release history
-├── TECHNICAL_ARCHITECTURE_PWC.md # Technical review document
+├── README.md                        # This file (documentation index)
+├── POLICYTECH_DOCUMENT_SOURCING.md  # PolicyTech → RAG document flow
+├── AUDIT_AND_QUALITY.md             # Audit logging & RAG quality assessment
+├── SECURITY.md                      # Security documentation
+├── TECHNICAL_ARCHITECTURE_PWC.md    # Technical review document
+├── RAG_DESIGN.md                    # RAG architecture decisions
+├── ARCHITECTURE_DIAGRAMS.md         # Visual system diagrams (Mermaid)
 ├── RushPolicyAssistant_Architecture.pdf # Azure cloud architecture
-├── MONTHLY_UPDATE_PROCEDURES.md # Policy updates
-├── MONTHLY_DOCUMENT_UPDATE_GUIDE.md # Document sync
-├── baselines/                   # Performance baselines
-│   └── on_your_data_baseline_*.json
-└── archive/                     # Historical documents (not actively maintained)
-    ├── README.md                # Archive explanation
-    ├── FIXES_APPLIED.md
-    ├── FIXES_SUMMARY.md
-    ├── CODE_AUDIT_FIXES.md
-    ├── CODE_AUDIT_FIXES_SUMMARY.md
-    ├── IMPLEMENTATION_SUMMARY.md
-    └── RAG_OPTIMIZATION_SPRINT_PLAN.md
+├── MONTHLY_UPDATE_PROCEDURES.md     # Monthly policy update workflow
+├── DEPLOYMENT.md                    # Step-by-step Azure deployment
+├── AZURE_INDEX_UPDATE_GUIDE.md      # Azure Search index update procedures
+├── PDF_INDEXING_GUIDE.md            # PDF ingestion and indexing guide
+├── APP_COST.md                      # Azure cost breakdown
+├── TROUBLESHOOTING.md               # Common issues & solutions
+├── QUICK_START.md                   # 30-minute new engineer guide
+├── ONBOARDING.md                    # Full onboarding guide
+├── ENV_VARS.md                      # Environment variables reference
+├── SCRIPTS.md                       # Script reference
+├── TESTING.md                       # Testing guide
+├── RAG_TESTING_PLAN.md              # RAG evaluation strategy
+├── CONTRIBUTING.md                  # Contribution guidelines
+├── STYLE_GUIDE.md                   # RUSH brand style guide
+└── CHANGELOG.md                     # Release history
 ```
-
----
-
-## Document Status
-
-| Status | Meaning |
-|--------|---------|
-| ✅ Current | Up-to-date with codebase |
-| ⚠️ Review | May need updates |
-| 📁 Archived | Historical reference only |
-
-| Document | Status | Last Verified |
-|----------|--------|---------------|
-| QUICK_START.md | ✅ Current | 2026-02-03 |
-| RAG_DESIGN.md | ✅ Current | 2026-02-03 |
-| ARCHITECTURE_DIAGRAMS.md | ✅ Current | 2026-02-03 |
-| CLAUDE.md | ✅ Current | 2026-02-03 |
-| README.md | ✅ Current | 2026-02-03 |
-| ONBOARDING.md | ✅ Current | 2026-01-31 |
-| ENV_VARS.md | ✅ Current | 2026-01-11 |
-| DEPLOYMENT.md | ✅ Current | 2026-01-11 |
-| SCRIPTS.md | ✅ Current | 2026-01-31 |
-| RAG_TESTING_PLAN.md | ✅ Current | 2026-01-31 |
-| Backend README | ✅ Current | 2026-01-11 |
-| Frontend README | ✅ Current | 2026-01-11 |
-| archive/* | 📁 Archived | N/A |
 
 ---
 

@@ -1,5 +1,38 @@
 # Monthly Policy Update Procedures
 
+## Quick Reference
+
+```bash
+# 1. Upload new/updated PDFs to staging
+az storage blob upload-batch \
+  --account-name policytechrush \
+  --destination policies-source \
+  --source /path/to/new-pdfs/ \
+  --overwrite
+
+# 2. Preview changes (dry run)
+cd apps/backend
+python policy_sync.py detect
+
+# 3. Execute production release gate
+python scripts/monthly_hr_release_gate.py --environment nonprod
+```
+
+### How SHA-256 Duplicate Detection Works
+
+The system uses **SHA-256 content hashing** to determine which documents need processing. When the pipeline runs, it computes a hash of every PDF in `policies-source` and compares it against the stored hash in `policies-active` metadata:
+
+- **Same hash** → SKIP (no processing, no API calls, instant)
+- **Different hash** → PROCESS (version upgrade: old chunks marked SUPERSEDED, new chunks created)
+- **New file** → NEW DOCUMENT (v1.0 ingestion)
+- **Missing from source** → RETIRED (chunks marked RETIRED, PDF archived)
+
+**Performance**: Hashing takes ~0.2s per PDF. Checking 180 documents completes in ~30 seconds. If only 18 of 180 changed, only those 18 are processed through chunking and embedding.
+
+For details on how documents flow from PolicyTech into this pipeline, see [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md).
+
+---
+
 ## Overview
 
 This document describes the procedures for processing monthly policy updates to the RUSH Policy RAG vector database. It covers:

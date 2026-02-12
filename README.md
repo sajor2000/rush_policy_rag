@@ -4,7 +4,7 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 
 | | |
 |---|---|
-| **Tech Stack** | FastAPI (Python 3.12) + Next.js 14 + Azure OpenAI |
+| **Tech Stack** | FastAPI (Python 3.12) + Next.js 16 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
 | **Deployment** | Azure Container Apps (Non-Prod + Prod) |
 | **Current Version** | melissa-feedback-v1-hotfix2 (2026-01-08) |
@@ -23,13 +23,17 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 | Full onboarding guide | [ONBOARDING.md](docs/ONBOARDING.md) |
 | Script reference | [SCRIPTS.md](docs/SCRIPTS.md) |
 | Environment variables | [ENV_VARS.md](docs/ENV_VARS.md) |
-| Deploy to Azure | [DEPLOYMENT.md](DEPLOYMENT.md) |
+| Deploy to Azure | [DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Security & compliance | [SECURITY.md](SECURITY.md) |
+| Audit logging & quality | [AUDIT_AND_QUALITY.md](docs/AUDIT_AND_QUALITY.md) |
+| PolicyTech document sourcing | [POLICYTECH_DOCUMENT_SOURCING.md](docs/POLICYTECH_DOCUMENT_SOURCING.md) |
+| Run tests | [TESTING.md](docs/TESTING.md) |
+| Contribute | [CONTRIBUTING.md](docs/CONTRIBUTING.md) |
 
 ## Deployment Team - Start Here
 
-**Full step-by-step deployment guide: [DEPLOYMENT.md](DEPLOYMENT.md)**
+**Full step-by-step deployment guide: [DEPLOYMENT.md](docs/DEPLOYMENT.md)**
 **Deploy from IDE (VS Code): [docs/ONBOARDING.md](docs/ONBOARDING.md)**
-**Dev/Prod environment plan: [docs/DEV_PROD_PLAN.md](docs/DEV_PROD_PLAN.md)**
 
 ### Deploy from Terminal (Non-Prod)
 
@@ -124,7 +128,7 @@ az containerapp update \
 | Service | URL |
 |---------|-----|
 | **Frontend** | <https://policychat.rush.edu> |
-| **Backend API** | TBD (Azure Container Apps default hostname; see `docs/DEV_PROD_PLAN.md`) |
+| **Backend API** | TBD (Azure Container Apps default hostname) |
 
 **Note**: Non-Prod and Prod live in separate subscriptions. There is no dedicated staging environment.
 
@@ -224,41 +228,39 @@ Open http://localhost:3000 and ask a policy question.
 
 ---
 
-## Final Folder Structure
+## Folder Structure
 
 ```
 rag_pt_rush/
 ├── apps/
-│   ├── backend/                       # FastAPI backend
+│   ├── backend/                       # FastAPI backend (:8000)
 │   │   ├── main.py                    # API entrypoint
 │   │   ├── Dockerfile                 # Container build
 │   │   ├── app/
-│   │   │   ├── services/
-│   │   │   │   ├── on_your_data_service.py  # Azure OpenAI "On Your Data"
-│   │   │   │   ├── chat_service.py          # Chat orchestration
-│   │   │   │   ├── cohere_rerank_service.py # Cohere Rerank 4.0 Pro
-│   │   │   │   └── synonym_service.py       # Query expansion
-│   │   │   └── api/routes/            # API endpoints
+│   │   │   ├── api/routes/            # chat.py, search.py, pdf.py, admin.py
+│   │   │   ├── core/                  # config, auth, security, rate_limit
+│   │   │   ├── services/              # 24 services (RAG pipeline)
+│   │   │   ├── models/                # schemas.py, audit_schemas.py
+│   │   │   └── evaluation/            # DeepEval metrics, diagnostics
+│   │   ├── preprocessing/             # PolicyChunker (Docling + PyMuPDF)
 │   │   ├── azure_policy_index.py      # Search index management
-│   │   └── preprocessing/chunker.py   # PDF processing
-│   └── frontend/                      # Next.js 14 app
+│   │   └── scripts/                   # Backend-specific scripts
+│   └── frontend/                      # Next.js 16 app (:3000)
 │       ├── Dockerfile                 # Container build
-│       ├── src/app/                   # App Router
-│       └── src/components/            # UI components
-├── docs/
-│   ├── RushPolicyAssistant_Architecture.pdf
-│   ├── ONBOARDING.md
-│   ├── DEV_PROD_PLAN.md
-│   ├── SCRIPTS.md
-│   └── ... (other docs)
-├── scripts/                            # Utilities, eval, and deploy helpers
-│   └── deploy/                         # Azure deployment scripts
-├── infrastructure/
-│   ├── azure-container-app.bicep      # Backend Bicep template
-│   └── azure-container-app-frontend.bicep  # Frontend Bicep template
-├── .env.example                        # Env template (copy to .env locally)
-├── DEPLOYMENT.md                      # Step-by-step deployment guide
-├── CLAUDE.md                          # Development guidance
+│       ├── src/app/                   # App Router + API route handlers
+│       ├── src/components/            # UI components (Radix-based)
+│       └── src/lib/                   # API client, sanitization, formatting
+├── docs/                              # All documentation
+│   ├── DEPLOYMENT.md                  # Step-by-step Azure deployment
+│   ├── QUICK_START.md                 # 30-minute setup guide
+│   └── ... (20+ docs)
+├── scripts/                           # Ingestion, evaluation, deployment
+│   └── deploy/                        # Azure deployment scripts
+├── infrastructure/                    # Bicep templates + config
+├── tests/                             # RAG accuracy + PromptFoo compliance
+├── CLAUDE.md                          # AI assistant instructions
+├── README.md                          # This file
+├── SECURITY.md                        # Vulnerability reporting
 ├── start_backend.sh                   # Backend launcher
 └── start_frontend.sh                  # Frontend launcher
 ```
@@ -284,7 +286,7 @@ rag_pt_rush/
 
 **Git-tracked** — keep in repo:
 - `apps/`, `docs/`, `scripts/`, `infrastructure/`
-- `README.md`, `DEPLOYMENT.md`, `CLAUDE.md`
+- `README.md`, `CLAUDE.md`
 - `.env.example`, `docker-compose.yml`, `package.json`
 
 See `.gitignore` for the full list.
@@ -297,8 +299,6 @@ See `.gitignore` for the full list.
 - **Prod**: RU-Azure-Prod → `RU-A-Prod-AI-Innovation-RG`
 - **Dev domain**: Azure Container Apps default hostname
 - **Prod domain**: `policychat.rush.edu`
-
-See `docs/DEV_PROD_PLAN.md` for details and the dev → prod promotion flow.
 
 ---
 
@@ -336,18 +336,39 @@ See `docs/DEV_PROD_PLAN.md` for details and the dev → prod promotion flow.
 
 ---
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and full security documentation.
+
+**Key controls implemented:**
+
+- **Authentication**: Azure AD (JWT) with tenant/audience verification
+- **Input Validation**: OData injection prevention, prompt injection defense (unicode normalization, Cyrillic homoglyph mapping)
+- **XSS Protection**: DOMPurify sanitization on all LLM-rendered content
+- **Rate Limiting**: Per-IP rate limiting (30 req/min default)
+- **Resilience**: Circuit breaker pattern for Azure OpenAI outages
+- **Static Analysis**: Semgrep (10 custom rules), Bandit, CodeQL, pip-audit, npm audit
+- **Security Headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options
+- **HIPAA Awareness**: No ePHI storage; chat audit logs truncated with 90-day retention
+
+---
+
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
+| `/health/detailed` | GET | Detailed diagnostics (protected) |
 | `/api/chat` | POST | Policy Q&A (main endpoint) |
 | `/api/chat/stream` | POST | Streaming chat responses |
 | `/api/search` | POST | Direct Azure AI Search |
-| `/api/search-instances` | POST | Within-policy search |
+| `/api/search-instances` | POST | Within-policy instance search |
+| `/api/search-within-policy` | POST | Search within a specific policy |
 | `/api/pdf/{filename}` | GET | PDF SAS URL generation |
+| `/api/sync-info` | GET | Latest policy sync date |
 | `/api/admin/index-stats` | GET | Index statistics (protected) |
-| `/api/admin/cache/stats` | GET | Cache statistics (protected) |
+| `/api/admin/audit/*` | GET | Audit log access (protected) |
+| `/api/admin/cache/*` | GET/POST | Cache stats, invalidation, toggle (protected) |
 | `/docs` | GET | Swagger API documentation |
 
 ---
@@ -358,7 +379,7 @@ Internal use only - Rush University System for Health
 
 ## Support
 
-- **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
+- **Deployment Guide**: [DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - **Development Guide**: [CLAUDE.md](CLAUDE.md)
 - **Changelog**: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 - **Policy Admin**: https://rushumc.navexone.com/
