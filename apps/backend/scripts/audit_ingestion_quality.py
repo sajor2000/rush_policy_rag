@@ -25,9 +25,8 @@ import json
 import random
 import argparse
 from pathlib import Path
-from typing import Dict, List, Any, Set
+from typing import Dict, List, Any, Set, Optional
 from dataclasses import dataclass, field
-from collections import defaultdict
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -39,6 +38,7 @@ load_dotenv(env_path)
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from app.core.security import escape_odata_string
+from app.core.index_safety import resolve_index_name, ensure_safe_index_target
 
 
 @dataclass
@@ -118,15 +118,33 @@ class IngestionAuditor:
         'applies_to_ru': 'RU'
     }
 
-    def __init__(self):
-        endpoint = os.environ.get('SEARCH_ENDPOINT')
-        api_key = os.environ.get('SEARCH_API_KEY')
+    def __init__(
+        self,
+        *,
+        endpoint: Optional[str] = None,
+        api_key: Optional[str] = None,
+        index_name: Optional[str] = None,
+        allow_direct_index: bool = False,
+    ):
+        endpoint = endpoint or os.environ.get("SEARCH_ENDPOINT")
+        api_key = api_key or os.environ.get("SEARCH_API_KEY")
+        resolved_index_name = resolve_index_name(index_name)
+        ensure_safe_index_target(
+            resolved_index_name,
+            allow_direct_index=allow_direct_index,
+            operation="read",
+        )
+
+        if not endpoint or not api_key:
+            raise ValueError("SEARCH_ENDPOINT and SEARCH_API_KEY are required")
 
         self.client = SearchClient(
             endpoint=endpoint,
-            index_name='rush-policies',
+            index_name=resolved_index_name,
             credential=AzureKeyCredential(api_key)
         )
+        self.endpoint = endpoint
+        self.index_name = resolved_index_name
 
     def get_all_source_files(self) -> Set[str]:
         """Get all unique source files in the index."""
@@ -423,10 +441,42 @@ def main():
         type=str,
         help="Save report to JSON file"
     )
+    parser.add_argument(
+        "--index-name",
+        type=str,
+        default=None,
+        help="Target search index (defaults to SEARCH_INDEX_NAME or active alias)"
+    )
+    parser.add_argument(
+        "--endpoint",
+        type=str,
+        default=None,
+        help="Azure Search endpoint override (defaults to SEARCH_ENDPOINT)"
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="Azure Search API key override (defaults to SEARCH_API_KEY)"
+    )
+    parser.add_argument(
+        "--allow-direct-index",
+        action="store_true",
+        help="Compatibility flag for direct index operations (read-only audit)",
+    )
 
     args = parser.parse_args()
 
-    auditor = IngestionAuditor()
+    auditor = IngestionAuditor(
+        endpoint=args.endpoint,
+        api_key=args.api_key,
+        index_name=args.index_name,
+        allow_direct_index=args.allow_direct_index,
+    )
+    print(
+        f"[INFO] Auditing index='{auditor.index_name}' "
+        f"on endpoint='{auditor.endpoint}'"
+    )
     report = auditor.run_audit(sample_size=args.sample, verbose=args.verbose)
     print_report(report)
 

@@ -83,6 +83,46 @@ jobs:
           flags: backend
           fail_ci_if_error: false
 
+  hr-stabilization-regressions:
+    name: HR Stabilization Regression Gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run HR stabilization suites
+        run: |
+          pytest -q \
+            tests/test_query_validation.py \
+            tests/test_synonym_service.py \
+            tests/test_query_enhancer.py \
+            tests/test_chat_service.py \
+            tests/test_search_metadata.py \
+            tests/test_on_your_data_service.py \
+            tests/test_script_index_safety.py \
+            tests/test_monthly_release_gate.py
+        env:
+          SEARCH_ENDPOINT: https://test.search.windows.net
+          SEARCH_API_KEY: test-key
+          AOAI_ENDPOINT: https://test.openai.azure.com
+          AOAI_API_KEY: test-key
+
   frontend-lint:
     name: Frontend Lint & Type Check
     runs-on: ubuntu-latest

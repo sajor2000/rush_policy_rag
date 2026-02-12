@@ -39,6 +39,11 @@ from azure.storage.blob import BlobServiceClient
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
+from app.core.index_safety import (
+    DEFAULT_ACTIVE_ALIAS,
+    ensure_safe_index_target,
+    resolve_index_name,
+)
 
 
 @dataclass
@@ -129,15 +134,28 @@ class PipelineResults:
 class FullPipelineIngestor:
     """Full pipeline from blob storage to vector database with timing."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        index_name: Optional[str] = None,
+        allow_direct_index: bool = False,
+        search_endpoint: Optional[str] = None,
+        search_api_key: Optional[str] = None,
+    ):
         # Azure Storage
         self.storage_conn_str = os.getenv("STORAGE_CONNECTION_STRING")
         self.container_name = os.getenv("CONTAINER_NAME", "policies-active")
 
         # Azure Search
-        self.search_endpoint = os.getenv("SEARCH_ENDPOINT")
-        self.search_api_key = os.getenv("SEARCH_API_KEY")
-        self.index_name = "rush-policies"
+        self.search_endpoint = search_endpoint or os.getenv("SEARCH_ENDPOINT")
+        self.search_api_key = search_api_key or os.getenv("SEARCH_API_KEY")
+        self.index_name = resolve_index_name(index_name)
+        ensure_safe_index_target(
+            self.index_name,
+            allow_direct_index=allow_direct_index,
+            active_alias=DEFAULT_ACTIVE_ALIAS,
+            operation="write",
+        )
 
         # Validate config
         if not self.storage_conn_str:
@@ -302,6 +320,7 @@ class FullPipelineIngestor:
         print(f"\n{'='*60}")
         print("RUSH Policy Full Pipeline Ingestion")
         print(f"{'='*60}")
+        print(f"Endpoint: {self.search_endpoint}")
         print(f"Container: {self.container_name}")
         print(f"Index: {self.index_name}")
 
@@ -422,9 +441,34 @@ def main():
     parser.add_argument("--output", "-o", help="Save results to JSON file")
     parser.add_argument("--run-tests", action="store_true", help="Run RAG accuracy tests after indexing")
     parser.add_argument("--full-tests", action="store_true", help="Run full test suite (not just quick)")
+    parser.add_argument(
+        "--index-name",
+        default=None,
+        help="Search index target (defaults to SEARCH_INDEX_NAME or active alias)",
+    )
+    parser.add_argument(
+        "--allow-direct-index",
+        action="store_true",
+        help="Allow direct writes to non-alias index targets",
+    )
+    parser.add_argument(
+        "--endpoint",
+        default=None,
+        help="Azure Search endpoint override (defaults to SEARCH_ENDPOINT)",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="Azure Search API key override (defaults to SEARCH_API_KEY)",
+    )
     args = parser.parse_args()
 
-    ingestor = FullPipelineIngestor()
+    ingestor = FullPipelineIngestor(
+        index_name=args.index_name,
+        allow_direct_index=args.allow_direct_index,
+        search_endpoint=args.endpoint,
+        search_api_key=args.api_key,
+    )
     results = ingestor.run(
         skip_clear=args.skip_clear,
         limit=args.limit,

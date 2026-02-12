@@ -1,0 +1,34 @@
+description: "RUSH Policy RAG Evaluation (100 cases)"
+
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: http
+    config:
+      url: "https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/api/v1/chat"
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        message: "{{prompt}}"
+      transformResponse: |
+        ({
+          output: json.response ?? "",
+          metadata: {
+            evidenceCount: (json.evidence || []).length,
+            sourcesCount: (json.sources || []).length,
+            found: json.found,
+            confidence: json.confidence,
+            safetyFlags: json.safety_flags || []
+          }
+        })
+
+defaultTest:
+  options:
+    provider:
+      config:
+        request:
+          timeout: 60000
+
+tests: file://data/rag_full.jsonl

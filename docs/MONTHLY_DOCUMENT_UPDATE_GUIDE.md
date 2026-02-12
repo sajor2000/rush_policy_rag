@@ -2,6 +2,9 @@
 
 This guide explains what to do when new policy documents arrive and how the system handles duplicate detection.
 
+Production note: use `python scripts/monthly_hr_release_gate.py --environment <nonprod|prod>` for monthly releases.
+Direct `python policy_sync.py sync` should be reserved for non-production troubleshooting.
+
 ## Quick Reference
 
 ```bash
@@ -16,8 +19,8 @@ az storage blob upload-batch \
 cd apps/backend
 python policy_sync.py detect
 
-# 3. Execute sync
-python policy_sync.py sync
+# 3. Execute production release gate
+python scripts/monthly_hr_release_gate.py --environment nonprod
 ```
 
 ## How Duplicate Detection Works
@@ -172,10 +175,14 @@ Deleted: 0
 # Note: SamePolicy-Finance.pdf not listed because hash matches
 ```
 
-### Step 4: Execute Sync
+### Step 4: Execute Release Gate
 
 ```bash
-python policy_sync.py sync policies-source policies-active
+python scripts/monthly_hr_release_gate.py \
+  --environment nonprod \
+  --profile-file config/monthly_release_profiles.json \
+  --source-container policies-source \
+  --target-container policies-active
 ```
 
 Output:
@@ -274,6 +281,6 @@ az storage blob delete \
   --container-name policies-source \
   --name "OldPolicy.pdf"
 
-# Then run sync
-python policy_sync.py sync
+# Then run the monthly release gate
+python scripts/monthly_hr_release_gate.py --environment nonprod
 ```

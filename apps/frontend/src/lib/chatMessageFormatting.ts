@@ -83,7 +83,7 @@ export function cleanSnippet(text: string): string {
   if (!text) return "";
 
   // Remove common PDF header patterns that are already shown in the card header
-  let cleaned = text
+  const cleaned = text
     // Remove "Policy Title: ..." line
     .replace(/^Policy Title:.*$/gim, "")
     // Remove "Policy Number: ..." line

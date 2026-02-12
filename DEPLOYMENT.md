@@ -364,7 +364,7 @@ az containerapp create \
   --env-vars \
     SEARCH_ENDPOINT="https://${SEARCH_NAME}.search.windows.net" \
     SEARCH_API_KEY="$SEARCH_API_KEY" \
-    SEARCH_INDEX_NAME="rush-policies" \
+    SEARCH_INDEX_NAME="rush-policies-active" \
     SEARCH_SEMANTIC_CONFIG="default-semantic" \
     AOAI_ENDPOINT="$AOAI_ENDPOINT" \
     AOAI_API_KEY="$AOAI_API_KEY" \
@@ -572,7 +572,7 @@ az containerapp show \
 
 1. Verify the search index exists and has documents
 2. Check SEARCH_API_KEY is correct
-3. Test directly: `https://<search>.search.windows.net/indexes/rush-policies/docs?api-version=2023-11-01&search=*`
+3. Test directly: `https://<search>.search.windows.net/indexes/rush-policies-active/docs?api-version=2023-11-01&search=*`
 
 ### Chat Returns 500 Error
 
@@ -645,7 +645,7 @@ az containerapp update \
 |----------|-------------|---------|
 | `SEARCH_ENDPOINT` | Azure AI Search URL | `https://policychataisearch.search.windows.net` |
 | `SEARCH_API_KEY` | Search admin API key | `abc123...` |
-| `SEARCH_INDEX_NAME` | Search index name | `rush-policies` |
+| `SEARCH_INDEX_NAME` | Search index alias | `rush-policies-active` |
 | `SEARCH_SEMANTIC_CONFIG` | Semantic config name | `default-semantic` |
 | `AOAI_ENDPOINT` | Azure OpenAI URL | `https://policytech-openai.openai.azure.com/` |
 | `AOAI_API_KEY` | OpenAI API key | `abc123...` |
@@ -708,7 +708,8 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, w
 │  Azure AI Search  │ │  Azure OpenAI     │ │  Cohere Rerank    │ │ Azure Blob    │  │
 │  ───────────────  │ │  ───────────────  │ │  ───────────────  │ │ Storage       │  │
 │  Index:           │ │  Models:          │ │  Model:           │ │ ───────────── │  │
-│  rush-policies    │ │  • gpt-4.1        │ │  rerank-v4.0-pro  │ │ policies-     │  │
+│  rush-policies-   │ │  • gpt-4.1        │ │  rerank-v4.0-pro  │ │ policies-     │  │
+│  active (alias)   │ │                   │ │                   │ │ active/       │  │
 │  Vectors: 3072-dim│ │  • text-embedding │ │  (cross-encoder)  │ │ active/       │  │
 │  Semantic ranker  │ │    -3-large       │ │  Azure AI Foundry │ │               │  │
 └───────────────────┘ └───────────────────┘ └───────────────────┘ └───────────────┘  │

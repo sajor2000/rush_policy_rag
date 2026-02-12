@@ -174,7 +174,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'SEARCH_INDEX_NAME'
-              value: 'rush-policies'
+              value: 'rush-policies-active'
             }
             {
               name: 'SEARCH_SEMANTIC_CONFIG'

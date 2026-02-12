@@ -12,6 +12,7 @@ FastAPI backend for the RUSH Policy RAG system. Integrates with Azure OpenAI "On
 │   Azure Blob Storage               Docling Processing            Azure AI Search
 │  ┌─────────────────┐             ┌──────────────────┐          ┌─────────────┐
 │  │ policies-source │ ──────────► │  PolicyChunker   │ ───────► │rush-policies│
+│  │                 │             │                  │          │-active alias │
 │  │  (staging)      │   Download  │  - TableFormer   │  Upload  │   index     │
 │  └─────────────────┘             │  - Checkboxes    │          │ (36 fields) │
 │                                  │  - 9 entity flags │          │ (3072-dim)  │
@@ -149,7 +150,10 @@ python scripts/ingest_all_policies.py --output-report /tmp/ingest_report.json
 # Detect changes (preview what would be synced)
 python policy_sync.py detect
 
-# Run incremental sync (only changed documents)
+# Run production monthly release gate (candidate index -> validations -> alias swap)
+python scripts/monthly_hr_release_gate.py
+
+# Run incremental sync directly (non-production/manual troubleshooting only)
 python policy_sync.py sync
 
 # Dry run sync (see changes without applying)
@@ -161,7 +165,7 @@ python scripts/ingest_all_policies.py --force-reindex
 
 ## Azure AI Search Schema
 
-The `rush-policies` index uses a 29-field schema:
+The `rush-policies-active` alias (active generation target) uses this schema:
 
 ### Core Fields
 | Field | Type | Purpose |
@@ -219,7 +223,7 @@ Health check endpoint.
 {
   "status": "healthy",
   "search_index": {
-    "index_name": "rush-policies",
+    "index_name": "rush-policies-active",
     "document_count": 16980,
     "fields": 36
   },

@@ -9,6 +9,18 @@ This document describes the procedures for processing monthly policy updates to 
 3. **Retired Policies**: Documents being removed or superseded
 4. **Rollback Procedures**: Recovering from problematic updates
 
+## Production Compliance Requirement
+
+Production monthly updates must run through the release gate orchestrator:
+
+```bash
+cd apps/backend
+python scripts/monthly_hr_release_gate.py --environment nonprod
+```
+
+Direct production runs of `python policy_sync.py sync` are non-compliant and should be
+used only for local troubleshooting or controlled non-production workflows.
+
 ---
 
 ## Architecture: 3-Container Versioned System
@@ -21,7 +33,7 @@ This document describes the procedures for processing monthly policy updates to 
 │  policies-source/  ←── UPLOAD NEW/UPDATED PDFs HERE (Staging)               │
 │       │                                                                      │
 │       │  1. Admin uploads policy-v2.pdf                                     │
-│       │  2. Run: python policy_sync.py sync                                 │
+│       │  2. Run: python scripts/monthly_hr_release_gate.py --environment ...│
 │       ▼                                                                      │
 │  ┌─────────────────────────────────────────────────────────────┐            │
 │  │  PolicySyncManager.sync_monthly_versioned()                 │            │
@@ -149,8 +161,8 @@ python policy_sync.py detect
 # │ UNCHANGED: 1800                                  │
 # └─────────────────────────────────────────────────┘
 
-# Step 4: Execute sync (version is auto-assigned as 1.0 for new policies)
-python policy_sync.py sync
+# Step 4: Execute monthly release flow (production-compliant path)
+python scripts/monthly_hr_release_gate.py --environment nonprod
 
 # Expected output:
 # Processing NEW: patient-safety-fall-prevention-v1.0.pdf
@@ -162,9 +174,8 @@ python policy_sync.py sync
 # Step 5: Verify in Azure AI Search
 python azure_policy_index.py verify "PS-2025-001"
 
-# Note: You can use optional advisory flags for logging purposes:
-# python policy_sync.py sync --version "1.0" --effective-date "2025-12-01"
-# These flags are informational only - versions are auto-incremented
+# Note: direct `policy_sync.py sync` is reserved for non-production troubleshooting.
+# Production monthly updates must run through monthly_hr_release_gate.py.
 ```
 
 ### Metadata Stored
@@ -231,8 +242,8 @@ python policy_sync.py detect
 # │ UNCHANGED: 1799                                  │
 # └─────────────────────────────────────────────────┘
 
-# Step 4: Execute sync (archiving happens automatically for changed files)
-python policy_sync.py sync
+# Step 4: Execute monthly release flow (archiving happens automatically)
+python scripts/monthly_hr_release_gate.py --environment nonprod
 
 # This performs:
 # 1. Detects changed file via content hash comparison
@@ -426,7 +437,7 @@ python azure_policy_index.py verify "NPO-2025-001"
 - [ ] Upload all PDFs to policies-source container
 - [ ] Run detect: `python policy_sync.py detect`
 - [ ] Review change summary with policy team
-- [ ] Execute sync: `python policy_sync.py sync` (versions auto-increment)
+- [ ] Run release gate: `python scripts/monthly_hr_release_gate.py --environment <nonprod|prod>`
 - [ ] Verify all changes: `python azure_policy_index.py verify-all`
 - [ ] Test sample queries in frontend
 - [ ] Update CHANGELOG.md with changes
@@ -452,7 +463,7 @@ python azure_policy_index.py verify "NPO-2025-001"
 # Detect changes without applying
 python policy_sync.py detect [source_container] [target_container]
 
-# Sync changes (version auto-increments for updates: v1.0 → v2.0)
+# Sync changes (non-production/manual troubleshooting)
 python policy_sync.py sync [source_container] [target_container]
 
 # Dry run (detect + preview without changes)
@@ -460,6 +471,26 @@ python policy_sync.py sync --dry-run
 
 # Advisory flags (version auto-increments, these are informational only)
 python policy_sync.py sync --version "2.0" --effective-date "2025-12-01"
+```
+
+### monthly_hr_release_gate.py (Production Path)
+
+```bash
+# Full production monthly gate:
+# create candidate index -> clone active docs -> ingest deltas -> quality checks
+# -> HR regressions -> targeted tests -> manual approval -> alias swap -> deploy backend/frontend
+python scripts/monthly_hr_release_gate.py --environment nonprod
+
+# Optional overrides
+python scripts/monthly_hr_release_gate.py \
+  --environment nonprod \
+  --profile-file config/monthly_release_profiles.json \
+  --candidate-index rush-policies-v2-20260212 \
+  --source-container policies-source \
+  --target-container policies-active \
+  --base-url http://localhost:8000 \
+  --skip-cutover \
+  --skip-deploy
 
 # Rollback to previous version
 python policy_sync.py rollback \

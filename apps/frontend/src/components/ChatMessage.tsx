@@ -7,17 +7,14 @@ import { Evidence, Source } from "@/lib/api";
 import { POLICYTECH_URL } from "@/lib/constants";
 import {
   RUSH_ENTITIES,
-  MAX_SNIPPET_LENGTH,
   parseAppliesTo,
   cleanSnippet,
   isSnippetTruncated,
   formatReferenceNumber,
   generateEvidenceId,
-  buildCitationSummary,
 } from "@/lib/chatMessageFormatting";
 import {
   FormattedQuickAnswer,
-  FormattedTextSpan,
 } from "@/components/chat/FormattedQuickAnswer";
 
 interface ChatMessageProps {

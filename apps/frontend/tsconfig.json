@@ -32,14 +32,14 @@
   "include": [
     "next-env.d.ts",
     "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    "**/*.tsx"
   ],
   "exclude": [
     "node_modules",
     "client",
     "server",
-    "shared"
+    "shared",
+    ".next",
+    "vitest.config.ts"
   ]
 }

@@ -355,7 +355,7 @@ export default function ChatInterface() {
                 <Sparkles className="h-8 w-8 text-rush-legacy" />
               </div>
               <h3 className="text-xl font-semibold text-foreground">
-                We're here to help. Quick Answer + Evidence, every time
+                We&apos;re here to help. Quick Answer + Evidence, every time
               </h3>
               <p className="text-muted-foreground">
                 Ask any RUSH policy question and you&apos;ll get a concise summary
@@ -550,7 +550,7 @@ export default function ChatInterface() {
                     <li>• You want a summarized answer with citations</li>
                   </ul>
                   <p className="text-rush-gray text-[10px] italic">
-                    Examples: "What is the visitor policy?" • "When can employees access their records?"
+                    Examples: &quot;What is the visitor policy?&quot; • &quot;When can employees access their records?&quot;
                   </p>
                 </div>
 
@@ -567,11 +567,11 @@ export default function ChatInterface() {
                   <p className="text-rush-charcoal text-[10px] font-medium mb-1">Use when:</p>
                   <ul className="text-rush-charcoal text-[10px] mb-1.5 space-y-0.5 ml-2">
                     <li>• You know the policy number but need to find specific text</li>
-                    <li>• You want to see every mention of a term (e.g., "employee")</li>
+                    <li>• You want to see every mention of a term (e.g., &quot;employee&quot;)</li>
                     <li>• You need page/section numbers for a long policy</li>
                   </ul>
                   <p className="text-rush-gray text-[10px] italic">
-                    Examples: Find "employee" in #528 • Find "prohibited" in #1515
+                    Examples: Find &quot;employee&quot; in #528 • Find &quot;prohibited&quot; in #1515
                   </p>
                 </div>
               </div>

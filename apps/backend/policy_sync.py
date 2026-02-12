@@ -34,7 +34,7 @@ import logging
 import tempfile
 import re
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Set
+from typing import List, Dict, Optional, Tuple, Set, Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from dotenv import load_dotenv
@@ -77,6 +77,7 @@ class DocumentState:
     chunk_ids: List[str] = field(default_factory=list)
     processed_date: str = ""
     reference_number: str = ""
+    policy_number: str = ""
     title: str = ""
     # Version control fields for monthly updates (v1 → v2 transitions)
     version_number: str = "1.0"
@@ -99,6 +100,7 @@ class DocumentState:
             "chunk_ids": chunk_ids_json,
             "processed_date": self.processed_date,
             "reference_number": self.reference_number,
+            "policy_number": self.policy_number,
             "title": self.title,
             # Version control metadata
             "version_number": self.version_number,
@@ -135,6 +137,7 @@ class DocumentState:
             chunk_ids=chunk_ids,
             processed_date=metadata.get("processed_date", ""),
             reference_number=metadata.get("reference_number", ""),
+            policy_number=metadata.get("policy_number", ""),
             title=metadata.get("title", ""),
             # Version control fields
             version_number=metadata.get("version_number", "1.0"),
@@ -152,6 +155,7 @@ class DocumentState:
             chunk_ids=[],  # Will be populated after processing
             processed_date=datetime.now().isoformat(),
             reference_number=self.reference_number,
+            policy_number=self.policy_number,
             title=self.title,
             version_number=f"{new_sequence}.0",
             version_sequence=new_sequence,
@@ -172,6 +176,7 @@ class SyncReport:
     documents_changed: int = 0
     documents_unchanged: int = 0
     documents_deleted: int = 0
+    documents_quarantined: int = 0
     chunks_created: int = 0
     chunks_deleted: int = 0
     chunks_superseded: int = 0  # Chunks marked as SUPERSEDED (not deleted)
@@ -206,6 +211,7 @@ Documents scanned: {self.documents_scanned}
   Changed (version upgraded): {self.documents_changed}
   Unchanged: {self.documents_unchanged}
   Deleted/Retired: {self.documents_deleted}
+  Quarantined: {self.documents_quarantined}
 {'-' * 60}
 Chunks created: {self.chunks_created}
 Chunks superseded: {self.chunks_superseded}
@@ -224,6 +230,16 @@ Chunks deleted: {self.chunks_deleted}"""
                 summary += f"\n  - {err['file']}: {err['error']}"
 
         logger.info(summary)
+
+
+class MetadataValidationError(RuntimeError):
+    """Raised when a document fails required metadata contract validation."""
+
+    def __init__(self, filename: str, issues: List[str], details: Dict[str, Any]):
+        self.filename = filename
+        self.issues = issues
+        self.details = details
+        super().__init__(f"Metadata validation failed for {filename}: {', '.join(issues)}")
 
 
 class PolicySyncManager:
@@ -441,13 +457,148 @@ class PolicySyncManager:
 
         return results
 
+    def _extract_policy_number_from_filename(self, filename: str) -> str:
+        """Best-effort policy number extraction from filename."""
+        pattern = re.compile(
+            r'\b([A-Za-z]{2})\s*-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b'
+        )
+        match = pattern.search(filename or "")
+        if not match:
+            return ""
+
+        prefix = match.group(1).upper()
+        letter = match.group(2).upper()
+        major = match.group(3)
+        minor = match.group(4)
+
+        if minor is None:
+            return f"{prefix}-{letter} {major.zfill(2)}.00"
+        if len(minor) == 3 and major == "0":
+            digits = f"{major}{minor}".zfill(4)[:4]
+            return f"{prefix}-{letter} {digits[:2]}.{digits[2:]}"
+        minor2 = (minor + "0")[:2] if len(minor) == 1 else minor[:2]
+        return f"{prefix}-{letter} {major.zfill(2)}.{minor2}"
+
+    def _autofill_chunk_metadata(self, chunks: List[PolicyChunk], target_filename: str) -> None:
+        """Apply conservative metadata fallback when gate mode is autofill."""
+        inferred_policy_number = self._extract_policy_number_from_filename(target_filename)
+        inferred_title = target_filename.replace(".pdf", "").strip()
+
+        for chunk in chunks:
+            if not chunk.source_file:
+                chunk.source_file = target_filename
+            if not chunk.policy_title:
+                chunk.policy_title = inferred_title
+            if not chunk.policy_number and inferred_policy_number:
+                chunk.policy_number = inferred_policy_number
+            if chunk.page_number is None:
+                chunk.page_number = max(1, (int(chunk.chunk_index) // 2) + 1)
+
+    def _validate_document_metadata_contract(
+        self,
+        *,
+        filename: str,
+        chunks: List[PolicyChunk],
+        content_hash: str,
+        processed_date: str,
+    ) -> Dict[str, Any]:
+        """
+        Validate per-PDF and per-chunk metadata contract.
+
+        Returns:
+            Dict with valid flag and detailed issue list for reporting.
+        """
+        issues: List[str] = []
+        per_chunk_issues: List[Dict[str, Any]] = []
+        page_number_chunks = 0
+
+        if not chunks:
+            issues.append("chunk_ids empty")
+
+        for idx, chunk in enumerate(chunks):
+            chunk_missing: List[str] = []
+            if not chunk.source_file:
+                chunk_missing.append("source_file")
+            if not (chunk.content or "").strip():
+                chunk_missing.append("content")
+            if chunk.chunk_index is None:
+                chunk_missing.append("chunk_index")
+            if not (chunk.policy_title or "").strip():
+                chunk_missing.append("policy_title")
+            if not ((chunk.policy_number or "").strip() or (chunk.reference_number or "").strip()):
+                chunk_missing.append("policy_number_or_reference_number")
+            if chunk.page_number is not None:
+                page_number_chunks += 1
+
+            if chunk_missing:
+                per_chunk_issues.append(
+                    {
+                        "chunk_index": idx,
+                        "missing_fields": chunk_missing,
+                    }
+                )
+
+        if chunks and page_number_chunks == 0:
+            issues.append("page_number missing on all chunks")
+
+        first = chunks[0] if chunks else None
+        title = (first.policy_title if first else "") or ""
+        policy_number = (first.policy_number if first else "") or ""
+        reference_number = (first.reference_number if first else "") or ""
+
+        if not filename:
+            issues.append("source_file")
+        if not content_hash:
+            issues.append("content_hash")
+        if not processed_date:
+            issues.append("processed_date")
+        if not title.strip():
+            issues.append("title")
+        if not (policy_number.strip() or reference_number.strip()):
+            issues.append("policy_number_or_reference_number")
+        if not chunks:
+            issues.append("chunk_ids")
+
+        if per_chunk_issues:
+            issues.append("chunk_metadata_missing_fields")
+
+        report = {
+            "filename": filename,
+            "valid": len(issues) == 0,
+            "issues": sorted(set(issues)),
+            "per_chunk_issues": per_chunk_issues,
+            "summary": {
+                "chunk_count": len(chunks),
+                "page_number_chunks": page_number_chunks,
+                "page_number_rate": (
+                    (page_number_chunks / len(chunks)) if chunks else 0.0
+                ),
+                "title": title,
+                "policy_number": policy_number,
+                "reference_number": reference_number,
+            },
+        }
+        return report
+
+    def _write_json_report(self, output_path: Optional[str], payload: Dict[str, Any]) -> None:
+        """Write a JSON artifact if output_path is provided."""
+        if not output_path:
+            return
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
     def process_document(
         self,
         source_container: str,
         target_container: str,
         filename: str,
         is_update: bool = False,
-        archive_old_version: bool = True
+        archive_old_version: bool = True,
+        source_blob_name: Optional[str] = None,
+        target_filename: Optional[str] = None,
+        metadata_gate_mode: str = "fail",
+        metadata_report_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[List[str], int, Optional[str]]:
         """
         Process a single document with version control and transaction safety.
@@ -461,9 +612,13 @@ class PolicySyncManager:
         Args:
             source_container: Container with the source PDF
             target_container: Container to copy processed PDF
-            filename: Name of the PDF file
+            filename: Canonical filename (legacy path uses same value for source + target)
             is_update: If True, this is a version transition (v1 → v2)
             archive_old_version: If True, mark old chunks as SUPERSEDED instead of deleting
+            source_blob_name: Optional source blob path (supports prefix-based monthly folders)
+            target_filename: Optional target filename in active container/index
+            metadata_gate_mode: fail | quarantine | autofill
+            metadata_report_rows: Optional list to append per-file metadata report rows
 
         Returns:
             Tuple of (chunk_ids, superseded_count, version_transition_info)
@@ -477,9 +632,11 @@ class PolicySyncManager:
         old_version = "1.0"
         new_version = "1.0"
         rollback_required = False
+        target_name = target_filename or filename
+        source_name = source_blob_name or filename
 
         # Get existing document state for version tracking
-        old_state = self.get_document_state(target_container, filename)
+        old_state = self.get_document_state(target_container, target_name)
 
         if is_update and old_state:
             old_version = old_state.version_number
@@ -489,7 +646,7 @@ class PolicySyncManager:
 
             # Check for version conflicts (concurrent updates)
             search_client = self.search_index.get_search_client()
-            safe_filename = escape_odata_string(filename)
+            safe_filename = escape_odata_string(target_name)
             safe_version = escape_odata_string(new_version)
             existing_new_version = list(search_client.search(
                 search_text="*",
@@ -508,23 +665,23 @@ class PolicySyncManager:
                 # Mark old chunks as SUPERSEDED instead of deleting
                 try:
                     superseded_count = self.supersede_old_chunks(
-                        source_file=filename,
+                        source_file=target_name,
                         superseded_by=new_version
                     )
                     rollback_required = True  # Track that we need rollback if upload fails
-                    logger.info(f"Superseded {superseded_count} chunks for {filename} (v{old_version} → v{new_version})")
+                    logger.info(f"Superseded {superseded_count} chunks for {target_name} (v{old_version} → v{new_version})")
                 except Exception as e:
-                    logger.error(f"Failed to supersede old chunks for {filename}: {e}")
+                    logger.error(f"Failed to supersede old chunks for {target_name}: {e}")
                     raise  # Don't proceed if we can't supersede
             else:
                 # Legacy behavior: delete old chunks
-                superseded_count = self.search_index.delete_by_source_file(filename)
+                superseded_count = self.search_index.delete_by_source_file(target_name)
         else:
             new_version = "1.0"
 
         # Download PDF from source
         source_client = self.blob_service.get_container_client(source_container)
-        blob_data = source_client.get_blob_client(filename).download_blob().readall()
+        blob_data = source_client.get_blob_client(source_name).download_blob().readall()
         content_hash = self.compute_content_hash(blob_data)
 
         # Save temporarily for processing
@@ -540,13 +697,38 @@ class PolicySyncManager:
             # Update source_file and version info for all chunks
             current_time = datetime.now().isoformat()
             for chunk in chunks:
-                chunk.source_file = filename
+                chunk.source_file = target_name
                 # Apply version control fields
                 chunk.version_number = new_version
                 chunk.version_sequence = int(new_version.split('.')[0])
                 chunk.version_date = current_time
                 chunk.effective_date = current_time
                 chunk.policy_status = "ACTIVE"
+
+            if metadata_gate_mode not in {"fail", "quarantine", "autofill"}:
+                raise ValueError(
+                    f"Invalid metadata_gate_mode='{metadata_gate_mode}'. "
+                    "Expected fail|quarantine|autofill."
+                )
+
+            if metadata_gate_mode == "autofill":
+                self._autofill_chunk_metadata(chunks, target_name)
+
+            metadata_row = self._validate_document_metadata_contract(
+                filename=target_name,
+                chunks=chunks,
+                content_hash=content_hash,
+                processed_date=current_time,
+            )
+            if metadata_report_rows is not None:
+                metadata_report_rows.append(metadata_row)
+
+            if not metadata_row["valid"]:
+                raise MetadataValidationError(
+                    target_name,
+                    metadata_row["issues"],
+                    metadata_row,
+                )
 
             # Upload chunks to search index with error checking
             if chunks:
@@ -560,10 +742,10 @@ class PolicySyncManager:
                     if uploaded_count == 0:
                         # Complete failure - rollback superseded chunks
                         if rollback_required:
-                            logger.error(f"Chunk upload failed completely for {filename}. Rolling back...")
-                            self._rollback_superseded_chunks(filename, old_version)
+                            logger.error(f"Chunk upload failed completely for {target_name}. Rolling back...")
+                            self._rollback_superseded_chunks(target_name, old_version)
                         raise RuntimeError(
-                            f"Failed to upload any chunks for {filename}: {failed_count} failed"
+                            f"Failed to upload any chunks for {target_name}: {failed_count} failed"
                         )
                     else:
                         # Partial failure - log warning but don't rollback
@@ -576,15 +758,17 @@ class PolicySyncManager:
 
             # Get metadata from first chunk (if available)
             ref_num = chunks[0].reference_number if chunks else ""
+            policy_num = chunks[0].policy_number if chunks else ""
             title = chunks[0].policy_title if chunks else ""
 
             # Create document state with version info
             state = DocumentState(
-                filename=filename,
+                filename=target_name,
                 content_hash=content_hash,
                 chunk_ids=chunk_ids,
                 processed_date=current_time,
                 reference_number=ref_num,
+                policy_number=policy_num,
                 title=title,
                 version_number=new_version,
                 version_sequence=int(new_version.split('.')[0]),
@@ -594,7 +778,7 @@ class PolicySyncManager:
 
             # Copy to target container with metadata
             target_client = self.blob_service.get_container_client(target_container)
-            target_blob = target_client.get_blob_client(filename)
+            target_blob = target_client.get_blob_client(target_name)
             target_blob.upload_blob(
                 blob_data,
                 overwrite=True,
@@ -606,12 +790,12 @@ class PolicySyncManager:
         except Exception as e:
             # Rollback superseded chunks if upload failed
             if rollback_required:
-                logger.error(f"Processing failed for {filename}. Rolling back superseded chunks...")
+                logger.error(f"Processing failed for {target_name}. Rolling back superseded chunks...")
                 try:
-                    self._rollback_superseded_chunks(filename, old_version)
+                    self._rollback_superseded_chunks(target_name, old_version)
                 except Exception as rollback_error:
                     logger.critical(
-                        f"ROLLBACK FAILED for {filename}: {rollback_error}. "
+                        f"ROLLBACK FAILED for {target_name}: {rollback_error}. "
                         f"Manual intervention required!"
                     )
             raise
@@ -891,7 +1075,15 @@ class PolicySyncManager:
         source_container: str = SOURCE_CONTAINER,
         target_container: str = TARGET_CONTAINER,
         dry_run: bool = False,
-        download_date: Optional[datetime] = None
+        download_date: Optional[datetime] = None,
+        explicit_new_files: Optional[List[Dict[str, Any]]] = None,
+        explicit_changed_files: Optional[List[Dict[str, Any]]] = None,
+        explicit_deleted_files: Optional[List[str]] = None,
+        explicit_total_source_count: Optional[int] = None,
+        keep_missing_active: bool = False,
+        metadata_gate_mode: str = "fail",
+        metadata_report_path: Optional[str] = None,
+        quarantine_report_path: Optional[str] = None,
     ) -> SyncReport:
         """
         Perform monthly differential sync with date validation.
@@ -903,6 +1095,15 @@ class PolicySyncManager:
             download_date: Date when PDFs were downloaded from PolicyTech.
                           If None, uses current date. This is shown to users
                           as "Documents downloaded [date]" in the frontend.
+            explicit_new_files: Optional precomputed delta list of new files.
+                               Dict format: {"filename": ..., "source_blob": ...}
+            explicit_changed_files: Optional precomputed delta list of changed files.
+            explicit_deleted_files: Optional precomputed missing/deleted filenames.
+            explicit_total_source_count: Optional precomputed source file total.
+            keep_missing_active: If True, do not retire deleted/missing files.
+            metadata_gate_mode: fail | quarantine | autofill
+            metadata_report_path: Optional path for metadata completeness JSON artifact.
+            quarantine_report_path: Optional path for quarantined file JSON artifact.
 
         Returns:
             SyncReport with details of the operation
@@ -940,19 +1141,31 @@ class PolicySyncManager:
         print(f"POLICY SYNC: {source_container} → {target_container}")
         print(f"{'=' * 60}")
 
-        # Detect changes
-        print("\nDetecting changes...")
-        new_files, changed_files, deleted_files = self.detect_changes(
-            source_container, target_container
-        )
+        metadata_rows: List[Dict[str, Any]] = []
+        quarantine_rows: List[Dict[str, Any]] = []
 
-        report.documents_scanned = len(new_files) + len(changed_files) + len(deleted_files)
-        report.documents_new = len(new_files)
-        report.documents_changed = len(changed_files)
+        if explicit_new_files is not None or explicit_changed_files is not None:
+            # Explicit delta mode (monthly manifest comparison handled by caller).
+            new_entries = explicit_new_files or []
+            changed_entries = explicit_changed_files or []
+            deleted_files = explicit_deleted_files or []
+        else:
+            # Detect changes directly from source/target containers.
+            print("\nDetecting changes...")
+            detected_new, detected_changed, detected_deleted = self.detect_changes(
+                source_container, target_container
+            )
+            new_entries = [{"filename": name, "source_blob": name} for name in detected_new]
+            changed_entries = [{"filename": name, "source_blob": name} for name in detected_changed]
+            deleted_files = detected_deleted
+
+        report.documents_scanned = len(new_entries) + len(changed_entries) + len(deleted_files)
+        report.documents_new = len(new_entries)
+        report.documents_changed = len(changed_entries)
         report.documents_deleted = len(deleted_files)
 
-        print(f"  New: {len(new_files)}")
-        print(f"  Changed: {len(changed_files)}")
+        print(f"  New: {len(new_entries)}")
+        print(f"  Changed: {len(changed_entries)}")
         print(f"  Deleted: {len(deleted_files)}")
 
         if dry_run:
@@ -961,26 +1174,58 @@ class PolicySyncManager:
             return report
 
         # Process new documents (v1.0)
-        if new_files:
-            print(f"\nProcessing {len(new_files)} NEW documents (v1.0)...")
-            for filename in new_files:
+        if new_entries:
+            print(f"\nProcessing {len(new_entries)} NEW documents (v1.0)...")
+            for entry in new_entries:
+                filename = entry.get("filename") or entry.get("source_blob") or ""
+                source_blob = entry.get("source_blob") or filename
                 try:
                     chunk_ids, _, version_info = self.process_document(
-                        source_container, target_container, filename, is_update=False
+                        source_container,
+                        target_container,
+                        filename,
+                        is_update=False,
+                        source_blob_name=source_blob,
+                        target_filename=filename,
+                        metadata_gate_mode=metadata_gate_mode,
+                        metadata_report_rows=metadata_rows,
                     )
                     report.chunks_created += len(chunk_ids)
                     print(f"  ✓ {filename} ({len(chunk_ids)} chunks, v1.0)")
+                except MetadataValidationError as e:
+                    if metadata_gate_mode == "fail":
+                        raise
+                    report.documents_quarantined += 1
+                    quarantine_rows.append(
+                        {
+                            "filename": filename,
+                            "source_blob": source_blob,
+                            "change_type": "new",
+                            "issues": e.issues,
+                            "details": e.details,
+                        }
+                    )
+                    print(f"  ⚠ {filename}: quarantined ({', '.join(e.issues)})")
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
 
         # Process changed documents (version transitions: v1 → v2)
-        if changed_files:
-            print(f"\nProcessing {len(changed_files)} CHANGED documents (version upgrade)...")
-            for filename in changed_files:
+        if changed_entries:
+            print(f"\nProcessing {len(changed_entries)} CHANGED documents (version upgrade)...")
+            for entry in changed_entries:
+                filename = entry.get("filename") or entry.get("source_blob") or ""
+                source_blob = entry.get("source_blob") or filename
                 try:
                     chunk_ids, superseded, version_info = self.process_document(
-                        source_container, target_container, filename, is_update=True
+                        source_container,
+                        target_container,
+                        filename,
+                        is_update=True,
+                        source_blob_name=source_blob,
+                        target_filename=filename,
+                        metadata_gate_mode=metadata_gate_mode,
+                        metadata_report_rows=metadata_rows,
                     )
                     report.chunks_created += len(chunk_ids)
                     report.chunks_superseded += superseded
@@ -993,12 +1238,26 @@ class PolicySyncManager:
                     else:
                         print(f"  ✓ {filename} ({len(chunk_ids)} new, {superseded} superseded)")
 
+                except MetadataValidationError as e:
+                    if metadata_gate_mode == "fail":
+                        raise
+                    report.documents_quarantined += 1
+                    quarantine_rows.append(
+                        {
+                            "filename": filename,
+                            "source_blob": source_blob,
+                            "change_type": "changed",
+                            "issues": e.issues,
+                            "details": e.details,
+                        }
+                    )
+                    print(f"  ⚠ {filename}: quarantined ({', '.join(e.issues)})")
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
 
         # Handle deleted/retired documents
-        if deleted_files:
+        if deleted_files and not keep_missing_active:
             print(f"\nRETIRING {len(deleted_files)} deleted documents...")
             for filename in deleted_files:
                 try:
@@ -1012,19 +1271,89 @@ class PolicySyncManager:
                 except Exception as e:
                     report.errors.append({"file": filename, "error": str(e)})
                     print(f"  ✗ {filename}: {e}")
+        elif deleted_files and keep_missing_active:
+            print(f"\nKeeping {len(deleted_files)} missing/deleted files ACTIVE (per configuration).")
 
         # Calculate unchanged
-        source_client = self.blob_service.get_container_client(source_container)
-        total_source = len([b for b in source_client.list_blobs() if b.name.endswith('.pdf')])
-        report.documents_unchanged = total_source - report.documents_new - report.documents_changed
+        if explicit_total_source_count is not None:
+            total_source = explicit_total_source_count
+        else:
+            source_client = self.blob_service.get_container_client(source_container)
+            total_source = len([b for b in source_client.list_blobs() if b.name.endswith('.pdf')])
+        report.documents_unchanged = max(
+            0,
+            total_source - report.documents_new - report.documents_changed,
+        )
 
         report.completed_at = datetime.now().isoformat()
         report.log_summary()
+
+        metadata_payload = {
+            "generated_at": datetime.now().isoformat(),
+            "mode": "sync_monthly",
+            "metadata_gate_mode": metadata_gate_mode,
+            "total_rows": len(metadata_rows),
+            "valid_rows": len([row for row in metadata_rows if row.get("valid")]),
+            "invalid_rows": len([row for row in metadata_rows if not row.get("valid")]),
+            "rows": metadata_rows,
+        }
+        quarantine_payload = {
+            "generated_at": datetime.now().isoformat(),
+            "mode": "sync_monthly",
+            "count": len(quarantine_rows),
+            "files": quarantine_rows,
+        }
+        self._write_json_report(metadata_report_path, metadata_payload)
+        self._write_json_report(quarantine_report_path, quarantine_payload)
 
         # Save sync info for frontend display ("Documents downloaded [date]")
         self.save_sync_info(target_container, display_date, sync_batch_id)
 
         return report
+
+    def sync_delta(
+        self,
+        *,
+        source_container: str,
+        target_container: str,
+        delta_payload: Dict[str, Any],
+        dry_run: bool = False,
+        download_date: Optional[datetime] = None,
+        metadata_gate_mode: str = "quarantine",
+        metadata_report_path: Optional[str] = None,
+        quarantine_report_path: Optional[str] = None,
+        keep_missing_active: bool = True,
+    ) -> SyncReport:
+        """
+        Sync explicit delta payload (new + changed) computed by monthly manifest logic.
+        """
+        new_entries = delta_payload.get("new", []) if isinstance(delta_payload, dict) else []
+        changed_entries = delta_payload.get("changed", []) if isinstance(delta_payload, dict) else []
+        missing_entries = delta_payload.get("missing", []) if isinstance(delta_payload, dict) else []
+        missing_files: List[str] = []
+        for entry in missing_entries:
+            if isinstance(entry, dict):
+                name = str(entry.get("filename") or "").strip()
+                if name:
+                    missing_files.append(name)
+            elif isinstance(entry, str) and entry.strip():
+                missing_files.append(entry.strip())
+        total_source_count = int(delta_payload.get("source_total", len(new_entries) + len(changed_entries)))
+
+        return self.sync_monthly(
+            source_container=source_container,
+            target_container=target_container,
+            dry_run=dry_run,
+            download_date=download_date,
+            explicit_new_files=new_entries,
+            explicit_changed_files=changed_entries,
+            explicit_deleted_files=missing_files,
+            explicit_total_source_count=total_source_count,
+            keep_missing_active=keep_missing_active,
+            metadata_gate_mode=metadata_gate_mode,
+            metadata_report_path=metadata_report_path,
+            quarantine_report_path=quarantine_report_path,
+        )
 
     def save_sync_info(
         self,
@@ -1046,7 +1375,11 @@ class PolicySyncManager:
         info = {
             "last_sync_date": download_date.isoformat(),
             "last_sync_date_display": download_date.strftime("%B %d, %Y"),
-            "index_name": "rush-policies",
+            "index_name": getattr(
+                self.search_index,
+                "index_name",
+                os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active"),
+            ),
             "sync_batch_id": sync_batch_id
         }
 
@@ -1115,6 +1448,7 @@ class PolicySyncManager:
             chunk_ids=chunk_ids,
             processed_date=datetime.now().isoformat(),
             reference_number=chunks[0].reference_number if chunks else "",
+            policy_number=chunks[0].policy_number if chunks else "",
             title=chunks[0].policy_title if chunks else "",
         )
 
@@ -1184,6 +1518,7 @@ class PolicySyncManager:
                         chunk_ids=[c.chunk_id for c in chunks],
                         processed_date=datetime.now().isoformat(),
                         reference_number=chunks[0].reference_number if chunks else "",
+                        policy_number=chunks[0].policy_number if chunks else "",
                         title=chunks[0].policy_title if chunks else "",
                     )
 
@@ -1275,6 +1610,10 @@ if __name__ == "__main__":
             source = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('--') else SOURCE_CONTAINER
             target = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].startswith('--') else TARGET_CONTAINER
             dry_run = "--dry-run" in sys.argv
+            metadata_gate_mode = get_arg('--metadata-gate-mode', 'fail')
+            metadata_report_path = get_arg('--metadata-report')
+            quarantine_report_path = get_arg('--quarantine-report')
+            keep_missing_active = "--keep-missing-active" in sys.argv
 
             # Parse optional version and effective-date
             version = get_arg('--version')
@@ -1288,7 +1627,43 @@ if __name__ == "__main__":
                 if effective_date:
                     print(f"  Effective date: {effective_date}")
 
-            sync.sync_monthly(source, target, dry_run=dry_run)
+            sync.sync_monthly(
+                source,
+                target,
+                dry_run=dry_run,
+                metadata_gate_mode=metadata_gate_mode,
+                metadata_report_path=metadata_report_path,
+                quarantine_report_path=quarantine_report_path,
+                keep_missing_active=keep_missing_active,
+            )
+
+        elif command == "sync-delta":
+            source = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('--') else SOURCE_CONTAINER
+            target = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].startswith('--') else TARGET_CONTAINER
+            dry_run = "--dry-run" in sys.argv
+            delta_file = get_arg('--delta-file')
+            if not delta_file:
+                print("ERROR: sync-delta requires --delta-file <path>")
+                sys.exit(1)
+
+            metadata_gate_mode = get_arg('--metadata-gate-mode', 'quarantine')
+            metadata_report_path = get_arg('--metadata-report')
+            quarantine_report_path = get_arg('--quarantine-report')
+            keep_missing_active = "--keep-missing-active" in sys.argv
+
+            with open(delta_file, "r", encoding="utf-8") as f:
+                delta_payload = json.load(f)
+
+            sync.sync_delta(
+                source_container=source,
+                target_container=target,
+                delta_payload=delta_payload,
+                dry_run=dry_run,
+                metadata_gate_mode=metadata_gate_mode,
+                metadata_report_path=metadata_report_path,
+                quarantine_report_path=quarantine_report_path,
+                keep_missing_active=keep_missing_active,
+            )
 
         elif command == "reindex":
             container = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('--') else TARGET_CONTAINER
@@ -1428,6 +1803,7 @@ if __name__ == "__main__":
             print("Usage:")
             print("  python policy_sync.py detect [source] [target]    # Detect changes")
             print("  python policy_sync.py sync [source] [target]      # Run monthly sync")
+            print("  python policy_sync.py sync-delta [source] [target] --delta-file <json>")
             print("  python policy_sync.py validate [container]        # Validate hash consistency")
             print("  python policy_sync.py reindex [container]         # Full reindex")
             print("  python policy_sync.py process <pdf_path>          # Process single file")
@@ -1439,8 +1815,12 @@ if __name__ == "__main__":
             print("  --use-docling       Shorthand for --backend=docling")
             print("  --no-docling        Shorthand for --backend=pymupdf")
             print("  --dry-run           Detect changes only (for sync)")
+            print("  --metadata-gate-mode fail|quarantine|autofill")
+            print("  --metadata-report <path>      Write metadata completeness artifact")
+            print("  --quarantine-report <path>    Write quarantined files artifact")
+            print("  --keep-missing-active         Skip retire/delete for missing files")
             print("  --version X.X       Advisory version number (auto-increments)")
             print("  --effective-date    Advisory effective date (uses current time)")
             print("  --reason 'text'     Reason for rollback")
     else:
-        print("\nRun with 'detect', 'sync', 'reindex', 'process', 'rollback', or 'retire' command")
+        print("\nRun with 'detect', 'sync', 'sync-delta', 'reindex', 'process', 'rollback', or 'retire' command")

@@ -296,7 +296,7 @@ export default function InstanceSearchModal({
                 ))}
                 {/* Tip for PDF navigation */}
                 <p className="text-xs text-rush-gray text-center mt-3 italic">
-                  💡 Click arrow to jump to page in PDF, or use "Copy" to search exact text (Ctrl+F).
+                  💡 Click arrow to jump to page in PDF, or use &quot;Copy&quot; to search exact text (Ctrl+F).
                 </p>
               </div>
             )}

@@ -249,7 +249,7 @@ APP_INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
 echo -e "${BLUE}Step 6: Setting up Knowledge Agent${NC}"
 
 echo -e "${YELLOW}Please ensure you have:${NC}"
-echo -e "  1. Created the 'rush-policies' search index"
+echo -e "  1. Created/validated the 'rush-policies-active' search alias target"
 echo -e "  2. Configured Azure OpenAI with gpt-4o-mini deployment"
 echo -e ""
 echo -e "Run the following command to create the Knowledge Agent:"

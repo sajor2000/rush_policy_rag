@@ -10,7 +10,7 @@ Implements operational steps for:
 
 Usage examples:
   python apps/backend/scripts/blue_green_index_alias.py create-index --index rush-policies-v2-20260212
-  python apps/backend/scripts/blue_green_index_alias.py ensure-alias --alias rush-policies-active --index rush-policies
+  python apps/backend/scripts/blue_green_index_alias.py ensure-alias --alias rush-policies-active --index <current-prod-index>
   python apps/backend/scripts/blue_green_index_alias.py swap-alias --alias rush-policies-active --index rush-policies-v2-20260212
   python apps/backend/scripts/blue_green_index_alias.py show-alias --alias rush-policies-active
   python apps/backend/scripts/blue_green_index_alias.py validate-schema --index rush-policies-v2-20260212

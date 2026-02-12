@@ -1,0 +1,24 @@
+{
+  "nonprod": {
+    "subscription": "RU-Azure-NonProd",
+    "resource_group": "RU-A-NonProd-AI-Innovation-RG",
+    "acr_name": "aiinnovation",
+    "backend_app": "rush-policy-backend",
+    "frontend_app": "rush-policy-frontend",
+    "search_alias": "rush-policies-active",
+    "search_endpoint": "https://policychataisearch.search.windows.net",
+    "source_container": "policies-source",
+    "target_container": "policies-active"
+  },
+  "prod": {
+    "subscription": "__REQUIRED__",
+    "resource_group": "__REQUIRED__",
+    "acr_name": "__REQUIRED__",
+    "backend_app": "__REQUIRED__",
+    "frontend_app": "__REQUIRED__",
+    "search_alias": "rush-policies-active",
+    "search_endpoint": "__REQUIRED__",
+    "source_container": "policies-source",
+    "target_container": "policies-active"
+  }
+}

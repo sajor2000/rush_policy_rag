@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import {

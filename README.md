@@ -146,7 +146,8 @@ az containerapp update \
       │ Azure AI      │  │ Azure OpenAI  │  │ Cohere Rerank │  │ Azure Blob    │ │
       │ Search        │  │ ───────────── │  │ ───────────── │  │ Storage       │ │
       │ ───────────── │  │ GPT-4.1       │  │ rerank-v4.0   │  │ ───────────── │ │
-      │ rush-policies │  │ embeddings    │  │ Pro (cross-   │  │ PDFs          │ │
+      │ rush-policies-│  │ embeddings    │  │ Pro (cross-   │  │ PDFs          │ │
+      │ active alias  │  │              │  │ encoder)      │  │               │ │
       │ 3072-dim      │  │ (3-large)     │  │ encoder)      │  │               │ │
       └───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘ │
                                                                                   │
@@ -172,7 +173,7 @@ az containerapp update \
 
 - Python 3.9+
 - Node.js 18+
-- Azure AI Search service with `rush-policies` index
+- Azure AI Search service with `rush-policies-active` alias
 - Azure OpenAI service (GPT-4.1 + text-embedding-3-large)
 - Azure Blob Storage account
 
