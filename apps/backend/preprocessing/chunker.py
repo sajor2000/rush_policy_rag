@@ -558,6 +558,13 @@ class PolicyChunker:
 
         for i, text in enumerate(sub_texts):
             if len(text) >= self.min_chunk_size:
+                # Extract page number via PyMuPDF text matching
+                page_number = None
+                if hasattr(self, '_current_pdf_path') and self._current_pdf_path:
+                    page_number = extract_page_number_pymupdf(
+                        self._current_pdf_path, text[:150], i
+                    )
+
                 chunk = self._create_policy_chunk(
                     chunk_id=f"{chunk_prefix}_{chunk_counter}",
                     text=text,
@@ -567,7 +574,8 @@ class PolicyChunker:
                     source_file=source_file,
                     chunk_level="semantic",  # Fallback chunks are semantic level
                     parent_chunk_id=None,
-                    chunk_index=i
+                    chunk_index=i,
+                    page_number=page_number
                 )
                 chunks.append(chunk)
                 chunk_counter += 1

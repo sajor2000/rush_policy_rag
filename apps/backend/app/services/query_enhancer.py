@@ -229,11 +229,16 @@ def normalize_query_punctuation(query: str) -> str:
     normalized = re.sub(r"(\w+)'\b", r"\1", normalized)
 
     # Normalize smart/curly quotes to standard quotes
-    normalized = normalized.replace('"', '"').replace('"', '"')
-    normalized = normalized.replace(''', "'").replace(''', "'")
+    normalized = normalized.replace('\u201c', '"').replace('\u201d', '"')
+    normalized = normalized.replace('\u2018', "'").replace('\u2019', "'")
 
     # Normalize whitespace
     normalized = ' '.join(normalized.split())
+
+    # Strip trailing/leading punctuation that interferes with search matching
+    # Preserves mid-query punctuation and question marks (query intent)
+    # Must run AFTER whitespace normalization so trailing "value, " → "value," → "value"
+    normalized = normalized.strip(',;:.')
 
     if normalized != query:
         logger.debug(f"Query punctuation normalized: '{query}' -> '{normalized}'")
@@ -279,3 +284,46 @@ def apply_policy_hints(query: str) -> Tuple[str, List[dict]]:
         return f"{query} {' '.join(hints_to_add)}", forced_entries
 
     return query, forced_entries
+
+
+# ============================================================================
+# Policy Number Detection
+# ============================================================================
+
+# Matches RUSH coded policy numbers: HR-C 05.00, HR-C 05, HR-C05.00, hr-c 05.00
+# Dash is REQUIRED to avoid false positives on natural English (e.g., "do I 2")
+POLICY_NUMBER_PATTERN = re.compile(
+    r'\b([A-Za-z]{2})-\s*([A-Za-z])\s*(\d{1,2})\.?(\d{2})?\b'
+)
+
+
+def detect_policy_number(query: str) -> Optional[Tuple[str, str]]:
+    """
+    Detect RUSH policy number pattern in a query.
+
+    Returns (normalized_ref, odata_filter) if found, else None.
+    Handles variations: HR-C 05.00, HR-C 05, HR-C05.00, hr-c 05.00
+
+    Uses search.ismatch on the title field because many policies store
+    the policy number in the title (e.g., "HR-C 05.00 Shift Differentials")
+    rather than in the reference_number field.
+
+    Args:
+        query: User's search query
+
+    Returns:
+        Tuple of (normalized_reference_number, OData_filter_expression) or None
+    """
+    match = POLICY_NUMBER_PATTERN.search(query)
+    if not match:
+        return None
+    prefix = match.group(1).upper()
+    letter = match.group(2).upper()
+    number = match.group(3).zfill(2)
+    sub = match.group(4) or "00"
+    normalized = f"{prefix}-{letter} {number}.{sub}"
+    # Use search.ismatch on title field — policy numbers are embedded in titles,
+    # not reliably in reference_number. Phrase search (quoted) ensures exact match.
+    odata = f"""search.ismatch('"{normalized}"', 'title', 'full', 'all')"""
+    logger.info(f"Detected policy number in query: '{query}' -> '{normalized}'")
+    return normalized, odata

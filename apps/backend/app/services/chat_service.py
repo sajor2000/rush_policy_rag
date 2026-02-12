@@ -80,6 +80,7 @@ from app.services.query_enhancer import (
     normalize_location_context as _normalize_location_context_standalone,
     normalize_query_punctuation as _normalize_query_punctuation_standalone,
     apply_policy_hints as _apply_policy_hints_standalone,
+    detect_policy_number as _detect_policy_number_standalone,
 )
 from app.services.confidence_calculator import (
     filter_by_score_window as _filter_by_score_window_standalone,
@@ -684,8 +685,13 @@ Policy excerpt:"""
         # 2. Clarification requests should never be cached
         # ===================================================================
 
+        # Policy number detection runs BEFORE unclear check because policy
+        # numbers like "HR-C 05.00" have no vowels and trip the gibberish detector
+        ref_result = _detect_policy_number_standalone(request.message)
+
         # Unclear query detection (gibberish, single chars, vague)
-        if self._is_unclear_query(request.message):
+        # Skip if a valid policy number was detected in the query
+        if not ref_result and self._is_unclear_query(request.message):
             logger.info(f"Unclear query detected: {request.message[:50]}...")
             return ChatResponse(
                 response=UNCLEAR_QUERY_MESSAGE,
@@ -749,6 +755,11 @@ Policy excerpt:"""
 
         # Build safe filter expression
         filter_expr = build_applies_to_filter(request.filter_applies_to)
+
+        # Apply policy number filter if detected earlier
+        if ref_result:
+            _, odata = ref_result
+            filter_expr = f"({filter_expr}) and ({odata})" if filter_expr else odata
 
         # ===================================================================
         # RESPONSE CACHE CHECK (Cold Start Optimization)
@@ -815,7 +826,11 @@ Policy excerpt:"""
 
         try:
             # Early validations (same as non-streaming)
-            if self._is_unclear_query(request.message):
+            # Policy number detection runs first — "HR-C 05.00" has no vowels
+            # and trips the gibberish detector without this bypass
+            ref_result = _detect_policy_number_standalone(request.message)
+
+            if not ref_result and self._is_unclear_query(request.message):
                 yield sse_event("answer_chunk", {"type": "answer_chunk", "content": UNCLEAR_QUERY_MESSAGE})
                 yield sse_event("metadata", {"type": "metadata", "confidence": "high", "found": False, "chunks_used": 0})
                 yield sse_event("done", {"type": "done"})
@@ -850,6 +865,11 @@ Policy excerpt:"""
 
             # Build filter expression
             filter_expr = build_applies_to_filter(request.filter_applies_to)
+
+            # Apply policy number filter if detected earlier
+            if ref_result:
+                _, odata = ref_result
+                filter_expr = f"({filter_expr}) and ({odata})" if filter_expr else odata
 
             # Status: Searching
             yield sse_event("status", {"type": "status", "message": "Searching policies..."})
@@ -1092,7 +1112,9 @@ Policy excerpt:"""
         logger.info(f"Using Cohere Rerank pipeline for query: {request.message[:50]}...")
 
         # Early unclear query detection (gibberish, single chars, vague)
-        if self._is_unclear_query(request.message):
+        # Skip if filter_expr contains a policy number filter (search.ismatch)
+        has_policy_filter = filter_expr and "search.ismatch" in filter_expr
+        if not has_policy_filter and self._is_unclear_query(request.message):
             logger.info(f"Unclear query detected: {request.message[:50]}...")
             # NO references for clarification requests
             return ChatResponse(
@@ -1985,7 +2007,9 @@ Policy excerpt:"""
         logger.info(f"Using On Your Data (vectorSemanticHybrid) for query: {request.message[:50]}...")
 
         # Early unclear query detection (gibberish, single chars, vague)
-        if self._is_unclear_query(request.message):
+        # Skip if filter_expr contains a policy number filter (search.ismatch)
+        has_policy_filter = filter_expr and "search.ismatch" in filter_expr
+        if not has_policy_filter and self._is_unclear_query(request.message):
             logger.info(f"Unclear query detected: {request.message[:50]}...")
             # NO references for clarification requests
             return ChatResponse(
