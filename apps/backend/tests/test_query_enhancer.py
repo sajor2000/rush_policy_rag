@@ -29,7 +29,13 @@ from app.services.query_enhancer import (
 # ============================================================================
 
 class TestNormalizeQueryPunctuation:
-    """Tests for trailing/leading punctuation stripping."""
+    """Tests for punctuation normalization (BUG-003 fix).
+
+    The enhanced implementation replaces commas, semicolons, and colons
+    with spaces throughout the query (not just trailing/leading) so that
+    partial title searches like "Shift Differentials" match indexed titles
+    like "Shift Differentials, Weekend and Holiday Premium Pay".
+    """
 
     def test_trailing_comma(self):
         assert normalize_query_punctuation("Shift Differentials,") == "Shift Differentials"
@@ -50,9 +56,13 @@ class TestNormalizeQueryPunctuation:
     def test_trailing_colon(self):
         assert normalize_query_punctuation("Shift Differentials:") == "Shift Differentials"
 
-    def test_mid_query_comma_preserved(self):
-        """Commas in the middle of queries must NOT be stripped."""
-        assert normalize_query_punctuation("Shift Differentials, Premium Pay") == "Shift Differentials, Premium Pay"
+    def test_mid_query_comma_replaced_with_space(self):
+        """BUG-003: Mid-query commas are replaced with spaces for better BM25 matching."""
+        assert normalize_query_punctuation("Shift Differentials, Premium Pay") == "Shift Differentials Premium Pay"
+
+    def test_mid_query_semicolon_replaced_with_space(self):
+        """BUG-003: Semicolons in titles like 'Recording; Editing' become spaces."""
+        assert normalize_query_punctuation("Time and Attendance Recording; Editing and Approval") == "Time and Attendance Recording Editing and Approval"
 
     def test_question_mark_preserved(self):
         """Question marks indicate query intent and must be kept."""
@@ -70,11 +80,27 @@ class TestNormalizeQueryPunctuation:
     def test_only_punctuation(self):
         assert normalize_query_punctuation(",;:.") == ""
 
-    def test_multiple_trailing(self):
+    def test_multiple_trailing_periods(self):
         assert normalize_query_punctuation("test...") == "test"
 
     def test_whitespace_normalized(self):
         assert normalize_query_punctuation("  extra   spaces  ") == "extra spaces"
+
+    def test_policy_number_decimal_preserved(self):
+        """Periods in policy numbers (05.00) must NOT be stripped."""
+        assert normalize_query_punctuation("What is HR-C 05.00?") == "What is HR-C 05.00?"
+
+    def test_hyphen_preserved(self):
+        """Hyphens in policy numbers (HR-C) must NOT be stripped."""
+        assert normalize_query_punctuation("HR-C 05.00") == "HR-C 05.00"
+
+    def test_multiple_commas_collapsed(self):
+        """Multiple consecutive commas become single space."""
+        assert normalize_query_punctuation("test,,, value") == "test value"
+
+    def test_colon_replaced(self):
+        """Colons are replaced with spaces."""
+        assert normalize_query_punctuation("Section 6.03: Supervisor Entry") == "Section 6.03 Supervisor Entry"
 
 
 class TestNormalizeLocationContext:

@@ -52,8 +52,11 @@ def normalize_policy_number(raw: str) -> str:
     - HR-C05.00 -> HR-C 05.00
     - HR-C 5.00 -> HR-C 05.00
     - HR-C 0.600 -> HR-C 06.00
+    - HR-C_05.00 -> HR-C 05.00  (filename underscores)
     """
-    match = POLICY_NUMBER_PATTERN.search(raw or "")
+    # Replace underscores with spaces so filename-sourced values match the regex
+    cleaned = (raw or "").replace("_", " ")
+    match = POLICY_NUMBER_PATTERN.search(cleaned)
     if not match:
         return ""
 

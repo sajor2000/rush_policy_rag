@@ -104,6 +104,34 @@ CASES: List[VerificationCase] = [
         expected_policy_number="HR-C 05.00",
         expected_title_hint="Shift Differentials",
     ),
+    # Additional BUG-001 cases: multi-page + no policy number in query
+    VerificationCase(
+        case_id="BUG-001-E",
+        query="How would you administer a discipline?",
+        expected_policy_number="HR-E 03.00",
+        expected_title_hint="Disciplinary Procedures",
+    ),
+    # BUG-003 regression: full title with punctuation still works
+    VerificationCase(
+        case_id="BUG-003-REG-A",
+        query="What is Shift Differentials, Weekend and Holiday Premium Pay?",
+        expected_policy_number="HR-C 05.00",
+        expected_title_hint="Shift Differentials",
+    ),
+    VerificationCase(
+        case_id="BUG-003-REG-B",
+        query="What is Time and Attendance Recording; Editing and Approval?",
+        expected_policy_number="HR-C 06.00",
+        expected_title_hint="Time and Attendance",
+    ),
+    # BUG-002 edge cases: partial and variant policy number formats
+    VerificationCase(
+        case_id="BUG-002-E",
+        query="What is HR-E 07.00?",
+        expected_policy_number="HR-E 07.00",
+        expected_title_hint="ADA Accommodation",
+        forbid_unverified_block=True,
+    ),
 ]
 
 

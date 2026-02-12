@@ -234,13 +234,18 @@ def normalize_query_punctuation(query: str) -> str:
     normalized = normalized.replace('\u201c', '"').replace('\u201d', '"')
     normalized = normalized.replace('\u2018', "'").replace('\u2019', "'")
 
-    # Normalize whitespace
+    # BUG-003 FIX: Replace commas, semicolons, colons with spaces throughout query.
+    # This ensures partial title searches like "Shift Differentials" match indexed
+    # titles like "Shift Differentials, Weekend and Holiday Premium Pay" even when
+    # the BM25 tokenizer treats punctuation as part of the token.
+    # Preserves: hyphens (HR-C), periods (05.00), question marks (query intent)
+    normalized = re.sub(r'[,;:]+', ' ', normalized)
+
+    # Normalize whitespace (also collapses spaces left by punctuation removal)
     normalized = ' '.join(normalized.split())
 
-    # Strip trailing/leading punctuation that interferes with search matching
-    # Preserves mid-query punctuation and question marks (query intent)
-    # Must run AFTER whitespace normalization so trailing "value, " → "value," → "value"
-    normalized = normalized.strip(',;:.')
+    # Strip trailing periods (but not mid-query periods like 05.00)
+    normalized = re.sub(r'\.+$', '', normalized).strip()
 
     if normalized != query:
         logger.debug(f"Query punctuation normalized: '{query}' -> '{normalized}'")

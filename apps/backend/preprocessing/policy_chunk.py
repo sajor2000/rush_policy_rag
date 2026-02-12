@@ -98,6 +98,39 @@ class PolicyChunk:
             return f"{self.policy_title} ({ref_part}), Section {self.section_number}. {self.section_title}"
         return f"{self.policy_title} ({ref_part})"
 
+    def _build_content_prefix(self) -> str:
+        """
+        Build a metadata prefix for indexed content (REC-007).
+
+        Prepends policy number, title, and section info so each chunk is
+        self-describing. Improves both keyword and semantic retrieval —
+        searches for "HR-C 06.00" or "Supervisor Entry/Editing" will match
+        even chunks whose body text doesn't mention the policy number.
+
+        The raw ``text`` field is never modified; the prefix is only added
+        to the ``content`` field written to the search index.
+        """
+        parts = []
+        if self.policy_number:
+            parts.append(self.policy_number)
+        if self.policy_title:
+            # Avoid duplicating the policy number if the title already contains it
+            title = self.policy_title
+            if self.policy_number and title.startswith(self.policy_number):
+                title = title[len(self.policy_number):].strip()
+            if title:
+                parts.append(title)
+        section_label = ""
+        if self.section_number and self.section_title:
+            section_label = f"Section {self.section_number} {self.section_title}"
+        elif self.section_title:
+            section_label = self.section_title
+        if section_label:
+            parts.append(section_label)
+        if parts:
+            return f"[{' \u2014 '.join(parts)}]\n"
+        return ""
+
     def to_azure_document(self) -> dict:
         """
         Format for Azure AI Search index.
@@ -123,9 +156,11 @@ class PolicyChunk:
         """
         # Azure requires alphanumeric IDs
         safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', self.chunk_id)
+        # REC-007: Prefix content with policy metadata for self-describing chunks
+        content = self._build_content_prefix() + self.text
         return {
             "id": safe_id,
-            "content": self.text,
+            "content": content,
             "title": self.policy_title,
             "policy_number": self.policy_number,
             "reference_number": self.reference_number,
