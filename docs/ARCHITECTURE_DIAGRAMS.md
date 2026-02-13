@@ -243,5 +243,5 @@ flowchart LR
 
 - [RAG_DESIGN.md](RAG_DESIGN.md) - Detailed design decisions
 - [QUICK_START.md](QUICK_START.md) - Get started in 30 minutes
-- [DEPLOYMENT.md](../DEPLOYMENT.md) - Full deployment guide
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Full deployment guide
 - [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) - Technical review document

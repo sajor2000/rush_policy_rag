@@ -2,7 +2,7 @@
 
 > **Single Source of Truth** for all environment configuration in the RUSH Policy RAG system.
 >
-> Last Updated: 2026-01-11
+> Last Updated: 2026-02-12
 
 ## Quick Start
 
@@ -60,6 +60,53 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, w
 | `COHERE_RERANK_MODEL` | Model name | `Cohere-rerank-v4.0-pro` |
 | `COHERE_RERANK_TOP_N` | Documents to keep after rerank (3-5 optimal) | `5` |
 | `COHERE_RERANK_MIN_SCORE` | Minimum relevance threshold (4.0 Pro calibrated) | `0.40` |
+
+### Context Expansion
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CONTEXT_EXPANSION_ENABLED` | Enable sibling chunk retrieval | `true` |
+| `CONTEXT_EXPANSION_TOP_N` | Number of top results to expand | `3` |
+| `CONTEXT_EXPANSION_INCLUDE_PARENT` | Fetch parent chunks | `true` |
+| `CONTEXT_EXPANSION_INCLUDE_SIBLINGS` | Fetch adjacent chunks | `true` |
+| `CONTEXT_EXPANSION_MAX_SIBLINGS` | Max siblings on each side (1 = ±1) | `1` |
+
+### Chat Audit Logging
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CHAT_AUDIT_ENABLED` | Enable audit logging to blob storage | `true` |
+| `CHAT_AUDIT_CONTAINER` | Blob container for audit logs | `chat-audit` |
+| `CHAT_AUDIT_BUFFER_SIZE` | Records to buffer before flush | `50` |
+| `CHAT_AUDIT_FLUSH_INTERVAL_SECONDS` | Max seconds between flushes | `30` |
+| `CHAT_AUDIT_MAX_QUESTION_LENGTH` | Truncate questions beyond this length | `2000` |
+| `CHAT_AUDIT_MAX_RESPONSE_LENGTH` | Truncate responses beyond this length | `5000` |
+| `CHAT_AUDIT_RETENTION_DAYS` | Days to retain audit logs | `90` |
+
+### Cache Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CACHE_ENABLED` | Master enable/disable for all caching | `true` |
+| `CACHE_EXPANSION_SIZE` | Query expansion cache entries (LRU) | `5000` |
+| `CACHE_RESPONSE_SIZE` | Full response cache entries (TTL) | `1000` |
+| `CACHE_SEARCH_SIZE` | Search results cache entries (TTL) | `500` |
+| `CACHE_RESPONSE_TTL` | Response cache TTL in seconds | `86400` (24h) |
+| `CACHE_SEARCH_TTL` | Search cache TTL in seconds | `21600` (6h) |
+
+### RAG Pipeline Tuning
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CRAG_MIN_DOCS_FOR_COHERE` | Min docs passed to Cohere reranker | `20` |
+| `CRAG_MAX_DOCS_FOR_COHERE` | Max docs passed to Cohere reranker | `35` |
+| `CRAG_MAX_AMBIGUOUS_DOCS` | Max ambiguous docs per case | `20` |
+| `SURGE_CAPACITY_PENALTY` | Score multiplier for surge policies (0-1) | `0.6` |
+| `LOCATION_MATCH_BOOST` | Boost for entity-matched policies (>1) | `1.3` |
+| `PEDIATRIC_BOOST` | Boost for peds policies in peds context | `1.3` |
+| `ADULT_DEFAULT_BOOST` | Boost for adult/general policies | `1.2` |
+| `ADULT_PENALTY_IN_PEDS_CONTEXT` | Penalty for adult policies in peds queries | `0.85` |
+| `PEDS_PENALTY_IN_ADULT_CONTEXT` | Penalty for peds policies in adult queries | `0.5` |
 
 ### Feature Flags
 
@@ -174,7 +221,7 @@ az containerapp update \
 
 For secrets, use `secretref:` prefix and configure secrets in Container Apps.
 
-See [DEPLOYMENT.md](../DEPLOYMENT.md) for complete deployment instructions.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
 ---
 

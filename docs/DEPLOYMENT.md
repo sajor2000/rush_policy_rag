@@ -693,7 +693,7 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, w
 │   ┌─────────────────────────┐         ┌─────────────────────────────────┐    │
 │   │  rush-policy-frontend   │         │  rush-policy-backend            │    │
 │   │  ─────────────────────  │  HTTP   │  ─────────────────────          │    │
-│   │  Next.js 14             │────────▶│  FastAPI (Python 3.12)          │    │
+│   │  Next.js 16             │────────▶│  FastAPI (Python 3.12)          │    │
 │   │  Port: 3000             │         │  Port: 8000                     │    │
 │   │  Replicas: 2-10         │         │  Replicas: 2-10                 │    │
 │   │  CPU: 0.5 | RAM: 1Gi    │         │  CPU: 1.0 | RAM: 2Gi            │    │

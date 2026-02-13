@@ -586,7 +586,7 @@ python azure_policy_index.py backup [output_filename.json]
 python azure_policy_index.py verify "502"
 
 # If chunks are missing, run the full pipeline ingestion
-cd /Users/JCR/Desktop/rag_pt_rush/apps/backend
+cd apps/backend
 python scripts/full_pipeline_ingest.py
 ```
 

@@ -238,6 +238,88 @@ ED, ER, emergency department, emergency room => emergency department
 
 **Code location:** `apps/backend/azure_policy_index.py`
 
+## 8. Corrective RAG (cRAG)
+
+**Decision:** Apply pre-filtering before cross-encoder reranking to control cost and improve precision.
+
+**File:** `apps/backend/app/services/corrective_rag.py`
+
+The cRAG module classifies retrieved documents into confidence tiers before passing them to Cohere:
+
+- **Correct**: High-confidence matches passed directly
+- **Ambiguous**: Medium-confidence documents included up to `CRAG_MAX_AMBIGUOUS_DOCS`
+- **Incorrect**: Low-confidence documents filtered out
+
+**Configuration:**
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `CRAG_MIN_DOCS_FOR_COHERE` | 20 | Guarantees variety in Cohere input |
+| `CRAG_MAX_DOCS_FOR_COHERE` | 35 | Bounds Cohere API cost |
+| `CRAG_MAX_AMBIGUOUS_DOCS` | 20 | Limits ambiguous document inclusion |
+
+## 9. Self-Reflective RAG
+
+**Decision:** Add a post-generation quality check to detect low-confidence or unsupported answers.
+
+**File:** `apps/backend/app/services/self_reflective_rag.py`
+
+After GPT-4.1 generates a response, the self-reflective module evaluates whether the answer is adequately supported by the retrieved evidence. If confidence is low, the response is flagged for human review.
+
+## 10. Safety Validator
+
+**Decision:** Validate all responses against safety constraints before returning to the user.
+
+**File:** `apps/backend/app/services/safety_validator.py`
+
+Checks include:
+- Hallucination detection (response references policies not in search results)
+- Out-of-scope content filtering
+- Safety flag propagation to the frontend
+
+## 11. Citation Verifier
+
+**Decision:** Verify that every citation in the response maps to an actual search result.
+
+**File:** `apps/backend/app/services/citation_verifier.py`
+
+Post-generation verification ensures:
+- Every cited policy title/reference number exists in the retrieved evidence
+- No fabricated citations reach the user
+- Unverifiable citations are stripped with a warning
+
+## 12. Device Disambiguator
+
+**Decision:** Detect ambiguous medical device queries and prompt for clarification.
+
+**File:** `apps/backend/app/services/device_disambiguator.py`
+
+Medical devices like "IV", "catheter", "line", and "port" have multiple policy contexts (e.g., IV pump vs. IV insertion). The disambiguator detects these terms and triggers a clarification UI in the frontend.
+
+## 13. Entity Ranking
+
+**Decision:** Boost results that match the user's organizational entity context.
+
+**Files:** `apps/backend/app/services/entity_ranking.py`, `apps/backend/app/services/ranking_utils.py`
+
+Post-reranking score adjustments:
+- **Location match boost**: Policies matching the user's entity filter get a configurable score boost (`LOCATION_MATCH_BOOST`)
+- **Surge capacity penalty**: Surge-level policies are deprioritized (`SURGE_CAPACITY_PENALTY`)
+- **Pediatric/Adult context**: Population-aware ranking based on query keywords
+
+## 14. Lost-in-Middle Mitigation
+
+**Decision:** Combine multiple strategies to address the "Lost in the Middle" attention decay problem.
+
+Strategies implemented:
+1. **Cohere Top N = 5**: Keeps the context window manageable
+2. **Context Expansion on Top 3 only**: Focuses expansion on best matches
+3. **RISEN prompt with citation requirements**: Forces the model to attend to all provided evidence
+4. **Score windowing**: Post-rerank filtering removes low-relevance tail
+
+**Reference:** [Stanford "Lost in the Middle"](https://arxiv.org/abs/2307.03172)
+
+---
+
 ## Performance Metrics
 
 Current test results (as of Feb 2026):

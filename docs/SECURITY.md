@@ -2,7 +2,7 @@
 
 > Security architecture and practices for the RUSH Policy RAG system.
 >
-> Last Updated: 2026-01-11
+> Last Updated: 2026-02-12
 
 ## Overview
 
@@ -70,11 +70,51 @@ ODATA_INJECTION_PATTERNS = [
 - Gibberish/unclear query detection
 - Out-of-scope topic filtering
 
+### Prompt Injection Defense
+
+**File**: `apps/backend/app/services/query_validation.py` (lines 368-404)
+
+Multi-layer unicode normalization pipeline applied to all user queries before adversarial pattern matching:
+
+1. **NFD Decomposition** — splits precomposed characters (e.g., `o` + combining accent)
+2. **Diacritical Stripping** — removes combining diacriticals (U+0300-U+036F)
+3. **NFKC Normalization** — maps fullwidth characters to ASCII equivalents
+4. **Zero-Width Character Stripping** — replaces U+200B, U+200C, U+200D, U+FEFF, U+2060, U+00AD, U+202E with spaces to preserve word boundaries
+5. **Cyrillic Homoglyph Mapping** — maps 12 common Cyrillic lookalike characters (`о` → `o`, `а` → `a`, `е` → `e`, etc.) to Latin equivalents
+
+This prevents bypass attempts using visually identical but technically different Unicode characters.
+
+### XSS Protection
+
+**Files**: `apps/frontend/src/lib/sanitize.ts`, `apps/frontend/src/lib/chatMessageFormatting.ts`
+
+All LLM-generated content is sanitized before rendering:
+
+- **DOMPurify** integration strips malicious HTML/JS from model responses
+- Sanitization is called from the message formatting layer before any DOM insertion
+- Prevents stored XSS via model output manipulation
+
 ### Request Size Limits
 
 ```bash
 MAX_REQUEST_SIZE=1048576  # 1MB default
 ```
+
+---
+
+## Resilience
+
+### Circuit Breaker
+
+**File**: `apps/backend/app/core/circuit_breaker.py`
+
+Implements the circuit breaker pattern for Azure OpenAI calls:
+
+- **Closed** (normal): Requests pass through; failures tracked
+- **Open** (tripped): Requests fail fast with a cached/fallback response after consecutive failures
+- **Half-Open** (probing): Allows a single request through to test recovery
+
+Prevents cascading failures during Azure OpenAI outages or rate-limit storms.
 
 ---
 
@@ -176,6 +216,18 @@ Recommended rotation schedule:
 - Azure Blob Storage: Encrypted at rest
 - Azure OpenAI: No data retention for API calls
 
+### HIPAA Awareness
+
+This system retrieves **organizational policy documents** and does **not** store or process electronic Protected Health Information (ePHI). However:
+
+- **Risk**: User-submitted chat queries MAY inadvertently contain patient information (e.g., "What is the policy for patient John Doe's insulin pump?")
+- **Mitigations**:
+  - Chat audit logs truncate questions to 2,000 characters and responses to 5,000 characters
+  - Audit log retention is capped at **90 days** (configurable via `CHAT_AUDIT_RETENTION_DAYS`)
+  - No user identifiers (name, email, IP) are stored in audit records unless Azure AD is enabled
+  - Audit logging is optional and can be disabled via `CHAT_AUDIT_ENABLED=false`
+- **Code**: See `apps/backend/app/services/chat_audit_service.py` for implementation
+
 ### No PII Storage
 
 The system:
@@ -238,6 +290,16 @@ Blocks patterns like:
 
 ## Dependency Security
 
+### Static Analysis Tools
+
+| Tool | Scope | Integration | Configuration |
+|------|-------|-------------|---------------|
+| **Semgrep** | Python + JS | Pre-commit + CI | `.semgrep.yml` (10 custom rules) |
+| **Bandit** | Python security | Pre-commit | Default ruleset |
+| **CodeQL** | Python + JS | GitHub Actions CI | `.github/workflows/ci.yml` |
+| **pip-audit** | Python dependencies | CI (`dependency-audit` job) | Checks known CVEs |
+| **npm audit** | Node.js dependencies | CI (`dependency-audit` job) | Checks npm advisories |
+
 ### Backend (Python)
 
 ```bash
@@ -260,10 +322,12 @@ npm audit fix
 
 ### CI/CD
 
-GitHub CodeQL scans on every PR for:
-- SQL injection
-- XSS vulnerabilities
-- Insecure dependencies
+GitHub Actions runs the following security checks on every PR:
+
+1. **CodeQL** — Scans Python and JavaScript for SQL injection, XSS, insecure dependencies
+2. **pip-audit** — Checks Python dependencies against known vulnerability databases
+3. **npm audit** — Checks Node.js dependencies against npm security advisories
+4. **Bandit** — Python-specific security linter (informational, non-blocking)
 
 ---
 

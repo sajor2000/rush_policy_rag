@@ -1,6 +1,6 @@
 # RUSH Policy RAG Frontend
 
-Next.js 14 frontend for the RUSH Policy RAG system. Features App Router, Server Components, and RUSH brand styling.
+Next.js 16 frontend for the RUSH Policy RAG system. Features App Router, Server Components, and RUSH brand styling.
 
 ## Quick Start
 
@@ -14,7 +14,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Tech Stack
 
-- **Framework**: Next.js 14 with App Router
+- **Framework**: Next.js 16 with App Router
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS with RUSH brand colors
 - **UI Components**: shadcn/ui (Radix primitives)

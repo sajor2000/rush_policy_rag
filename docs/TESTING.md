@@ -2,7 +2,7 @@
 
 > Test strategy and commands for the RUSH Policy RAG system.
 >
-> Last Updated: 2026-01-11
+> Last Updated: 2026-02-12
 
 ## Quick Start
 
@@ -53,10 +53,27 @@ pytest tests/test_chat_service.py::test_process_chat -v
 | `test_cohere_rerank_service.py` | Cohere reranking |
 | `test_on_your_data_service.py` | Azure OpenAI integration |
 | `test_query_validation.py` | Input validation |
+| `test_query_enhancer.py` | Query rewriting and enhancement |
 | `test_security.py` | Security checks |
+| `test_api_security.py` | API endpoint security (headers, CORS, rate limits) |
+| `test_prompt_injection.py` | Prompt injection defense (unicode, homoglyphs) |
+| `test_rag_security.py` | RAG pipeline security (adversarial queries) |
 | `test_synonym_service.py` | Query expansion |
+| `test_synonym_expansion.py` | Synonym expansion integration |
 | `test_citation_formatter.py` | Citation formatting |
 | `test_location_normalization.py` | Location parsing |
+| `test_search_metadata.py` | Search metadata and entity filters |
+| `test_rag_evaluation.py` | RAG evaluation metrics |
+| `test_script_index_safety.py` | Index safety guard rails |
+| `test_monthly_release_gate.py` | Monthly release gate checks |
+| `conftest.py` | Shared fixtures and test configuration |
+| `example_queries.py` | Example query data for tests |
+
+**Frontend Test Files:**
+
+| File | Tests |
+|------|-------|
+| `src/__tests__/security.test.ts` | Frontend security (XSS, CSP) |
 
 ### 2. Frontend Checks
 

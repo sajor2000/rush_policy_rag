@@ -29,7 +29,7 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Tech Stack**: FastAPI backend + Next.js 14 frontend + Azure OpenAI "On Your Data" (vectorSemanticHybrid)
+**Tech Stack**: FastAPI backend + Next.js 16 frontend + Azure OpenAI "On Your Data" (vectorSemanticHybrid)
 
 **Architecture Status**: ✅ COMPLETED - See [CLAUDE.md](CLAUDE.md) for architecture details
 

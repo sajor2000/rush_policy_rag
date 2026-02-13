@@ -150,7 +150,7 @@ az containerapp update \
 | Understand the architecture | [RAG_DESIGN.md](RAG_DESIGN.md) |
 | View architecture diagrams | [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) |
 | Run tests | [TESTING.md](TESTING.md) |
-| Full deployment guide | [DEPLOYMENT.md](../DEPLOYMENT.md) |
+| Full deployment guide | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | Common issues | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 | Script reference | [SCRIPTS.md](SCRIPTS.md) |
 

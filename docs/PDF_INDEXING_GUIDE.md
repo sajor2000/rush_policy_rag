@@ -11,7 +11,7 @@
 ## Step 1: Set Up Folder Structure
 
 ```bash
-cd /Users/JCR/Desktop/rag_pt_rush
+cd "$(git rev-parse --show-toplevel)"
 chmod +x scripts/setup_pdf_folders.sh
 ./scripts/setup_pdf_folders.sh
 ```
@@ -31,7 +31,7 @@ chmod +x scripts/setup_pdf_folders.sh
 
 **Copy ALL your policy PDFs to**:
 ```
-/Users/JCR/Desktop/rag_pt_rush/pdf_staging/01_new_pdfs/
+pdf_staging/01_new_pdfs/
 ```
 
 Example:
@@ -332,7 +332,7 @@ curl -X POST http://localhost:8000/api/search -H "Content-Type: application/json
 ## Folder Structure Reference
 
 ```
-/Users/JCR/Desktop/rag_pt_rush/
+<repo-root>/
 ├── pdf_staging/
 │   ├── 01_new_pdfs/        ← START HERE: Place all your PDFs
 │   ├── 02_test_batch/      ← Copy 30 PDFs here for testing

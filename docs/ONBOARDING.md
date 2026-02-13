@@ -55,7 +55,7 @@ Frontend:
 
 ## 5. Deploy to Azure from the IDE (VS Code)
 
-These are the same CLI steps in `DEPLOYMENT.md`, run from your IDE terminal.
+These are the same CLI steps in `docs/DEPLOYMENT.md`, run from your IDE terminal.
 
 1) Open the repo in VS Code.
 2) Terminal -> New Terminal (repo root).
@@ -115,11 +115,11 @@ az containerapp update \
 curl "https://$BACKEND_URL/health"
 ```
 
-First-time provisioning (resource creation, secrets, etc.) is in `DEPLOYMENT.md`.
+First-time provisioning (resource creation, secrets, etc.) is in `docs/DEPLOYMENT.md`.
 
 ## 6. Where to Go Next
 
 - `docs/SCRIPTS.md` - what each script does
 - `docs/ENV_VARS.md` - environment variables
-- `DEPLOYMENT.md` - full Azure setup and deployment
+- `docs/DEPLOYMENT.md` - full Azure setup and deployment
 - `docs/TROUBLESHOOTING.md` - common issues

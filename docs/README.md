@@ -15,6 +15,7 @@ Start here to understand the system's security posture, audit trail, document so
 | [SECURITY.md](../SECURITY.md) | How is the system secured? (Auth, input validation, HIPAA controls) |
 | [SECURITY.md](SECURITY.md) | Detailed security architecture (encryption, headers, static analysis) |
 | [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) | How are inputs/outputs monitored and improved over time? |
+| [RAG_EVALUATION_MATRIX.md](RAG_EVALUATION_MATRIX.md) | What testing happens, when, and what thresholds apply? |
 | [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md) | How do documents get from PolicyTech into the RAG system? |
 | [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical architecture review document |
 | [RAG_DESIGN.md](RAG_DESIGN.md) | Why were specific RAG design decisions made? |
@@ -57,6 +58,7 @@ Getting started, testing, and contributing.
 |----------|---------|----------|--------|---------------|
 | [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md) | PolicyTech → RAG document flow | Compliance, Operators | ✅ Current | 2026-02-12 |
 | [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) | Audit logging and RAG quality assessment | Compliance, Developers | ✅ Current | 2026-02-12 |
+| [RAG_EVALUATION_MATRIX.md](RAG_EVALUATION_MATRIX.md) | Evaluation context matrix (what runs when) | Compliance, Auditors | ✅ Current | 2026-02-12 |
 | [SECURITY.md](../SECURITY.md) | Security policy and vulnerability reporting | Auditors | ✅ Current | 2026-02-12 |
 | [SECURITY.md](SECURITY.md) | Security architecture documentation | Security Team | ✅ Current | 2026-02-12 |
 | [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical architecture review | Architects | ✅ Current | 2026-02-12 |
@@ -92,6 +94,7 @@ docs/
 ├── README.md                        # This file (documentation index)
 ├── POLICYTECH_DOCUMENT_SOURCING.md  # PolicyTech → RAG document flow
 ├── AUDIT_AND_QUALITY.md             # Audit logging & RAG quality assessment
+├── RAG_EVALUATION_MATRIX.md         # Evaluation context matrix (what runs when)
 ├── SECURITY.md                      # Security documentation
 ├── TECHNICAL_ARCHITECTURE_PWC.md    # Technical review document
 ├── RAG_DESIGN.md                    # RAG architecture decisions

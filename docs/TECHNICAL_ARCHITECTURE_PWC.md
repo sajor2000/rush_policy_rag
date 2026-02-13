@@ -18,19 +18,28 @@ flowchart LR
   FE -->|GET /api/pdf/*| BE
 
   subgraph BE_SVC[Backend Services]
-    CS[ChatService<br/>RAG orchestration]
+    QV[QueryValidation<br/>input validation + prompt injection defense]
     SS[SynonymService<br/>query expansion]
+    CS[ChatService<br/>RAG orchestration]
+    CRAG[Corrective RAG<br/>document filtering]
+    SV[SafetyValidator<br/>response validation]
+    CV[CitationVerifier<br/>citation accuracy]
     PDFS[PDF SAS URL service<br/>Azure Blob Storage]
   end
 
-  BE --> CS
-  CS --> SS
+  BE --> QV
+  QV --> SS
+  SS --> CS
   CS -->|Hybrid retrieval| AIS[Azure AI Search<br/>index: rush-policies]
-  CS -->|Optional rerank| COH[Cohere Rerank 4.0 Pro<br/>(Azure AI Foundry)]
+  CS -->|cRAG filtering| CRAG
+  CRAG -->|Filtered docs| COH[Cohere Rerank 4.0 Pro<br/>(Azure AI Foundry)]
+  COH -->|Top docs| CS
   CS -->|Generate answer| AOAI[Azure OpenAI<br/>GPT-4.1]
+  AOAI --> CV
+  CV --> SV
   PDFS --> BLOB[Azure Blob Storage<br/>policies-active (PDFs)]
 
-  BE -->|Citations + evidence + sources| FE
+  SV -->|Citations + evidence + sources| FE
   FE -->|Evidence cards + PDF viewer| U
 ```
 

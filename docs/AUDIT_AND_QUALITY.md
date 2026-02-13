@@ -279,13 +279,15 @@ Every run captures a rollback pack with commands to revert the alias swap and co
 
 ## 5. Evaluation Frameworks
 
-Three open-source evaluation frameworks are used, each targeting different quality dimensions:
+Two evaluation frameworks and a continuous audit service form the three pillars of quality assurance:
 
 | Framework | Metrics | Cases | Purpose |
 |-----------|---------|-------|---------|
-| **DeepEval** | 7 metrics | Sampled from production | Deep quality analysis |
-| **RAGAS** | 4 metrics | Test dataset | Retrieval quality |
-| **PromptFoo** | Pass/fail + compliance | 100 cases | Release gate |
+| **DeepEval** | 6 metrics | CI gate + weekly production sample | Quality analysis + CI gate |
+| **PromptFoo** | Pass/fail + compliance | 100 cases | Monthly release gate |
+| **Chat Audit** | Every interaction | Continuous (non-blocking) | Observability + drift input |
+
+> See [RAG_EVALUATION_MATRIX.md](RAG_EVALUATION_MATRIX.md) for a complete matrix of what runs when.
 
 ### DeepEval Metrics
 
@@ -300,15 +302,6 @@ Configured in `apps/backend/app/evaluation/metrics.py:74-94`:
 | Procedural Completeness | ≥ 0.75 | 10% | All procedural steps included |
 | Context Recall | ≥ 0.70 | — | When expected output is available |
 
-### RAGAS Metrics
-
-| Metric | Purpose |
-|--------|---------|
-| Faithfulness | Factual consistency with context |
-| Answer Relevancy | Response relevance to query |
-| Context Precision | Retrieval precision |
-| Context Recall | Retrieval recall |
-
 ### PromptFoo Compliance
 
 Thresholds enforced in the monthly release gate:
@@ -322,6 +315,44 @@ Thresholds enforced in the monthly release gate:
 ### Claim-Level Diagnostics
 
 `apps/backend/app/evaluation/diagnostics.py` performs RAGChecker-style claim-level analysis: each response claim is checked against context chunks for grounding. This identifies specific hallucinated vs. supported statements.
+
+### RAGAS v0.4 (Monthly Regression Testing)
+
+Independent regression framework using a curated 50-question golden test set (`data/golden_test_set.json`). Proves document updates don't break retrieval quality by comparing before/after metrics.
+
+| Metric | Max Allowed Drop | Severity |
+|--------|-----------------|----------|
+| Faithfulness | > 5pp | FAIL |
+| LLM Context Recall | > 5pp | FAIL |
+| Factual Correctness | > 5pp WARN, > 10pp FAIL | WARN/FAIL |
+| Response Relevancy | > 5pp | FAIL |
+
+**Script:** `scripts/run_ragas_regression.py`
+**Evaluator LLM:** Azure OpenAI gpt-4.1-mini via LangchainLLMWrapper
+**Baseline:** `reports/ragas/baseline.json`
+**Integration:** Stage E.3 in monthly release gate, on-demand via GitHub Actions `monthly-regression` dispatch
+
+### Pre-Deployment Audit Report
+
+**Script:** `scripts/generate_pre_deployment_audit.py`
+
+Generates a comprehensive HTML+JSON report aggregating all quality evidence for auditor review. Includes 10 sections: executive summary, architecture, quality metrics, test results, monthly gate history, production stats, sample queries, HIPAA controls, safety defenses, and monitoring plan.
+
+```bash
+python scripts/generate_pre_deployment_audit.py              # Full audit
+python scripts/generate_pre_deployment_audit.py --dry-run    # Placeholder data
+python scripts/generate_pre_deployment_audit.py --days 60    # 60-day lookback
+```
+
+### Combined Weekly Report
+
+**Script:** `scripts/run_combined_weekly_report.py`
+
+Merges technical quality metrics (from `weekly_eval.py`) with executive usage analytics (from `generate_executive_report.py`) into a single weekly email. Replaces separate technical and executive reports.
+
+```bash
+python scripts/run_combined_weekly_report.py --dry-run
+```
 
 ---
 

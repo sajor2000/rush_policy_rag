@@ -31,7 +31,7 @@ This document defines the comprehensive testing strategy for the RUSH Policy RAG
 | `deepeval_test_dataset_v2.json` | 125 | DeepEval CI/CD (25 original + 100 realistic) | Pre-prod CI/CD |
 | `preprod_realistic_tests.json` | 100 | Criticality-ordered (critical→low) | Pre-prod validation |
 | `weekly_eval_queries.json` | 50 | Stratified sample across categories | Weekly monitoring |
-| `test_dataset_v3.json` | 22 | RAGAS-generated synthetic tests | Synthetic coverage |
+| `test_dataset_v3.json` | 22 | Synthetic tests | Synthetic coverage |
 
 ### Category-Specific Test Batches
 
@@ -67,10 +67,7 @@ This document defines the comprehensive testing strategy for the RUSH Policy RAG
 
 ```bash
 # Run retrieval-focused tests
-python scripts/run_ragas_evaluation.py \
-    --dataset apps/backend/data/preprod_realistic_tests.json \
-    --metrics context_precision,context_recall \
-    --output reports/gate1_retrieval.json
+pytest apps/backend/tests/test_rag_evaluation.py::TestRetrievalAccuracy -v
 ```
 
 **Pass Criteria**:
@@ -128,11 +125,7 @@ pytest apps/backend/tests/test_rag_evaluation.py::TestRISENCompliance -v
 
 ```bash
 # Run domain-specific regression tests
-for batch in emergency_codes medications_pharmacy pain_management_epidural; do
-    python scripts/run_ragas_evaluation.py \
-        --dataset apps/backend/data/test_batch_${batch}.json \
-        --output reports/gate4_${batch}.json
-done
+pytest apps/backend/tests/test_rag_evaluation.py -v -k "emergency or medication or pain"
 ```
 
 **Pass Criteria**:
@@ -182,7 +175,7 @@ Each weekly sample includes proportional representation:
 
 1. **Faithfulness** (DeepEval): Is response grounded in retrieved context?
 2. **Answer Relevancy** (DeepEval): Does answer address the question?
-3. **Context Precision** (RAGAS): Are retrieved chunks relevant?
+3. **Context Precision** (DeepEval): Are retrieved chunks relevant?
 4. **Policy Citation** (Custom): Does response cite correct policy?
 
 ### Alert Thresholds
@@ -309,14 +302,10 @@ jobs:
 ./scripts/run_preprod_tests.sh
 
 # Individual gates
-pytest apps/backend/tests/test_rag_evaluation.py -v  # Gates 2-3
-
-python scripts/run_ragas_evaluation.py \
-    --dataset apps/backend/data/preprod_realistic_tests.json  # Gate 1
+pytest apps/backend/tests/test_rag_evaluation.py -v  # Gates 1-3
 
 # Domain-specific regression
-python scripts/run_ragas_evaluation.py \
-    --dataset apps/backend/data/test_batch_emergency_codes.json
+pytest apps/backend/tests/test_rag_evaluation.py -v -k "emergency"
 ```
 
 ### Weekly Monitoring

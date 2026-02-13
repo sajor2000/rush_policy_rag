@@ -8,9 +8,7 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | Script | Purpose | Notes |
 | --- | --- | --- |
 | `start_backend.sh` | Create venv, install backend deps, run FastAPI | macOS/Linux |
-| `start_backend.ps1` | Same as `start_backend.sh` | Windows PowerShell |
 | `start_frontend.sh` | Install frontend deps and run Next.js dev server | macOS/Linux |
-| `start_frontend.ps1` | Same as `start_frontend.sh` | Windows PowerShell |
 | `scripts/test_local.sh` | Validate env + run local health checks | Uses `BACKEND_URL` |
 | `scripts/healthcheck.sh` | Run a Docker image and hit `/health` | `./scripts/healthcheck.sh <image> [env_file]` |
 
@@ -50,13 +48,39 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | --- | --- | --- |
 | `scripts/run_test_dataset.py` | Run local test dataset against API | Uses `apps/backend/data/test_dataset.json` |
 | `scripts/run_enhanced_evaluation.py` | Enhanced eval suite (cohere/hallucination/risen) | **Recommended** - category flags |
-| `scripts/run_ragas_evaluation.py` | RAGAS evaluation metrics | Faithfulness, recall, precision |
 | `scripts/audit_evaluation_failures.py` | Classify evaluation failures | Evaluator vs RAG |
 | `scripts/weekly_eval.py` | Weekly production evaluation | Email reports |
 | `scripts/generate_executive_report.py` | Executive usage report | AI-powered question classification |
 | `scripts/generate_test_dataset_v5.py` | Generate test cases from PDFs | Latest version |
 | `scripts/generate_test_dataset_from_pdfs.py` | Alternative test dataset generator | Uses PDF content |
 | `scripts/integrate_realistic_questions.py` | Integrate realistic staff questions | 100 production tests |
+| `scripts/run_ragas_regression.py` | RAGAS v0.4 regression against golden test set | Before/after delta comparison |
+| `scripts/run_combined_weekly_report.py` | Combined technical + executive weekly email | Merges DeepEval + usage |
+| `scripts/generate_pre_deployment_audit.py` | Pre-deployment audit report (HTML+JSON) | 10-section auditor report |
+
+## Monthly Operations
+
+| Script | Purpose | Notes |
+| --- | --- | --- |
+| `scripts/monthly_bulk_sync.py` | Bulk sync for monthly policy updates | Batch operations |
+| `scripts/optimized_batch_ingest.py` | Performance-optimized batch ingestion | Parallelized |
+| `scripts/audit_drift_report.py` | Month-over-month audit drift detection | See [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) |
+| `scripts/persist_evaluation_baseline.py` | Save evaluation scores per release to Azure Blob | Called by monthly release gate |
+| `scripts/audit_lifecycle_cleanup.py` | Enforce 90-day audit retention policy | `--dry-run` to preview |
+
+## PromptFoo Compliance
+
+| Script | Purpose | Notes |
+| --- | --- | --- |
+| `scripts/generate_promptfoo_dataset.py` | Generate PromptFoo test dataset | Compliance auditing |
+| `scripts/promptfoo_sync_dataset.py` | Sync dataset for PromptFoo eval | Keeps tests current |
+
+## Security
+
+| Script | Purpose | Notes |
+| --- | --- | --- |
+| `scripts/security_audit.py` | Run security audit checks | Pre-deployment |
+| `scripts/validate_fixes.py` | Validate applied security fixes | Post-fix verification |
 
 ## Debugging and Utilities
 
@@ -67,6 +91,7 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | `scripts/validate_metadata_extraction.py` | Validate PDF metadata extraction | Quality check |
 | `scripts/audit_quality.py` | Audit ingestion quality | Post-ingest validation |
 | `scripts/ssl_fix.py` | SSL fix for corporate proxy | Import first in scripts |
+| `scripts/detect_mac_hardware.py` | Detect macOS hardware for optimization | Apple Silicon detection |
 
 ## Backend Scripts Folder (`apps/backend/scripts/`)
 
@@ -77,21 +102,11 @@ These are executed from `apps/backend/`:
 | `setup_azure_infrastructure.py` | Provision Azure services (search, storage, etc.) |
 | `ingest_all_policies.py` | Ingest from blob/local PDFs into Azure Search |
 | `reindex_specific_files.py` | Reindex a subset of PDFs |
+| `ingest_with_checkpoints.py` | Checkpoint-based resumable ingestion |
+| `optimized_ingest.py` | Performance-optimized ingestion |
+| `blue_green_index_alias.py` | Blue/green index alias swap for zero-downtime updates |
+| `audit_ingestion_quality.py` | Post-ingestion quality audit |
+| `diagnose_multipage_bug.py` | Diagnose multi-page chunking issues |
+| `monthly_hr_release_gate.py` | Monthly HR release gate checks |
+| `verify_hr_retrieval_regressions.py` | Verify HR retrieval regression tests pass |
 
-## Archived Scripts (`scripts/archive/`)
-
-These scripts are archived for historical reference. Use the active alternatives listed above.
-
-| Archived Script | Active Alternative | Notes |
-| --- | --- | --- |
-| `checkpointed_pipeline.py` | `full_pipeline_ingest.py` | Resumable ingest replaced by full pipeline |
-| `run_evaluation.py` | `run_enhanced_evaluation.py` | Legacy evaluator |
-| `run_agent_evaluation.py` | `run_enhanced_evaluation.py` | Legacy Azure AI evaluators |
-| `generate_test_dataset.py` | `generate_test_dataset_v5.py` | Older version |
-| `generate_test_dataset_v4.py` | `generate_test_dataset_v5.py` | Older version |
-| `generate_ceo_report.py` | `generate_executive_report.py` | Renamed and enhanced |
-| `review_responses.py` | `audit_evaluation_failures.py` | Human review CLI replaced |
-| `run_garak_adversarial.py` | N/A | Adversarial testing (optional) |
-| `rebuild_index.py` | `full_pipeline_ingest.py` | One-time migration script |
-| `mark_v1_baseline.py` | N/A | One-time baseline script |
-| `measure_backend_performance.py` | N/A | Manual latency testing |
