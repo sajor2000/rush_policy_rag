@@ -7,7 +7,6 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 | **Tech Stack** | FastAPI (Python 3.12) + Next.js 16 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
 | **Deployment** | Azure Container Apps (Non-Prod + Prod) |
-| **Current Version** | melissa-feedback-v1-hotfix2 (2026-01-08) |
 
 ---
 
