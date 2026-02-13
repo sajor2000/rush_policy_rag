@@ -39,22 +39,19 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 
 Targets **RU-Azure-NonProd** / `RU-A-NonProd-AI-Innovation-RG` per `docs/RushPolicyAssistant_Architecture.pdf`.
 
-**CRITICAL**: Always build with `--platform linux/amd64` for Azure Container Apps.
+**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required. Builds run on Azure's infrastructure (linux/amd64) and push to ACR automatically.
 
 ```bash
 # Login + select subscription
 az login
 az account set --subscription "RU-Azure-NonProd"
-az acr login --name aiinnovation
 
 # Get current commit for tagging
 TAG=$(git rev-parse --short HEAD)
 
-# Step 1: Build and push backend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-backend:$TAG \
-  -f apps/backend/Dockerfile apps/backend
-docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
+# Step 1: Build backend (remote build on ACR)
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-backend:$TAG --file apps/backend/Dockerfile apps/backend
 
 # Step 2: Deploy Backend
 az containerapp update \
@@ -62,11 +59,9 @@ az containerapp update \
   -g RU-A-NonProd-AI-Innovation-RG \
   --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
-# Step 3: Build and push frontend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG \
-  -f apps/frontend/Dockerfile apps/frontend
-docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
+# Step 3: Build frontend (remote build on ACR)
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-frontend:$TAG --file apps/frontend/Dockerfile apps/frontend
 
 # Step 4: Deploy Frontend
 az containerapp update \
@@ -79,35 +74,26 @@ az containerapp update \
 
 Targets **RU-Azure-Prod** / `RU-A-Prod-AI-Innovation-RG`.
 
-**CRITICAL**: Always build with `--platform linux/amd64` for Azure Container Apps.
+**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required.
 
 ```bash
 az login
 az account set --subscription "RU-Azure-Prod"
-az acr login --name aiinnovation
 
 # Get current commit for tagging
 TAG=$(git rev-parse --short HEAD)
 
-# Build and push backend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-backend:$TAG \
-  -f apps/backend/Dockerfile apps/backend
-docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
-
-# Deploy backend
+# Build and deploy backend
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-backend:$TAG --file apps/backend/Dockerfile apps/backend
 az containerapp update \
   -n rush-policy-backend \
   -g RU-A-Prod-AI-Innovation-RG \
   --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
-# Build and push frontend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG \
-  -f apps/frontend/Dockerfile apps/frontend
-docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
-
-# Deploy frontend
+# Build and deploy frontend
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-frontend:$TAG --file apps/frontend/Dockerfile apps/frontend
 az containerapp update \
   -n rush-policy-frontend \
   -g RU-A-Prod-AI-Innovation-RG \

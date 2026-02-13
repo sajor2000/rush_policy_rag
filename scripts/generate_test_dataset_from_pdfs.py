@@ -23,7 +23,7 @@ Usage:
     python scripts/generate_test_dataset_from_pdfs.py --count 10 --testset-size 20
 
 Requirements:
-    pip install ragas>=0.2.0 langchain-openai>=0.2.0 pymupdf>=1.24.0
+    pip install ragas>=0.4.0 langchain-openai>=0.3.0 pymupdf>=1.24.0
 """
 
 import os

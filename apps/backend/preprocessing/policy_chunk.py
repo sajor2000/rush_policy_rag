@@ -154,8 +154,9 @@ class PolicyChunk:
         - regulatory_citations: Edm.String (searchable)
         - related_policies: Edm.String (searchable)
         """
-        # Azure requires alphanumeric IDs
+        # Azure requires alphanumeric IDs that don't start with underscore
         safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', self.chunk_id)
+        safe_id = safe_id.lstrip('_') or 'doc'
         # REC-007: Prefix content with policy metadata for self-describing chunks
         content = self._build_content_prefix() + self.text
         return {

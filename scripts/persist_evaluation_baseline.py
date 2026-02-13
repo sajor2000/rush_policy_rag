@@ -31,13 +31,14 @@ import subprocess
 import sys
 import uuid
 from calendar import monthrange
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "apps" / "backend"))
@@ -118,9 +119,10 @@ def collect_audit_snapshot(
 
     now = datetime.now(timezone.utc)
     records: list[ChatAuditRecord] = []
+    skipped = 0
 
     for day_offset in range(period_days):
-        dt = now - __import__("datetime").timedelta(days=day_offset)
+        dt = now - timedelta(days=day_offset)
         blob_name = f"{dt.year:04d}/{dt.month:02d}/{dt.day:02d}.jsonl"
         blob_client = container_client.get_blob_client(blob_name)
 
@@ -135,15 +137,19 @@ def collect_audit_snapshot(
                 continue
             try:
                 records.append(ChatAuditRecord.model_validate_json(line))
-            except Exception:
-                pass
+            except (ValidationError, json.JSONDecodeError) as e:
+                logger.warning(f"Skipped malformed audit record: {e}")
+                skipped += 1
+            except Exception as e:
+                logger.error(f"Unexpected error parsing audit record: {e}")
+                skipped += 1
 
     total = len(records)
     if total == 0:
-        return {"period_days": period_days, "total_queries": 0}
+        return {"period_days": period_days, "total_queries": 0, "skipped_records": skipped}
 
     found_count = sum(1 for r in records if r.found)
-    latencies = sorted(r.latency_ms for r in records)
+    latencies = sorted(r.latency_ms for r in records if r.latency_ms is not None)
     safety_flagged = sum(1 for r in records if r.safety_flags)
     confidence_counts = {"high": 0, "medium": 0, "low": 0}
     for r in records:
@@ -152,9 +158,10 @@ def collect_audit_snapshot(
     return {
         "period_days": period_days,
         "total_queries": total,
+        "skipped_records": skipped,
         "found_rate": round(found_count / total, 4),
-        "avg_latency_ms": round(sum(latencies) / total, 1),
-        "p95_latency_ms": latencies[int(total * 0.95)],
+        "avg_latency_ms": round(sum(latencies) / len(latencies), 1) if latencies else None,
+        "p95_latency_ms": latencies[int(len(latencies) * 0.95)] if latencies else None,
         "safety_flag_rate": round(safety_flagged / total, 4),
         "confidence_distribution": {
             k: round(v / total, 4) for k, v in confidence_counts.items()
@@ -211,10 +218,12 @@ def upload_baseline(
     blob_service = BlobServiceClient.from_connection_string(connection_string)
     container_client = blob_service.get_container_client(BASELINE_CONTAINER)
 
-    # Auto-create container
-    if not container_client.exists():
+    # Auto-create container (idempotent — handles concurrent CI runs)
+    try:
         container_client.create_container()
         logger.info(f"Created container: {BASELINE_CONTAINER}")
+    except ResourceExistsError:
+        pass  # Container already exists — expected in concurrent runs
 
     now = datetime.now(timezone.utc)
     month_folder = now.strftime("%Y-%m")

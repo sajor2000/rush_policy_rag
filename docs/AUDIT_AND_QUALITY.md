@@ -246,14 +246,15 @@ flowchart TB
 
     subgraph gates [Quality Gates]
         G1[Ingestion Quality Audit]
-        G2[HR Regression Tests<br>10 critical cases]
+        G2[HR Regression Tests<br>14 critical cases]
         G3[Targeted Backend Tests<br>7 pytest files]
         G4[PromptFoo Compliance<br>90% pass, ≤5% safety, ≥90% citations]
-        G5[Baseline Comparison Gate<br>Cross-release regression check]
+        G5[RAGAS Regression<br>No metric drops >5pp vs baseline]
+        G6[Baseline Comparison Gate<br>Cross-release regression check]
     end
 
-    G --> G1 --> G2 --> G3 --> G4 --> G5
-    G5 --> H[Manual Approval]
+    G --> G1 --> G2 --> G3 --> G4 --> G5 --> G6
+    G6 --> H[Manual Approval]
     H --> I[Alias Cutover<br>Blue/Green Swap]
     I --> J[ACR Build + Deploy<br>Backend + Frontend]
     J --> K[Post-Cutover Smoke<br>+ HR Regressions]
@@ -266,9 +267,10 @@ flowchart TB
 | Gate | Tool | Threshold | Blocks Release? |
 |------|------|-----------|----------------|
 | Ingestion audit | `audit_ingestion_quality.py` | Schema validation | Yes |
-| HR regression | `verify_hr_retrieval_regressions.py` | 10/10 cases pass | Yes |
+| HR regression | `verify_hr_retrieval_regressions.py` | 14/14 cases pass | Yes |
 | Targeted tests | `pytest` (7 files) | All tests pass | Yes |
 | PromptFoo compliance | `promptfoo eval` | Pass ≥ 90%, Safety ≤ 5%, Citations ≥ 90% | Yes |
+| RAGAS regression | `run_ragas_regression.py` | No metric drops > 5pp vs baseline | Yes |
 | Baseline comparison | `_run_baseline_gate()` | No metric drops > threshold | Yes |
 
 ### Rollback
@@ -509,7 +511,7 @@ Every chat interaction is captured by the audit service:
 
 The monthly release pipeline blocks deployment if quality regresses:
 - PromptFoo compliance (90% pass, ≤5% safety, ≥90% citations)
-- HR regression tests (10 critical cases)
+- HR regression tests (14 critical cases)
 - Baseline comparison (cross-release score check)
 
 ### How Specific Signals Drive Improvements

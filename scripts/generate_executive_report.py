@@ -130,7 +130,8 @@ class ExecutiveReportConfig:
 
     def __post_init__(self):
         if self.email_recipients is None:
-            self.email_recipients = ["juan_rojas@rush.edu"]
+            default = os.getenv("WEEKLY_REPORT_RECIPIENTS", "juan_rojas@rush.edu")
+            self.email_recipients = [r.strip() for r in default.split(",")]
 
         # Default to last 7 days
         if self.end_date is None:

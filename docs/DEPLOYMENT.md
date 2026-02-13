@@ -1,5 +1,7 @@
 # Azure Deployment Guide - RUSH Policy RAG Agent
 
+> **Note:** Deployment to Azure Container Apps is now automated via GitHub Actions. Pushing to `main` triggers CI, and on success, images are built and deployed automatically. See [CICD_PIPELINE.md](CICD_PIPELINE.md) for the pipeline architecture and [GITHUB_ENVIRONMENTS_SETUP.md](GITHUB_ENVIRONMENTS_SETUP.md) for environment configuration. The manual instructions below are retained for initial setup and emergency use.
+
 ## For the Deployment Team
 
 This guide provides **exact commands** to deploy the RUSH Policy RAG Agent to Azure. Follow the steps in order.

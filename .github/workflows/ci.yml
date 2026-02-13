@@ -230,3 +230,42 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - backend-lint
+      - backend-test
+      - hr-stabilization-regressions
+      - frontend-lint
+      - frontend-build
+      - dependency-audit
+      - security-scan
+    steps:
+      - name: Check CI results
+        run: |
+          echo "Backend Lint: ${{ needs.backend-lint.result }}"
+          echo "Backend Test: ${{ needs.backend-test.result }}"
+          echo "HR Regressions: ${{ needs.hr-stabilization-regressions.result }}"
+          echo "Frontend Lint: ${{ needs.frontend-lint.result }}"
+          echo "Frontend Build: ${{ needs.frontend-build.result }}"
+          echo "Dependency Audit: ${{ needs.dependency-audit.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+
+      - name: Fail if any required job did not succeed
+        if: >-
+          needs.backend-lint.result != 'success' ||
+          needs.backend-test.result != 'success' ||
+          needs.hr-stabilization-regressions.result != 'success' ||
+          needs.frontend-lint.result != 'success' ||
+          needs.frontend-build.result != 'success' ||
+          needs.dependency-audit.result != 'success' ||
+          needs.security-scan.result != 'success'
+        run: |
+          echo "::error::One or more CI jobs did not succeed. Deployment blocked."
+          exit 1
+
+      - name: CI passed
+        run: echo "All CI checks passed. Deployment is authorized."

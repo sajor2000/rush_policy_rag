@@ -187,7 +187,7 @@ Before any monthly update reaches production, the release pipeline runs 5 automa
 | Gate | Tool | Threshold | What It Checks |
 |------|------|-----------|---------------|
 | Ingestion audit | `audit_ingestion_quality.py` | Schema validation | All chunks have required fields, valid embeddings |
-| HR regression | `verify_hr_retrieval_regressions.py` | 10/10 cases pass | Critical HR policy queries still return correct results |
+| HR regression | `verify_hr_retrieval_regressions.py` | 14/14 cases pass | Critical HR policy queries still return correct results |
 | Targeted tests | `pytest` (7 test files) | All pass | Unit and integration tests |
 | PromptFoo compliance | `promptfoo eval` | Pass >= 90%, Safety <= 5%, Citations >= 90% | End-to-end RAG quality on 100 test cases |
 | Baseline comparison | Cross-release check | No metric drops beyond threshold | Compares against previous release scores |

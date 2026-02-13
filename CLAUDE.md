@@ -62,7 +62,9 @@ az account show  # Verify: should show "RU-Azure-NonProd"
 
 ## Container Deployment (ACR → Azure Container Apps)
 
-**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required. This builds on Azure's infrastructure and pushes to ACR automatically.
+**Automated**: Deployment is handled by GitHub Actions. Pushing to `main` triggers CI (`ci.yml`), and on success, `deploy.yml` builds SHA-tagged images and deploys to NonProd automatically. See [docs/CICD_PIPELINE.md](docs/CICD_PIPELINE.md) for the full pipeline architecture.
+
+**Manual fallback**: Use the commands below for emergency deployments or local debugging. Always use `az acr build` for remote builds — no local Docker required.
 
 ### Deploy Backend
 ```bash

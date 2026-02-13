@@ -89,6 +89,7 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | `scripts/debug_pdf_structure.py` | Inspect PDF checkbox layout | PyMuPDF |
 | `scripts/test_checkbox_extraction.py` | A/B checkbox extraction methods | Compares Docling vs pypdf |
 | `scripts/validate_metadata_extraction.py` | Validate PDF metadata extraction | Quality check |
+| `scripts/validate_bug_fix_ingestion.py` | Pre-reindex BUG-001/002/003 fix validation | Downloads 3 PDFs, verifies metadata + content prefix |
 | `scripts/audit_quality.py` | Audit ingestion quality | Post-ingest validation |
 | `scripts/ssl_fix.py` | SSL fix for corporate proxy | Import first in scripts |
 | `scripts/detect_mac_hardware.py` | Detect macOS hardware for optimization | Apple Silicon detection |

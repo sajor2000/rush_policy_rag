@@ -294,7 +294,8 @@ async def run_evaluation(
     samples = []
     per_case_results = []
 
-    async with httpx.AsyncClient() as client:
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         for idx, case in enumerate(golden_cases, 1):
             question = case.get("question", "")
             expected_answer = case.get("expected_answer", "")
@@ -306,7 +307,7 @@ async def run_evaluation(
 
             # Query backend
             backend_response = await query_backend(
-                client, backend_url, question, timeout=60.0
+                client, backend_url, question
             )
 
             if backend_response is None:

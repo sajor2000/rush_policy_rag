@@ -19,6 +19,7 @@ Requires: STORAGE_CONNECTION_STRING, CONTAINER_NAME in .env (or --pdf for local)
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -237,6 +238,7 @@ def main():
     print("=" * 72)
 
     pdf_paths = []
+    temp_dir = None
 
     if args.pdf:
         # Local PDF mode
@@ -286,6 +288,15 @@ def main():
             pdf_paths.append(local_path)
             print(f"  Downloaded: {blob_name}")
 
+    try:
+        return _run_validation(pdf_paths, args)
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _run_validation(pdf_paths: list, args) -> int:
+    """Run PDF validation and return exit code."""
     # Process each PDF
     print("\n" + "-" * 72)
     print("PROCESSING PDFs with PolicyChunker...")

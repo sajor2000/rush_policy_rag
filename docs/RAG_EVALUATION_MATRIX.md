@@ -19,7 +19,7 @@
 | Context | Tool | What It Measures | Threshold | Blocks? | Trigger | File |
 |---------|------|-----------------|-----------|---------|---------|------|
 | Pre-prod (CI) | DeepEval (pytest) | Faithfulness, citation accuracy, answer relevancy, context precision | Faithfulness ≥ 0.85, Citation ≥ 0.80, Relevancy ≥ 0.70, Precision ≥ 0.60 | Yes | PR / push | `apps/backend/tests/test_rag_evaluation.py` |
-| Pre-prod (CI) | HR regression tests | 10 critical retrieval cases (Code Blue, DNR, meds, etc.) | 10/10 pass | Yes | PR / push | `apps/backend/scripts/verify_hr_retrieval_regressions.py` |
+| Pre-prod (CI) | HR regression tests | 14 critical retrieval cases (Code Blue, DNR, meds, etc.) | 14/14 pass | Yes | PR / push | `apps/backend/scripts/verify_hr_retrieval_regressions.py` |
 | Pre-prod (CI) | Unit/integration tests | Query validation, synonyms, chat service, safety | All pass | Yes | PR / push | 8 test files in `ci.yml` |
 | Monthly gate | PromptFoo | Pass rate, safety flag rate, citation coverage | Pass ≥ 90%, Safety ≤ 5%, Citations ≥ 90% | Yes | Monthly release | `tests/promptfoo/promptfooconfig.yaml` |
 | Monthly gate | Baseline comparison | Cross-release regression (pass rate, safety, found rate, latency) | -5pp pass, +3pp safety, -5pp found, +25% latency | Yes | Monthly release | `scripts/persist_evaluation_baseline.py` |
