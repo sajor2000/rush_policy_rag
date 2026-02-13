@@ -724,11 +724,11 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, w
 
 ## Alternative: Bicep Template Deployment
 
-If you prefer Infrastructure-as-Code or are using GitHub Actions CI/CD, use the Bicep templates instead of manual CLI deployment.
+If you prefer Infrastructure-as-Code, use the Bicep templates instead of manual CLI deployment.
 
 ### Prerequisites
 
-1. Container images must be built and pushed to GitHub Container Registry (GHCR)
+1. Container images must be built and pushed to Azure Container Registry (ACR)
 2. All Azure services (AI Search, OpenAI, Blob Storage, Cohere) must be created first (Steps 4-6 above)
 3. Container Apps Environment must exist (Step 7 above)
 
@@ -742,8 +742,8 @@ cp infrastructure/parameters.json.template infrastructure/parameters.json
 ```
 
 Required parameters:
-- `containerImage`: GHCR image URL (e.g., `ghcr.io/YOUR_ORG/rush_policy_rag/backend:latest`)
-- `registryPassword`: GitHub PAT with `packages:read` scope
+- `containerImage`: ACR image URL (e.g., `aiinnovation.azurecr.io/rush-policy-backend:$TAG`)
+- `registryPassword`: ACR admin password (from `az acr credential show`)
 - `searchEndpoint`, `searchApiKey`: From Azure AI Search
 - `aoaiEndpoint`, `aoaiApiKey`: From Azure OpenAI
 - `storageConnectionString`: From Azure Blob Storage
@@ -769,18 +769,6 @@ az deployment group create \
   --parameters environment=production \
   --parameters backendUrl="https://rush-policy-backend-production.$(az group show -n $RESOURCE_GROUP --query location -o tsv).azurecontainerapps.io"
 ```
-
-### Container Registry Options
-
-**Option A: GitHub Container Registry (GHCR)** - Used by CI/CD workflow
-- Images: `ghcr.io/YOUR_ORG/rush_policy_rag/backend:latest`
-- Auth: GitHub PAT with `packages:read` scope
-- Bicep templates default to GHCR
-
-**Option B: Azure Container Registry (ACR)** - Used by manual CLI deployment
-- Images: `${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG`
-- Auth: ACR admin credentials or managed identity
-- Requires updating Bicep `registries` section
 
 ---
 

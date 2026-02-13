@@ -28,7 +28,7 @@ Many scripts expect a `.env` file at the repo root (see `docs/ENV_VARS.md`).
 | `scripts/deploy/create-zip-deploy.sh` | Build ZIP deploy package | Legacy path |
 | `scripts/deploy/fix-zip-deploy.sh` | Patch ZIP deploy issues | Legacy path |
 | `scripts/deploy/analyze-zip-deploy-issues.sh` | Diagnose ZIP deploy failures | Legacy path |
-| `scripts/deploy-to-azure.sh` | Bicep deploy (GHCR image) | Alternate/legacy path |
+| `scripts/deploy-to-azure.sh` | Bicep deploy (ACR image) | Alternate/legacy path |
 | `scripts/setup-production.sh` | Provision Azure resources | Alternate/legacy path |
 
 ## Ingestion and Indexing
