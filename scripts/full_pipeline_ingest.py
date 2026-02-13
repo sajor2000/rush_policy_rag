@@ -20,10 +20,14 @@ import ssl_fix  # Corporate proxy SSL fix - must be first import!
 
 import argparse
 import json
+import multiprocessing
 import os
+import platform
+import psutil
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +48,52 @@ from app.core.index_safety import (
     ensure_safe_index_target,
     resolve_index_name,
 )
+
+
+@dataclass
+class ResourceConfig:
+    """Auto-detected resource limits capped at a configurable ceiling (default 80%)."""
+
+    max_usage_pct: float = 0.80  # Cap at 80% of system resources
+    cpu_cores: int = 1
+    total_ram_gb: float = 0.0
+    available_ram_gb: float = 0.0
+    download_workers: int = 4
+    index_batch_size: int = 100
+    os_name: str = ""
+
+    @classmethod
+    def detect(cls, max_pct: float = 0.80) -> "ResourceConfig":
+        """Auto-detect system resources and compute safe limits."""
+        total_cores = multiprocessing.cpu_count() or 1
+        mem = psutil.virtual_memory()
+        total_ram_gb = mem.total / (1024 ** 3)
+        available_ram_gb = mem.available / (1024 ** 3)
+
+        usable_cores = max(1, int(total_cores * max_pct))
+        # Download workers: I/O-bound, scale with cores but cap reasonably
+        download_workers = min(usable_cores * 2, 16)
+        # Azure Search: max 1000 docs / 16MB per request.
+        # With 3072-dim vectors (~12KB each) + text, keep batches conservative.
+        index_batch_size = 200 if total_ram_gb >= 16 else 100
+
+        cfg = cls(
+            max_usage_pct=max_pct,
+            cpu_cores=usable_cores,
+            total_ram_gb=round(total_ram_gb, 1),
+            available_ram_gb=round(available_ram_gb, 1),
+            download_workers=download_workers,
+            index_batch_size=index_batch_size,
+            os_name=f"{platform.system()} {platform.machine()}",
+        )
+        return cfg
+
+    def print_summary(self):
+        print(f"System:     {self.os_name}")
+        print(f"RAM:        {self.available_ram_gb:.1f} GB free / {self.total_ram_gb:.1f} GB total")
+        print(f"CPU cap:    {self.cpu_cores} cores ({self.max_usage_pct:.0%} of system)")
+        print(f"DL workers: {self.download_workers}")
+        print(f"Index batch: {self.index_batch_size}")
 
 
 @dataclass
@@ -141,7 +191,10 @@ class FullPipelineIngestor:
         allow_direct_index: bool = False,
         search_endpoint: Optional[str] = None,
         search_api_key: Optional[str] = None,
+        resource_config: Optional[ResourceConfig] = None,
     ):
+        # Resource limits (auto-detect if not provided)
+        self.resources = resource_config or ResourceConfig.detect()
         # Azure Storage
         self.storage_conn_str = os.getenv("STORAGE_CONNECTION_STRING")
         self.container_name = os.getenv("CONTAINER_NAME", "policies-active")
@@ -230,7 +283,9 @@ class FullPipelineIngestor:
         """Download a blob to temp directory. Returns (local_path, time_ms)."""
         start = time.perf_counter()
 
-        local_path = os.path.join(temp_dir, os.path.basename(blob_name))
+        # Use sanitized full blob name to avoid collisions when blobs share basenames
+        safe_name = blob_name.replace("/", "__").replace("\\", "__")
+        local_path = os.path.join(temp_dir, safe_name)
         blob_client = self.container_client.get_blob_client(blob_name)
 
         with open(local_path, "wb") as f:
@@ -239,6 +294,31 @@ class FullPipelineIngestor:
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         return local_path, elapsed_ms
+
+    def download_all_blobs(self, blobs: List[str], temp_dir: str, max_workers: Optional[int] = None) -> dict[str, tuple[str, float]]:
+        """Download all blobs in parallel. Returns {blob_name: (local_path, time_ms)}."""
+        results = {}
+        max_workers = max_workers or self.resources.download_workers
+        print(f"\nDownloading {len(blobs)} PDFs in parallel (workers={max_workers})...")
+        start = time.perf_counter()
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self.download_blob, blob, temp_dir): blob
+                for blob in blobs
+            }
+            for future in as_completed(futures):
+                blob_name = futures[future]
+                try:
+                    local_path, dl_ms = future.result()
+                    results[blob_name] = (local_path, dl_ms)
+                except Exception as e:
+                    print(f"  Download failed: {blob_name}: {e}")
+                    results[blob_name] = (None, 0.0)
+
+        total_ms = (time.perf_counter() - start) * 1000
+        print(f"All downloads complete in {total_ms:.0f}ms (vs ~{sum(v[1] for v in results.values()):.0f}ms sequential)")
+        return results
 
     def process_with_docling(self, pdf_path: str) -> tuple[list, float, float]:
         """
@@ -259,7 +339,7 @@ class FullPipelineIngestor:
 
         return chunks, docling_ms, chunking_ms
 
-    def index_chunks(self, chunks: list) -> float:
+    def index_chunks(self, chunks: list, batch_size: Optional[int] = None) -> float:
         """Index chunks to Azure Search. Returns time in ms."""
         if not chunks:
             return 0.0
@@ -269,8 +349,8 @@ class FullPipelineIngestor:
         # Convert chunks to search documents using built-in method
         documents = [chunk.to_azure_document() for chunk in chunks]
 
-        # Upload in batches
-        batch_size = 100
+        # Upload in larger batches for throughput
+        batch_size = batch_size or self.resources.index_batch_size
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i + batch_size]
             self.search_client.upload_documents(batch)
@@ -278,42 +358,13 @@ class FullPipelineIngestor:
         elapsed_ms = (time.perf_counter() - start) * 1000
         return elapsed_ms
 
-    def process_document(self, blob_name: str, temp_dir: str) -> TimingMetrics:
-        """Process a single document through the full pipeline."""
-        metric = TimingMetrics(filename=blob_name)
-        doc_start = time.perf_counter()
-
-        try:
-            # Step 1: Download
-            local_path, download_ms = self.download_blob(blob_name, temp_dir)
-            metric.download_time_ms = download_ms
-
-            # Step 2 & 3: Docling + Chunking
-            chunks, docling_ms, chunking_ms = self.process_with_docling(local_path)
-            metric.docling_time_ms = docling_ms
-            metric.chunking_time_ms = chunking_ms
-            metric.chunks_created = len(chunks)
-
-            # Step 4: Index
-            indexing_ms = self.index_chunks(chunks)
-            metric.indexing_time_ms = indexing_ms
-
-            # Clean up temp file
-            os.remove(local_path)
-
-        except Exception as e:
-            metric.error = str(e)
-
-        metric.total_time_ms = (time.perf_counter() - doc_start) * 1000
-        return metric
-
     def run(
         self,
         skip_clear: bool = False,
         limit: Optional[int] = None,
         dry_run: bool = False
     ) -> PipelineResults:
-        """Run the full pipeline."""
+        """Run the full pipeline with parallel downloads and bulk indexing."""
         results = PipelineResults()
 
         # List blobs
@@ -323,6 +374,8 @@ class FullPipelineIngestor:
         print(f"Endpoint: {self.search_endpoint}")
         print(f"Container: {self.container_name}")
         print(f"Index: {self.index_name}")
+        print()
+        self.resources.print_summary()
 
         blobs = self.list_blobs()
         print(f"Found {len(blobs)} PDF files in blob storage")
@@ -342,26 +395,60 @@ class FullPipelineIngestor:
         if not skip_clear:
             results.index_clear_time = self.clear_index()
 
-        # Process each document
-        print(f"\nProcessing {len(blobs)} documents...")
-        print("-" * 60)
-
         with tempfile.TemporaryDirectory() as temp_dir:
+            # Phase 1: Download all PDFs in parallel
+            downloads = self.download_all_blobs(blobs, temp_dir)
+
+            # Phase 2: Process each document through Docling (CPU-bound, sequential)
+            all_chunks = []
+            print(f"\nProcessing {len(blobs)} documents through Docling...")
+            print("-" * 60)
+
             for i, blob_name in enumerate(blobs, 1):
+                metric = TimingMetrics(filename=blob_name)
+                doc_start = time.perf_counter()
+
+                local_path, dl_ms = downloads.get(blob_name, (None, 0.0))
+                metric.download_time_ms = dl_ms
+
+                if local_path is None:
+                    metric.error = "Download failed"
+                    results.add_metric(metric)
+                    print(f"\n[{i}/{len(blobs)}] {blob_name} — DOWNLOAD FAILED")
+                    continue
+
                 print(f"\n[{i}/{len(blobs)}] {blob_name}")
 
-                metric = self.process_document(blob_name, temp_dir)
-                results.add_metric(metric)
+                try:
+                    chunks, docling_ms, chunking_ms = self.process_with_docling(local_path)
+                    metric.docling_time_ms = docling_ms
+                    metric.chunking_time_ms = chunking_ms
+                    metric.chunks_created = len(chunks)
+                    all_chunks.extend(chunks)
 
-                if metric.error:
-                    print(f"  ERROR: {metric.error}")
-                else:
                     print(f"  Download: {metric.download_time_ms:.0f}ms")
                     print(f"  Docling:  {metric.docling_time_ms:.0f}ms")
                     print(f"  Chunking: {metric.chunking_time_ms:.0f}ms")
-                    print(f"  Indexing: {metric.indexing_time_ms:.0f}ms")
                     print(f"  Chunks:   {metric.chunks_created}")
-                    print(f"  Total:    {metric.total_time_ms:.0f}ms")
+
+                    os.remove(local_path)
+                except Exception as e:
+                    metric.error = str(e)
+                    print(f"  ERROR: {metric.error}")
+
+                metric.total_time_ms = (time.perf_counter() - doc_start) * 1000
+                results.add_metric(metric)
+
+            # Phase 3: Bulk index all chunks at once
+            if all_chunks:
+                print(f"\nBulk indexing {len(all_chunks)} chunks (batch_size={self.resources.index_batch_size})...")
+                indexing_ms = self.index_chunks(all_chunks)
+                results.total_indexing_time = indexing_ms
+                # Distribute indexing time proportionally across successful docs for reporting
+                for metric in results.document_metrics:
+                    if not metric.error and metric.chunks_created > 0:
+                        metric.indexing_time_ms = indexing_ms * (metric.chunks_created / len(all_chunks))
+                print(f"Indexed in {indexing_ms:.0f}ms")
 
         results.end_time = datetime.now()
         return results
@@ -461,13 +548,25 @@ def main():
         default=None,
         help="Azure Search API key override (defaults to SEARCH_API_KEY)",
     )
+    parser.add_argument(
+        "--max-resources",
+        type=float,
+        default=0.80,
+        help="Max fraction of system CPU/RAM to use (default: 0.80 = 80%%)",
+    )
     args = parser.parse_args()
+
+    max_pct = max(0.10, min(1.0, args.max_resources))
+    if max_pct != args.max_resources:
+        print(f"Warning: --max-resources clamped to {max_pct:.0%} (valid range: 10%-100%)")
+    resource_config = ResourceConfig.detect(max_pct=max_pct)
 
     ingestor = FullPipelineIngestor(
         index_name=args.index_name,
         allow_direct_index=args.allow_direct_index,
         search_endpoint=args.endpoint,
         search_api_key=args.api_key,
+        resource_config=resource_config,
     )
     results = ingestor.run(
         skip_clear=args.skip_clear,

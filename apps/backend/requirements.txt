@@ -47,13 +47,16 @@ slowapi>=0.1.9
 # Circuit breaker pattern for resilience
 pybreaker>=1.0.0
 
+# System resource detection for ingestion tuning
+psutil>=5.9.0
+
 # RAG Evaluation
 azure-ai-evaluation>=1.0.0b5
 promptflow>=1.14.0
 promptflow-tools>=1.4.0
-ragas>=0.2.0
+ragas>=0.4.0,<0.5.0
 datasets>=2.18.0
-langchain-openai>=0.1.0
+langchain-openai>=0.3.0
 deepeval>=0.21.0
 
 # Observability (Azure AI Foundry tracing + OpenTelemetry)
