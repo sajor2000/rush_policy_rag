@@ -195,7 +195,7 @@ async def generate_v5_dataset(backend_url: str, dry_run: bool = False, limit: in
     async with httpx.AsyncClient() as client:
         for i, case in enumerate(test_cases):
             case_id = case.get("id", f"case-{i}")
-            # v4 dataset uses "question" field, RAGAS expects "input"
+            # v4 dataset uses "question" field, v5 uses "input"
             query = case.get("question", case.get("input", ""))
 
             print(f"[{i+1}/{len(test_cases)}] {case_id}: {query[:50]}...", flush=True)
@@ -255,14 +255,14 @@ async def generate_v5_dataset(backend_url: str, dry_run: bool = False, limit: in
                 stats["downgraded"] += 1
 
             # Build v5 case
-            # v4 uses expected_answer, RAGAS expects expected_output
+            # v4 uses expected_answer, v5 uses expected_output
             expected_output = case.get("expected_answer", case.get("expected_output", response_text))
             v5_case = {
                 "id": case_id,
                 "input": query,
                 "expected_output": expected_output,
                 "ground_truth_context": ground_truth_contexts,
-                "retrieval_context": [],  # Populated at runtime by RAGAS
+                "retrieval_context": [],  # Populated at runtime by evaluation
                 "category": case.get("category"),
                 "subcategory": case.get("subcategory"),
                 "criticality": new_criticality,

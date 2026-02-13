@@ -245,7 +245,7 @@ class RAGASTestsetGenerator:
             model=embedding_deployment,
         )
 
-        # Wrap with RAGAS wrappers (required for RAGAS 0.2.x)
+        # Wrap with RAGAS wrappers (required for RAGAS v0.4)
         self.llm = LangchainLLMWrapper(base_llm)
         self.embeddings = LangchainEmbeddingsWrapper(base_embeddings)
 
@@ -270,7 +270,6 @@ class RAGASTestsetGenerator:
             List of generated test cases
         """
         from ragas.testset import TestsetGenerator
-        from ragas.testset.synthesizers import default_query_distribution
         from langchain_core.documents import Document
 
         logger.info(f"Generating {testset_size} test cases from {len(documents)} documents...")
@@ -289,21 +288,17 @@ class RAGASTestsetGenerator:
             )
             lc_documents.append(lc_doc)
 
-        # Use default query distribution (50% SingleHop, 25% MultiHopAbstract, 25% MultiHopSpecific)
-        query_distribution = default_query_distribution(self.llm)
-
-        # Create generator
+        # Create generator (RAGAS v0.4 API)
         generator = TestsetGenerator(
             llm=self.llm,
             embedding_model=self.embeddings,
         )
 
-        # Generate testset
+        # Generate testset (RAGAS v0.4 uses generate() with langchain documents)
         try:
             testset = generator.generate_with_langchain_docs(
                 documents=lc_documents,
                 testset_size=testset_size,
-                query_distribution=query_distribution,
             )
 
             logger.info(f"Generated {len(testset.samples)} raw test cases")
@@ -326,11 +321,11 @@ class RAGASTestsetGenerator:
         """Convert RAGAS testset to our TestCase format."""
         test_cases = []
 
-        # RAGAS 0.2.x: iterate over .samples, each is a SingleTurnSample
+        # RAGAS v0.4: iterate over .samples, each is a SingleTurnSample
         samples = ragas_testset.samples if hasattr(ragas_testset, 'samples') else ragas_testset
 
         for idx, sample in enumerate(samples):
-            # RAGAS 0.2.x uses attributes, not dict keys
+            # RAGAS v0.4 uses attributes, not dict keys
             # SingleTurnSample: user_input, retrieved_contexts, response, reference
             if hasattr(sample, 'user_input'):
                 # RAGAS 0.2.x SingleTurnSample object

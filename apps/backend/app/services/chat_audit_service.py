@@ -7,6 +7,17 @@ Design:
 - Resilient: Failures don't affect chat responses
 - Date-partitioned: YYYY/MM/DD.jsonl structure
 
+HIPAA / PHI Risk Notice:
+    This service logs user-submitted chat questions. While the system is designed
+    for policy retrieval (not clinical data), users MAY include patient information
+    in their queries (e.g., "What is the policy for patient X's insulin pump?").
+    Mitigations:
+    - Questions are truncated to CHAT_AUDIT_MAX_QUESTION_LENGTH (default 2,000 chars)
+    - Responses are truncated to CHAT_AUDIT_MAX_RESPONSE_LENGTH (default 5,000 chars)
+    - No user identifiers (name, email, IP) are stored unless Azure AD is enabled
+    - Audit logs are retained for CHAT_AUDIT_RETENTION_DAYS (default 90 days)
+    - Audit logging can be disabled entirely via CHAT_AUDIT_ENABLED=false
+
 Usage:
     # On startup (in lifespan):
     await init_chat_audit_service()

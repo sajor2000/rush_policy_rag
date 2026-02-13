@@ -19,6 +19,7 @@ on:
           - full
           - quick
           - weekly
+          - monthly-regression
 
 env:
   PYTHON_VERSION: '3.11'
@@ -131,12 +132,15 @@ jobs:
           python scripts/integrate_realistic_questions.py \
             --weekly-eval --sample 50 --seed $(date +%W)
 
-      - name: Run weekly evaluation
+      - name: Run combined weekly report
         run: |
-          python scripts/weekly_eval.py \
+          python scripts/run_combined_weekly_report.py \
             --local-queries apps/backend/data/weekly_eval_queries.json \
             ${{ github.event_name == 'workflow_dispatch' && '--dry-run' || '' }}
         env:
+          STORAGE_CONNECTION_STRING: ${{ secrets.STORAGE_CONNECTION_STRING }}
+          AZURE_COMM_CONNECTION_STRING: ${{ secrets.AZURE_COMM_CONNECTION_STRING }}
+          AZURE_COMM_SENDER_ADDRESS: ${{ secrets.AZURE_COMM_SENDER_ADDRESS }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
@@ -251,3 +255,77 @@ jobs:
           pytest tests/test_rag_evaluation.py -v -m "critical" --tb=short
         env:
           DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE: 120
+
+  # Monthly RAGAS regression testing
+  monthly-regression:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'monthly-regression'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          cd apps/backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create reports directory
+        run: mkdir -p reports/ragas
+
+      - name: Run RAGAS regression
+        id: ragas
+        run: |
+          python scripts/run_ragas_regression.py \
+            --golden-set data/golden_test_set.json \
+            --backend-url ${{ secrets.BACKEND_URL }} \
+            --output reports/ragas/ragas_${{ github.run_number }}.json
+        env:
+          AOAI_ENDPOINT: ${{ secrets.AOAI_ENDPOINT }}
+          AOAI_API_KEY: ${{ secrets.AOAI_API_KEY }}
+          AOAI_EVAL_DEPLOYMENT: gpt-4.1-mini
+          AOAI_EMBEDDING_DEPLOYMENT: text-embedding-3-large
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        continue-on-error: true
+
+      - name: Check RAGAS results
+        if: always()
+        run: |
+          echo "## RAGAS Regression Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f reports/ragas/ragas_${{ github.run_number }}.json ]; then
+            python3 -c "
+          import json
+          with open('reports/ragas/ragas_${{ github.run_number }}.json') as f:
+              data = json.load(f)
+          metrics = data.get('metrics', {})
+          print('| Metric | Score |')
+          print('|--------|-------|')
+          for k, v in metrics.items():
+              score = f'{v:.3f}' if isinstance(v, float) else str(v)
+              print(f'| {k} | {score} |')
+          reg = data.get('regression_check', {})
+          if reg:
+              print(f'')
+              print(f'**Regression status**: {reg.get(\"status\", \"N/A\")}')
+          " >> $GITHUB_STEP_SUMMARY
+          else
+            echo "RAGAS report not generated" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload RAGAS report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ragas-regression-${{ github.run_number }}
+          path: reports/ragas/
+          retention-days: 90

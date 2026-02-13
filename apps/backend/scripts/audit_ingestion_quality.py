@@ -330,6 +330,7 @@ class IngestionAuditor:
 def print_report(report: AuditReport):
     """Print comprehensive audit report."""
     n = report.files_audited
+    pct = lambda count: (count / n * 100) if n else 0.0
 
     print(f"\n{'='*70}")
     print("AUDIT RESULTS")
@@ -355,7 +356,7 @@ def print_report(report: AuditReport):
 
     # Entity booleans
     print(f"\n🏥 ENTITY BOOLEAN EXTRACTION:")
-    print(f"  Files with entities: {report.files_with_entities}/{n} ({report.files_with_entities/n*100:.1f}%)")
+    print(f"  Files with entities: {report.files_with_entities}/{n} ({pct(report.files_with_entities):.1f}%)")
     print(f"  Total associations: {report.total_entity_associations}")
     if n:
         print(f"  Avg entities/file: {report.total_entity_associations/n:.1f}")
@@ -384,7 +385,7 @@ def print_report(report: AuditReport):
 
     # Issues summary
     print(f"\n⚠️  ISSUES SUMMARY:")
-    print(f"  Files with issues: {report.files_with_issues}/{n} ({report.files_with_issues/n*100:.1f}%)")
+    print(f"  Files with issues: {report.files_with_issues}/{n} ({pct(report.files_with_issues):.1f}%)")
 
     if report.common_issues:
         print(f"\n  Common issues:")

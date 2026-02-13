@@ -1193,6 +1193,66 @@ def _build_promptfoo_audit(
     }
 
 
+def _run_ragas_regression_gate(*, run_dir: Path, backend_url: str) -> None:
+    """Run RAGAS v0.4 regression test against golden test set (non-blocking)."""
+    golden_set = REPO_ROOT / "data" / "golden_test_set.json"
+    ragas_script = REPO_ROOT / "scripts" / "run_ragas_regression.py"
+
+    if not golden_set.exists():
+        print("[WARN] Golden test set not found; skipping RAGAS regression gate")
+        (run_dir / "13c_ragas_regression.txt").write_text(
+            "SKIPPED: data/golden_test_set.json not found\n", encoding="utf-8"
+        )
+        return
+
+    if not ragas_script.exists():
+        print("[WARN] RAGAS regression script not found; skipping RAGAS gate")
+        (run_dir / "13c_ragas_regression.txt").write_text(
+            "SKIPPED: scripts/run_ragas_regression.py not found\n", encoding="utf-8"
+        )
+        return
+
+    output_path = run_dir / "13c_ragas_results.json"
+    print(f"[RUN] RAGAS regression test (backend={backend_url})")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ragas_script),
+            "--golden-set",
+            str(golden_set),
+            "--backend-url",
+            backend_url,
+            "--output",
+            str(output_path),
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+    )
+    (run_dir / "13c_ragas_regression.txt").write_text(
+        result.stdout + result.stderr, encoding="utf-8"
+    )
+    if result.returncode != 0:
+        print(
+            f"[WARN] RAGAS regression returned exit code {result.returncode} "
+            f"(non-blocking): {result.stderr[:300]}"
+        )
+    else:
+        print("      RAGAS regression gate passed")
+
+    # Parse results for summary if available
+    if output_path.exists():
+        try:
+            ragas_data = json.loads(output_path.read_text(encoding="utf-8"))
+            status = ragas_data.get("regression_check", {}).get("status", "N/A")
+            metrics = ragas_data.get("metrics", {})
+            print(f"      RAGAS status: {status}")
+            for metric, score in metrics.items():
+                print(f"        {metric}: {score:.3f}" if isinstance(score, float) else f"        {metric}: {score}")
+        except Exception:
+            pass
+
+
 def _run_promptfoo_gate(*, run_dir: Path, backend_url: str) -> None:
     """Run Promptfoo RAG evaluation and enforce compliance thresholds."""
     import shutil as _shutil
@@ -1936,7 +1996,10 @@ def main() -> int:
         # Stage E.2: Promptfoo RAG evaluation (90% pass + safety/citation gates)
         _run_promptfoo_gate(run_dir=run_dir, backend_url=args.base_url)
 
-        # Stage E.3: Baseline comparison gate (compare against previous release)
+        # Stage E.3: RAGAS regression gate (golden test set faithfulness/recall)
+        _run_ragas_regression_gate(run_dir=run_dir, backend_url=args.base_url)
+
+        # Stage E.4: Baseline comparison gate (compare against previous release)
         _run_baseline_gate(
             run_dir=run_dir,
             storage_connection_string=storage_connection_string,

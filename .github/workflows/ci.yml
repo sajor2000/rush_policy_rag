@@ -175,6 +175,42 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
+  dependency-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: pip-audit (Python dependency vulnerabilities)
+        run: |
+          pip install pip-audit
+          pip-audit -r apps/backend/requirements.txt
+
+      - name: npm audit (Node.js dependency vulnerabilities)
+        working-directory: apps/frontend
+        run: npm audit --audit-level=high
+
+      - name: Bandit (Python security linter)
+        run: |
+          pip install bandit
+          bandit -r apps/backend/app/ -ll -ii --skip B101
+        continue-on-error: true
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest

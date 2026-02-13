@@ -77,7 +77,7 @@ def load_test_dataset() -> List[Dict[str, Any]]:
 
 def load_synthetic_dataset(sample_size: Optional[int] = None) -> List[Dict[str, Any]]:
     """
-    Load test cases from RAGAS-generated synthetic dataset.
+    Load test cases from synthetic dataset.
 
     Args:
         sample_size: Maximum number of test cases to load (for CI/CD speed)
@@ -534,7 +534,7 @@ def test_dataset_valid():
     if len(test_cases) == 0:
         pytest.skip("Test dataset is empty")
 
-    # Support "input" (v5), "query" (legacy) and "question" (RAGAS format) field names
+    # Support "input" (v5), "query" (legacy) and "question" (alternate) field names
     required_fields = ["id", "category"]
     for tc in test_cases:
         for field in required_fields:
@@ -544,12 +544,12 @@ def test_dataset_valid():
 
 
 # =============================================================================
-# SYNTHETIC DATASET TESTS (RAGAS-generated coverage)
+# SYNTHETIC DATASET TESTS (generated coverage)
 # =============================================================================
 
 class TestSyntheticCoverage:
     """
-    Test coverage using RAGAS-generated synthetic dataset.
+    Test coverage using synthetic dataset.
 
     These tests provide broader coverage beyond hand-crafted critical cases.
     Run with: pytest tests/test_rag_evaluation.py::TestSyntheticCoverage -v
