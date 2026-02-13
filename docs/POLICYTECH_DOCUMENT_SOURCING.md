@@ -61,7 +61,7 @@
 │  AZURE AI SEARCH INDEX                                                   │
 │  ─────────────────────                                                   │
 │  rush-policies-active alias → production search index                    │
-│  3072-dim embeddings, 29-field schema, vectorSemanticHybrid              │
+│  3072-dim embeddings, 38-field schema, vectorSemanticHybrid              │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
 ```

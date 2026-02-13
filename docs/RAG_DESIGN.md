@@ -219,7 +219,7 @@ ED, ER, emergency department, emergency room => emergency department
 
 ## 7. Search Index Schema
 
-**29-field schema** optimized for healthcare policy retrieval:
+**38-field schema** optimized for healthcare policy retrieval:
 
 ### Core Fields
 - `id`, `content`, `content_vector` (3072-dim)

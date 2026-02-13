@@ -298,10 +298,7 @@ jobs:
 ### Pre-Production Testing
 
 ```bash
-# Full pre-prod validation (all 4 gates)
-./scripts/run_preprod_tests.sh
-
-# Individual gates
+# Pre-prod validation
 pytest apps/backend/tests/test_rag_evaluation.py -v  # Gates 1-3
 
 # Domain-specific regression

@@ -115,7 +115,7 @@ flowchart TB
     end
 ```
 
-**Ingestion**: PDF → PolicyChunker (PyMuPDF + Docling) → 3072-dim embeddings → Azure AI Search (29-field schema, 9 entity filters)
+**Ingestion**: PDF → PolicyChunker (PyMuPDF + Docling) → 3072-dim embeddings → Azure AI Search (38-field schema, 9 entity filters)
 
 **Query**: User → Next.js → FastAPI → Synonym expansion → vectorSemanticHybrid (GPT-4.1) → Cohere Rerank (top 5, min 0.40) → Context expansion (±1 siblings) → Cited response
 
@@ -269,7 +269,7 @@ rag_pt_rush/
 - **Fallback chain**: PyMuPDF → Docling → Regex
 
 ### Azure AI Search Schema
-- 29 fields: `content`, `content_vector` (3072-dim), `title`, `reference_number`, etc.
+- 38 fields: `content`, `content_vector` (3072-dim), `title`, `reference_number`, etc.
 - 9 entity boolean filters: `applies_to_rumc`, `applies_to_rumg`, `applies_to_rmg`, etc.
 - Hierarchical chunking: `chunk_level`, `parent_chunk_id`, `chunk_index`
 

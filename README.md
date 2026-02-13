@@ -160,8 +160,8 @@ az containerapp update \
 
 ### Prerequisites
 
-- Python 3.9+
-- Node.js 18+
+- Python 3.11+
+- Node.js 20+
 - Azure AI Search service with `rush-policies-active` alias
 - Azure OpenAI service (GPT-4.1 + text-embedding-3-large)
 - Azure Blob Storage account

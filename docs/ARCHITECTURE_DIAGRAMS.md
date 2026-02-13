@@ -61,7 +61,7 @@ flowchart LR
     end
 
     subgraph index [Azure AI Search]
-        Index[rush-policies<br/>29-field schema]
+        Index[rush-policies<br/>38-field schema]
     end
 
     subgraph prod [Production]
@@ -86,7 +86,7 @@ flowchart LR
 3. **Chunk**: PolicyChunker creates ~1500 char hierarchical chunks
 4. **Metadata**: Extract title, reference number, applies-to entities
 5. **Embed**: Generate 3072-dim vectors with text-embedding-3-large
-6. **Index**: Upload to Azure AI Search with 29-field schema
+6. **Index**: Upload to Azure AI Search with 38-field schema
 7. **Sync**: Copy processed PDFs to `policies-active` for viewing
 
 ## 3. Query Pipeline (RAG)
