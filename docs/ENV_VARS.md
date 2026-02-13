@@ -51,7 +51,7 @@ Alternative (for managed identity in production):
 
 ### Cohere Rerank 4.0 Pro (Required for Healthcare RAG*)
 
-Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, with 32k context window and healthcare-optimized ranking.
+Cohere Rerank 4.0 Pro provides cross-encoder reranking for negation-aware retrieval.
 
 | Variable | Description | Example |
 |----------|-------------|---------|

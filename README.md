@@ -152,7 +152,7 @@ az containerapp update \
 
 **AI Services:**
 - Azure OpenAI (GPT-4.1 chat + embeddings)
-- Cohere Rerank 4.0 Pro (cross-encoder for negation-aware retrieval, 9.5% accuracy improvement over v3.5)
+- Cohere Rerank 4.0 Pro (cross-encoder for negation-aware retrieval)
 
 ---
 
@@ -191,8 +191,7 @@ STORAGE_CONNECTION_STRING=<connection_string>
 # Enable On Your Data (vectorSemanticHybrid)
 USE_ON_YOUR_DATA=true
 
-# Cohere Rerank 4.0 Pro (cross-encoder reranking - Dec 2025 release)
-# 9.5% accuracy improvement over v3.5, 32k context, healthcare-optimized
+# Cohere Rerank 4.0 Pro (cross-encoder reranking)
 USE_COHERE_RERANK=true
 COHERE_RERANK_ENDPOINT=https://<cohere-endpoint>.models.ai.azure.com
 COHERE_RERANK_API_KEY=<key>
@@ -305,7 +304,7 @@ See `.gitignore` for the full list.
 ### Core RAG Pipeline
 
 - **Azure OpenAI "On Your Data"**: vectorSemanticHybrid search (Vector + BM25 + L2 Reranking)
-- **Cohere Rerank 4.0 Pro**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval (9.5% accuracy improvement, 32k context window)
+- **Cohere Rerank 4.0 Pro**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval
 - **Production Security**: Rate limiting, input validation, CSP headers
 - **PDF Upload & Viewing**: End-to-end pipeline with async blob storage
 - **1,800+ Document Support**: top_k=50 with semantic ranker optimization

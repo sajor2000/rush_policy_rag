@@ -4,11 +4,8 @@ Cohere Rerank Service
 Provides cross-encoder reranking for negation-aware search.
 Supports Cohere Rerank v4.0 Pro deployed on Azure AI Foundry.
 
-Rerank 4.0 Pro (Dec 2025):
-- Healthcare-optimized: "tuned for healthcare, finance, government"
-- 9.5% accuracy improvement over v3.5 with same latency
-- Context length: 32,768 tokens (8x larger than v3.5's 4,096)
-- Query token limit: 16,384 tokens (8x larger than v3.5's 2,048)
+Rerank 4.0 Pro:
+- Cross-encoder for negation-aware retrieval
 - Supports v2 API endpoint format
 - Semi-structured data (JSON/YAML) support
 

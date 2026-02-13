@@ -171,7 +171,7 @@ Pricing is based on "Search Units" (1 unit = 1 query with up to 100 documents).
 **Cohere Rerank 4.0 Pro** (Dec 2025)
 - Price: $2.00 per 1,000 queries (Search Units)
 - Reranking 50 documents per query counts as 1 unit.
-- 9.5% accuracy improvement over v3.5, 32k context window, healthcare-optimized.
+- Cross-encoder for negation-aware retrieval.
 
 | Tier | Queries | Unit Cost | **Total** | **95% CI** |
 |------|---------|-----------|-----------|------------|

@@ -37,7 +37,7 @@ This guide provides **exact commands** to deploy the RUSH Policy RAG Agent to Az
 
 **AI Services:**
 - Azure OpenAI (GPT-4.1 + embeddings)
-- Cohere Rerank 4.0 Pro (cross-encoder reranking via Azure AI Foundry, 9.5% accuracy improvement)
+- Cohere Rerank 4.0 Pro (cross-encoder reranking via Azure AI Foundry)
 
 ---
 
@@ -224,9 +224,6 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides cross-encoder reranking for negation-a
 **Why Cohere Rerank 4.0 Pro?**
 - Cross-encoders understand negation ("NOT authorized" contradicts "Can accept verbal orders?")
 - Bi-encoders (like Azure's L2 reranker) only see vocabulary overlap
-- 9.5% accuracy improvement over v3.5 (nDCG@10: 0.219 vs 0.200)
-- 32k token context window (processes full policy documents)
-- Healthcare-optimized: "tuned for healthcare, finance, government"
 - Critical for healthcare policy accuracy
 
 ### 5.5.1 Deploy via Azure AI Foundry Portal
@@ -661,7 +658,7 @@ az containerapp update \
 
 ### Backend - Cohere Rerank 4.0 Pro (Required for best quality)
 
-Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, with 32k context window and healthcare-optimized ranking.
+Cohere Rerank 4.0 Pro provides cross-encoder reranking for negation-aware retrieval.
 
 | Variable | Description | Example |
 |----------|-------------|---------|

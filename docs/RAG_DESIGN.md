@@ -90,7 +90,7 @@ Cross-encoder (Cohere):
 **Configuration:**
 | Setting | Value | Rationale |
 |---------|-------|-----------|
-| Model | `Cohere-rerank-v4.0-pro` | 9.5% accuracy improvement over v3.5 |
+| Model | `Cohere-rerank-v4.0-pro` | Cross-encoder for negation-aware retrieval |
 | Top N | 5 | Optimal for "lost in middle" mitigation |
 | Min Score | 0.40 | Healthcare-calibrated threshold |
 | Doc Format | YAML | Field ordering matters for Cohere |

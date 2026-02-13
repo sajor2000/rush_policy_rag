@@ -84,7 +84,6 @@ USE_ON_YOUR_DATA=true
 USE_COHERE_RERANK=true
 
 # Cohere Rerank 4.0 Pro (REQUIRED for healthcare RAG quality)
-# Dec 2025 release: 9.5% accuracy improvement, 32k context, healthcare-optimized
 COHERE_RERANK_ENDPOINT=https://<cohere>.models.ai.azure.com
 COHERE_RERANK_API_KEY=your_key
 COHERE_RERANK_MODEL=Cohere-rerank-v4.0-pro
