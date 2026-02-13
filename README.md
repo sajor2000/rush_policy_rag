@@ -312,15 +312,6 @@ See `.gitignore` for the full list.
 - **1,800+ Document Support**: top_k=50 with semantic ranker optimization
 - **Healthcare Synonyms**: 132 synonym rules for medical terminology
 
-### Recent Enhancements (melissa-feedback-v1, 2026-01-08)
-
-- **Device Ambiguity Detection**: Intelligent clarification UI for ambiguous medical device queries (IV, catheter, line, port)
-- **Three-Tier PDF Access**: Quick access buttons on each evidence card + sticky panel + bottom section
-- **Score Windowing**: Post-rerank filtering (60% threshold) reduces irrelevant results by 60-70%
-- **Collapsible Related Evidence**: Prevents users from following incorrect policies
-- **Context-Aware Synonym Expansion**: Priority-based stopping prevents cascading query noise
-
----
 
 ## Security
 
