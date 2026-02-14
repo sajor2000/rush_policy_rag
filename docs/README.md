@@ -130,4 +130,4 @@ docs/
 1. **Development questions**: See [CLAUDE.md](../CLAUDE.md)
 2. **Deployment issues**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 3. **Configuration**: See [ENV_VARS.md](ENV_VARS.md)
-4. **Report issues**: [GitHub Issues](https://github.com/sajor2000/rush_policy_rag/issues)
+4. **Report issues**: [GitHub Issues](https://github.com/RushAI-jcr/policychat_rush/issues)

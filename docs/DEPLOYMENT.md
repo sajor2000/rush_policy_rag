@@ -62,8 +62,8 @@ az login
 az account set --subscription "RU-Azure-NonProd"
 
 # Clone the repo (if not already done)
-git clone https://github.com/sajor2000/rush_policy_rag.git
-cd rush_policy_rag
+git clone https://github.com/RushAI-jcr/policychat_rush.git
+cd policychat_rush
 ```
 
 ---
@@ -772,5 +772,5 @@ az deployment group create \
 ## Support
 
 - **Documentation**: See `CLAUDE.md` for development guidance
-- **Issues**: https://github.com/sajor2000/rush_policy_rag/issues
+- **Issues**: https://github.com/RushAI-jcr/policychat_rush/issues
 - **Policy Admin**: https://rushumc.navexone.com/

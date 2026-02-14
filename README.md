@@ -7,6 +7,7 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 | **Tech Stack** | FastAPI (Python 3.12) + Next.js 16 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
 | **Deployment** | Azure Container Apps (Non-Prod + Prod) |
+| **Repository** | [RushAI-jcr/policychat_rush](https://github.com/RushAI-jcr/policychat_rush) — default push target (`origin`) |
 
 ---
 

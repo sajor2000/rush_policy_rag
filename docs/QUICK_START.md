@@ -22,8 +22,8 @@ Before starting, ensure you have:
 
 ```bash
 # Clone the repository
-git clone https://github.com/sajor2000/rush_policy_rag.git
-cd rush_policy_rag
+git clone https://github.com/RushAI-jcr/policychat_rush.git
+cd policychat_rush
 
 # Create environment file
 cp .env.example .env

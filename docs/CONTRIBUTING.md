@@ -18,7 +18,7 @@ Please maintain a respectful and inclusive community when contributing to this p
 
 ## Getting Started
 
-1. **Fork the repository** and clone your fork locally
+1. **Fork the repository** [RushAI-jcr/policychat_rush](https://github.com/RushAI-jcr/policychat_rush) and clone your fork locally
 2. **Set up your development environment** (see below)
 3. **Create a feature branch** from `develop` (not `main`)
 4. **Make your changes** following our style guidelines

@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Default repository**: [RushAI-jcr/policychat_rush](https://github.com/RushAI-jcr/policychat_rush). `origin` is configured as the default push target; use `git push` to update it.
+
 ## Project Overview
 
 RUSH Policy RAG Agent - A production-ready RAG (Retrieval-Augmented Generation) system for policy retrieval at Rush University System for Health.
