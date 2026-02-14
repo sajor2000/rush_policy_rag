@@ -1,0 +1,705 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Rush Policy Chat — Bug Tracker & Fix Verification Plan
+  Author: J.C. (Physician Data Scientist, D&IS)
+  Source: Cody Le, User Testing Report (Feb 11, 2026)
+  Date: 2026-02-12
+  Purpose: Comprehensive audit of RAG retrieval bugs, fix verification criteria,
+           and production-grade remediation plan.
+-->
+<bug_tracker project="Rush Policy Chat" version="1.0" date="2026-02-12">
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- PROJECT METADATA                                                    -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <metadata>
+    <project_name>Rush Policy Chat</project_name>
+    <team>D&amp;IS Intelligent Automation</team>
+    <tester>Cody Le, Data Scientist</tester>
+    <reviewer>J.C., Physician Data Scientist</reviewer>
+    <test_date>2026-02-11</test_date>
+    <audit_date>2026-02-12</audit_date>
+    <test_documents_count>8</test_documents_count>
+    <test_documents>
+      <doc id="1">HR-C 05.00 Shift Differentials, Weekend and Holiday Premium Pay (1209)</doc>
+      <doc id="2">HR-C 02.00 Compensation Structures and Job Assignments (1389)</doc>
+      <doc id="3">HR-A 01.00 Employee Classification (1282)</doc>
+      <doc id="4">Employee Appeals Policy (5323)</doc>
+      <doc id="5">HR-E 07.00 ADA Accommodation Request Process (6035)</doc>
+      <doc id="6">HR-E 05.00 Service of a Summons (1910)</doc>
+      <doc id="7">HR-E 03.00 Disciplinary Procedures (5325)</doc>
+      <doc id="8">HR-C 06.00 Time and Attendance Recording; Editing and Approval</doc>
+    </test_documents>
+    <principle>Think like a senior developer: prefer the smallest, simplest change; write the fewest lines necessary; do not over-engineer.</principle>
+  </metadata>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- BUG #1: MULTI-PAGE RETRIEVAL FAILURE                                -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <bug id="BUG-001" priority="P0-Critical" status="fix_verified">
+    <title>Multi-Page Retrieval Failure — RAG only indexes/retrieves Page 1 content</title>
+    <severity>Critical</severity>
+    <category>RAG Ingestion Pipeline</category>
+    <impact>Users cannot access ~70-80% of policy content (anything beyond Page 1)</impact>
+
+    <description>
+      The chatbot only searches or matches keywords from sections appearing on Page 1
+      of policy documents. Content on subsequent pages is either not parsed, not chunked,
+      not embedded, or not indexed. This renders the majority of each policy invisible
+      to the retrieval system.
+    </description>
+
+    <evidence>
+      <test_case id="TC-001-A" policy="HR-C 06.00" result="FAIL">
+        <query>What is the Supervisor Entry/Editing in HR-C 06.00?</query>
+        <expected>Content from section 6.03 on Page 2+</expected>
+        <actual>Chatbot returned "Unable to verify factual accuracy"</actual>
+        <notes>Section 6.01 (Page 1) retrieves correctly; section 6.02/6.03 (Page 2+) does not</notes>
+      </test_case>
+      <test_case id="TC-001-B" policy="HR-C 06.00" result="FAIL">
+        <query>Summarize Page 3 of HR-C 06.00</query>
+        <expected>Summary of Page 3 content</expected>
+        <actual>Chatbot returned "Unable to verify factual accuracy"</actual>
+      </test_case>
+      <test_case id="TC-001-C" policy="HR-C 06.00" result="FAIL">
+        <query>What is 6.03 Supervisor Entry/Editing?</query>
+        <expected>HR-C 06.00 section 6.03 content</expected>
+        <actual>Chatbot cited unrelated policy: Arterial Blood Gas Acquisition (OP-0553)</actual>
+      </test_case>
+      <test_case id="TC-001-D" policy="HR-E 03.00" result="FAIL">
+        <query>What are the levels of warning with or without suspension?</query>
+        <expected>HR-E 03.00 sections 3.04/3.05 content from Page 2+</expected>
+        <actual>Chatbot returned "This topic is outside my scope"</actual>
+      </test_case>
+      <test_case id="TC-001-E" policy="HR-E 03.00" result="FAIL">
+        <query>How would you administering a discipline?</query>
+        <expected>HR-E 03.00 discipline administration content</expected>
+        <actual>Chatbot cited Medication Administration (OP-0529), completely wrong policy</actual>
+      </test_case>
+      <test_case id="TC-001-F" policy="HR-C 06.00" result="PASS">
+        <query>Explain Time and Attendance recording</query>
+        <expected>Section 6.01 content (Page 1)</expected>
+        <actual>Correct — chatbot summarized and cited HR-C 06.00 Page 1</actual>
+        <notes>Confirms Page 1 retrieval works; failure is isolated to Page 2+</notes>
+      </test_case>
+      <test_case id="TC-001-G" policy="HR-E 03.00" result="PASS">
+        <query>How to choose the best discipline category?</query>
+        <expected>Section 3.01 content (Page 1)</expected>
+        <actual>Correct — chatbot cited HR-E 03.00 Page 1</actual>
+        <notes>Confirms Page 1 retrieval works for this policy as well</notes>
+      </test_case>
+    </evidence>
+
+    <root_cause_analysis>
+      <probable_cause confidence="high">
+        The PDF ingestion pipeline is truncating document content at Page 1 boundary.
+        This could occur at any of three stages:
+      </probable_cause>
+      <investigation_checklist>
+        <check id="RCA-1A" stage="PDF Parsing">
+          Verify the PDF text extraction function returns content from ALL pages.
+          Common failure modes:
+          - PyPDF2/PyMuPDF: using page_index=0 only instead of iterating all pages
+          - Azure Document Intelligence: page_range parameter limiting to first page
+          - pdfplumber: opening but only reading pages[0]
+          Test: Run parser independently on HR-C 06.00 and print page count + text per page.
+        </check>
+        <check id="RCA-1B" stage="Chunking">
+          Verify the text splitter receives the full multi-page text.
+          Common failure modes:
+          - Concatenation bug: only first page string passed to chunker
+          - Page metadata assignment: all chunks tagged as "Page 1" regardless of source
+          Test: Log input length to chunker; compare against full PDF text length.
+        </check>
+        <check id="RCA-1C" stage="Embedding/Indexing">
+          Verify all chunks are actually written to the vector store.
+          Common failure modes:
+          - Batch upsert silently dropping chunks beyond a limit
+          - Deduplication logic incorrectly merging chunks
+          Test: Count chunks in vector store per document; compare against expected count.
+        </check>
+        <check id="RCA-1D" stage="Retrieval Query">
+          Verify the retrieval query does not filter results to Page 1 only.
+          Common failure modes:
+          - Metadata filter: page_number == 1 hardcoded in retrieval
+          - top_k too low: only 1-2 chunks returned, all from Page 1 due to title match
+          Test: Query vector store directly (bypass chatbot) for Page 2+ content.
+        </check>
+      </investigation_checklist>
+    </root_cause_analysis>
+
+    <fix_specification>
+      <fix id="FIX-001-A" target="PDF Parser">
+        <action>Ensure PDF parser iterates ALL pages and returns concatenated or per-page text with page numbers</action>
+        <pseudocode>
+          <!-- Python pseudocode -->
+          for page_num, page in enumerate(pdf.pages):
+              text = page.extract_text()
+              chunks = text_splitter.split(text)
+              for chunk in chunks:
+                  chunk.metadata["page_number"] = page_num + 1
+                  chunk.metadata["policy_number"] = extract_policy_number(filename)
+                  chunk.metadata["policy_title"] = extract_policy_title(text, filename)
+        </pseudocode>
+        <verification>Parser outputs text from all pages; character count matches full PDF</verification>
+      </fix>
+      <fix id="FIX-001-B" target="Chunk Metadata">
+        <action>Attach correct page_number metadata to each chunk based on source page</action>
+        <verification>Each chunk in vector store has accurate page_number metadata</verification>
+      </fix>
+      <fix id="FIX-001-C" target="Index Completeness">
+        <action>Re-index all 8 test documents after parser fix; verify chunk counts</action>
+        <verification>Vector store contains chunks from every page of every document</verification>
+      </fix>
+    </fix_specification>
+
+    <verification_plan>
+      <test id="V-001-A" type="unit">
+        <description>PDF parser returns text from all pages</description>
+        <input>HR-C 06.00 PDF (multi-page)</input>
+        <expected>Text from pages 1, 2, 3+ with correct page numbers</expected>
+        <pass_criteria>page_count >= 3; each page has non-empty text</pass_criteria>
+      </test>
+      <test id="V-001-B" type="unit">
+        <description>Chunk count in vector store matches expected</description>
+        <input>Re-indexed HR-C 06.00</input>
+        <expected>Chunks exist for all pages, not just Page 1</expected>
+        <pass_criteria>chunk_count > chunks_from_page_1_only</pass_criteria>
+      </test>
+      <test id="V-001-C" type="integration">
+        <description>End-to-end retrieval from Page 2+</description>
+        <queries>
+          <query expected_policy="HR-C 06.00" expected_page="2+">What is 6.02 in HR-C 06.00?</query>
+          <query expected_policy="HR-C 06.00" expected_page="3+">What is 6.03 Supervisor Entry/Editing?</query>
+          <query expected_policy="HR-E 03.00" expected_page="2+">What are sections 3.04 and 3.05?</query>
+          <query expected_policy="HR-E 03.00" expected_page="2+">What are the levels of warning with or without suspension?</query>
+        </queries>
+        <pass_criteria>All 4 queries return content from the correct policy AND correct page (not Page 1)</pass_criteria>
+      </test>
+      <test id="V-001-D" type="regression">
+        <description>Page 1 retrieval still works after fix</description>
+        <queries>
+          <query expected_policy="HR-C 06.00" expected_page="1">Explain Time and Attendance recording</query>
+          <query expected_policy="HR-E 03.00" expected_page="1">How to choose the best discipline category?</query>
+        </queries>
+        <pass_criteria>Page 1 queries still return correct results (no regression)</pass_criteria>
+      </test>
+    </verification_plan>
+
+    <edge_cases>
+      <case>PDFs with scanned/image-only pages — requires OCR (Azure Document Intelligence or Tesseract)</case>
+      <case>Sections spanning a page break — chunk should include cross-page content or overlap</case>
+      <case>Very long policies (10+ pages) — ensure chunk overlap prevents information loss at boundaries</case>
+      <case>Tables or structured content that loses formatting in text extraction</case>
+      <case>Headers/footers repeated on every page — should be excluded or de-duplicated</case>
+    </edge_cases>
+
+    <rollback>
+      <step>Restore previous vector index from backup snapshot</step>
+      <step>Revert PDF parser module to prior commit</step>
+      <step>Verify Page 1 retrieval still works (baseline functionality)</step>
+    </rollback>
+  </bug>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- BUG #2: POLICY NUMBER LOOKUP FAILURE                                -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <bug id="BUG-002" priority="P1-High" status="fix_verified">
+    <title>Policy Number Lookup Failure — Cannot retrieve policies by ID (e.g., "HR-C 05.00")</title>
+    <severity>High</severity>
+    <category>Metadata Indexing + Query Preprocessing</category>
+    <impact>Users must memorize exact full policy titles; policy numbers (the primary identifier in HR workflows) are unusable</impact>
+
+    <description>
+      The chatbot cannot locate policies when users search by policy number
+      (e.g., "HR-C 05.00", "HR-C 06.00"). It returns "requested information not found."
+      The same policies are found when users enter the complete title. The policy number
+      is either not stored as metadata or the retrieval query does not match against it.
+    </description>
+
+    <evidence>
+      <test_case id="TC-002-A" policy="HR-C 05.00" result="FAIL">
+        <query>Can you summarize HR-C 05.00?</query>
+        <expected>Summary of Shift Differentials, Weekend and Holiday Premium Pay</expected>
+        <actual>"The requested information is not found in the retrieved data"</actual>
+      </test_case>
+      <test_case id="TC-002-B" policy="HR-C 05.00" result="FAIL">
+        <query>What is HR-C 05.00?</query>
+        <expected>Summary of Shift Differentials policy</expected>
+        <actual>"The requested information is not found in the retrieved data"</actual>
+      </test_case>
+      <test_case id="TC-002-C" policy="HR-C 06.00" result="FAIL">
+        <query>What is HR-C 06.00?</query>
+        <expected>Summary of Time and Attendance Recording</expected>
+        <actual>Chatbot cited wrong policy: HR-A 12.00 Reference, Verification, and Criminal Background Investigations</actual>
+      </test_case>
+      <test_case id="TC-002-D" policy="HR-C 06.00" result="FAIL">
+        <query>What is HR-C 0.600 Time and Attendance Recording?</query>
+        <expected>HR-C 06.00 content (typo-tolerant)</expected>
+        <actual>"Unable to verify factual accuracy"</actual>
+        <notes>User made a typo (0.600 instead of 06.00) — system should fuzzy-match or at least match on the title portion</notes>
+      </test_case>
+      <test_case id="TC-002-E" policy="HR-C 05.00" result="PASS">
+        <query>What is Shift Differentials, Weekend and Holiday Premium Pay?</query>
+        <expected>HR-C 05.00 summary</expected>
+        <actual>Correct — chatbot found and summarized the policy</actual>
+        <notes>Full title works; only policy number fails</notes>
+      </test_case>
+      <test_case id="TC-002-F" policy="HR-C 06.00" result="PASS">
+        <query>What is Time and Attendance Recording; Editing and Approval?</query>
+        <expected>HR-C 06.00 summary</expected>
+        <actual>Correct — chatbot found and summarized the policy</actual>
+        <notes>Full title works; policy number fails</notes>
+      </test_case>
+    </evidence>
+
+    <root_cause_analysis>
+      <probable_cause confidence="high">
+        Policy numbers (e.g., "HR-C 05.00") are not stored as searchable metadata
+        fields in the vector index. The embedding of body text may not contain the
+        policy number prominently enough for semantic similarity to surface it.
+        Additionally, the retrieval query has no preprocessing to detect policy number
+        patterns and apply targeted metadata filtering.
+      </probable_cause>
+      <investigation_checklist>
+        <check id="RCA-2A" stage="Metadata Schema">
+          Inspect vector store schema: does a "policy_number" field exist?
+          If not, this is the root cause.
+        </check>
+        <check id="RCA-2B" stage="Document Ingestion">
+          Check if policy numbers are extracted during PDF ingestion.
+          Likely source: PDF filename (e.g., "HR-C 05.00 Shift Differentials...pdf")
+          or document header on Page 1.
+        </check>
+        <check id="RCA-2C" stage="Query Pipeline">
+          Check if query preprocessing detects policy number patterns.
+          Without a metadata filter, "HR-C 05.00" is treated as a semantic query
+          and may not match any embedded text closely enough.
+        </check>
+      </investigation_checklist>
+    </root_cause_analysis>
+
+    <fix_specification>
+      <fix id="FIX-002-A" target="Metadata Schema">
+        <action>Add policy_number as a filterable string field in the vector store schema</action>
+        <schema_addition>
+          field: policy_number
+          type: string (filterable, not tokenized)
+          example_values: "HR-C 05.00", "HR-E 03.00", "HR-A 01.00"
+        </schema_addition>
+      </fix>
+      <fix id="FIX-002-B" target="Ingestion Pipeline">
+        <action>Extract policy_number from filename or document header using regex during PDF ingestion</action>
+        <regex_pattern>[A-Z]{2}-[A-Z]\s?\d{2}\.?\d{0,2}</regex_pattern>
+        <source_priority>1. Filename, 2. Page 1 header text, 3. Manual mapping table</source_priority>
+        <verification>Every chunk in the index has a non-null policy_number metadata field</verification>
+      </fix>
+      <fix id="FIX-002-C" target="Query Preprocessing">
+        <action>Add policy number detection to query preprocessing; when detected, apply metadata filter before or alongside semantic search</action>
+        <logic>
+          1. Regex scan user query for policy number pattern
+          2. If found: filter vector store by policy_number == detected_value
+          3. Then run semantic search within filtered results
+          4. If no results: fall back to unfiltered semantic search
+        </logic>
+        <verification>Query "HR-C 05.00" triggers metadata filter and returns correct policy</verification>
+      </fix>
+      <fix id="FIX-002-D" target="Fuzzy Matching (optional enhancement)">
+        <action>Normalize policy number variants before matching</action>
+        <normalizations>
+          - Strip spaces: "HR-C 05.00" == "HRC 05.00" == "HR-C05.00"
+          - Handle missing leading zero: "HR-C 5.00" == "HR-C 05.00"
+          - Handle partial numbers: "HR-C 05" matches "HR-C 05.00"
+        </normalizations>
+      </fix>
+    </fix_specification>
+
+    <verification_plan>
+      <test id="V-002-A" type="unit">
+        <description>Policy number extraction from filename</description>
+        <input>"HR-C 05.00 Shift Differentials, Weekend and Holiday Premium Pay (1209).pdf"</input>
+        <expected>policy_number = "HR-C 05.00"</expected>
+        <pass_criteria>Extracted value matches expected</pass_criteria>
+      </test>
+      <test id="V-002-B" type="unit">
+        <description>Query preprocessing detects policy number</description>
+        <input>"Can you summarize HR-C 05.00?"</input>
+        <expected>Detected policy_number = "HR-C 05.00"; metadata filter applied</expected>
+        <pass_criteria>Regex correctly extracts policy number from natural language query</pass_criteria>
+      </test>
+      <test id="V-002-C" type="integration">
+        <description>End-to-end policy number lookup</description>
+        <queries>
+          <query expected_policy="HR-C 05.00">Can you summarize HR-C 05.00?</query>
+          <query expected_policy="HR-C 05.00">What is HR-C 05.00?</query>
+          <query expected_policy="HR-C 06.00">What is HR-C 06.00?</query>
+          <query expected_policy="HR-E 03.00">Summarize HR-E 03.00</query>
+          <query expected_policy="HR-E 07.00">What is HR-E 07.00?</query>
+        </queries>
+        <pass_criteria>All queries return the correct policy by number</pass_criteria>
+      </test>
+      <test id="V-002-D" type="regression">
+        <description>Full title queries still work</description>
+        <queries>
+          <query expected_policy="HR-C 05.00">What is Shift Differentials, Weekend and Holiday Premium Pay?</query>
+          <query expected_policy="HR-C 06.00">What is Time and Attendance Recording; Editing and Approval?</query>
+        </queries>
+        <pass_criteria>No regression on existing full-title queries</pass_criteria>
+      </test>
+      <test id="V-002-E" type="edge_case">
+        <description>Partial and variant policy number formats</description>
+        <queries>
+          <query expected_policy="HR-C 05.00" variant="partial">What is HR-C 05?</query>
+          <query expected_policy="HR-C 05.00" variant="no_hyphen">What is HRC 05.00?</query>
+          <query expected_policy="HR-C 05.00" variant="mid_sentence">Tell me about HR-C 05.00 and night shifts</query>
+        </queries>
+        <pass_criteria>At minimum, exact format matches; partial/variant matching is a bonus</pass_criteria>
+      </test>
+    </verification_plan>
+
+    <dependency>
+      <note>BUG-001 fix is a prerequisite — re-indexing for BUG-001 should include the new policy_number metadata field to avoid a second re-index.</note>
+    </dependency>
+
+    <rollback>
+      <step>Remove policy_number field from index schema</step>
+      <step>Revert query preprocessing to prior version</step>
+      <step>Full title queries continue to work (baseline)</step>
+    </rollback>
+  </bug>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- BUG #3: PUNCTUATION-SENSITIVE PARTIAL TITLE MATCHING                -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <bug id="BUG-003" priority="P2-Medium" status="fix_verified">
+    <title>Punctuation-Sensitive Matching — Commas/semicolons in titles break partial keyword search</title>
+    <severity>Medium</severity>
+    <category>Query Normalization / Index Tokenizer</category>
+    <impact>Inconsistent search experience; users must guess exact punctuation to find policies</impact>
+
+    <description>
+      Partial title searches fail when the search term is a substring that precedes
+      a comma or semicolon in the policy title. The retrieval system appears to include
+      punctuation in token boundaries, so "Shift Differentials" (without comma) does not
+      match the indexed token "Shift Differentials," (with comma). Adding the trailing
+      comma to the query makes it work, confirming the tokenizer treats punctuation as
+      part of the token rather than a delimiter.
+    </description>
+
+    <evidence>
+      <test_case id="TC-003-A" policy="HR-C 05.00" result="FAIL">
+        <query>Can you summarize Shift Differentials?</query>
+        <expected>HR-C 05.00 Shift Differentials policy</expected>
+        <actual>Chatbot cited wrong policy: NSAD-0001 Registered Nurse Working Outside their Primary Accounting Unit</actual>
+      </test_case>
+      <test_case id="TC-003-B" policy="HR-C 05.00" result="FAIL">
+        <query>What's the policy on Shift Differentials?</query>
+        <expected>HR-C 05.00</expected>
+        <actual>Chatbot cited wrong policy: NSAD-0030.NR RUMC Division of Nursing Attendance Policy</actual>
+      </test_case>
+      <test_case id="TC-003-C" policy="HR-C 05.00" result="PASS">
+        <query>What's the policy on Shift Differentials,</query>
+        <expected>HR-C 05.00</expected>
+        <actual>Correct — chatbot found and summarized the policy</actual>
+        <notes>CRITICAL: Adding the trailing comma made it work. This proves the tokenizer includes commas in tokens.</notes>
+      </test_case>
+      <test_case id="TC-003-D" policy="HR-C 05.00" result="PASS">
+        <query>What's the policy on Holiday Premium Pay?</query>
+        <expected>HR-C 05.00</expected>
+        <actual>Correct — chatbot found the policy</actual>
+        <notes>"Holiday Premium Pay" appears at the END of the title (no trailing punctuation), so it matches fine</notes>
+      </test_case>
+    </evidence>
+
+    <root_cause_analysis>
+      <probable_cause confidence="high">
+        The search index uses a keyword/hybrid retrieval strategy where the tokenizer
+        (analyzer) does NOT strip punctuation before indexing. As a result:
+        - Indexed token: "Differentials," (with comma)
+        - Query token: "Differentials" (without comma)
+        - These do not match because the comma is part of the indexed token.
+
+        This is likely a KEYWORD search issue, not a pure vector/embedding issue.
+        Embeddings are generally punctuation-agnostic, so if retrieval were purely
+        vector-based, this bug would not manifest. The presence of this bug strongly
+        suggests hybrid search (keyword + vector) or a keyword-based title filter.
+      </probable_cause>
+      <investigation_checklist>
+        <check id="RCA-3A" stage="Index Analyzer">
+          Inspect the analyzer/tokenizer configuration on the search index.
+          Is punctuation stripping enabled? What analyzer is used (standard, keyword, custom)?
+          For Azure AI Search: check the analyzer on the "title" and "content" fields.
+        </check>
+        <check id="RCA-3B" stage="Hybrid vs. Pure Vector">
+          Determine if retrieval uses hybrid search (keyword + vector) or pure vector.
+          If hybrid: the keyword component is likely the source of punctuation sensitivity.
+          If pure vector: the issue may be in a pre-filter or post-filter on document title.
+        </check>
+        <check id="RCA-3C" stage="Query Preprocessing">
+          Check if user queries are normalized (punctuation stripped) before being sent
+          to the search index. If not, this is a quick fix on the query side.
+        </check>
+      </investigation_checklist>
+    </root_cause_analysis>
+
+    <fix_specification>
+      <fix id="FIX-003-A" target="Query Preprocessing (preferred — no re-index needed)">
+        <action>Strip commas, semicolons, colons, and common punctuation from user queries before sending to retrieval</action>
+        <pseudocode>
+          import re
+          def normalize_query(query: str) -> str:
+              # Remove commas, semicolons, colons (but preserve hyphens for policy numbers)
+              normalized = re.sub(r'[,;:]+', ' ', query)
+              # Collapse multiple spaces
+              normalized = re.sub(r'\s+', ' ', normalized).strip()
+              return normalized
+        </pseudocode>
+        <verification>"Shift Differentials" (no comma) returns HR-C 05.00</verification>
+      </fix>
+      <fix id="FIX-003-B" target="Index Analyzer (if query-side fix alone is insufficient)">
+        <action>Update the search index analyzer to use a standard analyzer with punctuation filtering</action>
+        <azure_ai_search_example>
+          <!-- For Azure AI Search: use built-in "standard.lucene" analyzer which strips punctuation -->
+          <!-- Or add a custom analyzer with a char_filter that removes punctuation -->
+          analyzer: "standard.lucene"
+          OR
+          custom_analyzer:
+            tokenizer: "standard"
+            char_filters: ["punctuation_strip"]
+            token_filters: ["lowercase"]
+        </azure_ai_search_example>
+        <notes>Changing the analyzer requires re-indexing all documents. Prefer FIX-003-A first.</notes>
+        <verification>Index tokens for "Shift Differentials, Weekend..." are ["shift", "differentials", "weekend", ...] without punctuation</verification>
+      </fix>
+      <fix id="FIX-003-C" target="Content Normalization at Ingestion">
+        <action>Strip punctuation from policy titles during ingestion before storing as metadata</action>
+        <notes>This is a belt-and-suspenders approach: normalize BOTH at query time AND at index time</notes>
+        <verification>Stored title metadata is punctuation-normalized</verification>
+      </fix>
+    </fix_specification>
+
+    <verification_plan>
+      <test id="V-003-A" type="unit">
+        <description>Query normalization function strips punctuation</description>
+        <input>"Shift Differentials,"</input>
+        <expected>"Shift Differentials"</expected>
+        <pass_criteria>Trailing comma removed; query semantics preserved</pass_criteria>
+      </test>
+      <test id="V-003-B" type="unit">
+        <description>Query normalization preserves hyphens (needed for policy numbers)</description>
+        <input>"HR-C 05.00"</input>
+        <expected>"HR-C 05.00" (unchanged)</expected>
+        <pass_criteria>Hyphens and periods in policy numbers are NOT stripped</pass_criteria>
+      </test>
+      <test id="V-003-C" type="integration">
+        <description>End-to-end partial title search without punctuation</description>
+        <queries>
+          <query expected_policy="HR-C 05.00">Can you summarize Shift Differentials?</query>
+          <query expected_policy="HR-C 05.00">What's the policy on Shift Differentials?</query>
+          <query expected_policy="HR-C 06.00">Tell me about Time and Attendance Recording</query>
+          <query expected_policy="HR-E 03.00">What are the Disciplinary Procedures?</query>
+        </queries>
+        <pass_criteria>All queries return the correct policy regardless of punctuation in the title</pass_criteria>
+      </test>
+      <test id="V-003-D" type="regression">
+        <description>Full title queries (with punctuation) still work</description>
+        <queries>
+          <query expected_policy="HR-C 05.00">What is Shift Differentials, Weekend and Holiday Premium Pay?</query>
+          <query expected_policy="HR-C 06.00">What is Time and Attendance Recording; Editing and Approval?</query>
+        </queries>
+        <pass_criteria>No regression — full title queries still work</pass_criteria>
+      </test>
+    </verification_plan>
+
+    <rollback>
+      <step>Revert query normalization function to prior version</step>
+      <step>If index analyzer was changed: restore previous analyzer config and re-index</step>
+    </rollback>
+  </bug>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- POSITIVE FINDINGS (working features to preserve)                    -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <positive_findings>
+    <finding id="POS-001">
+      <title>Configurable Summary Length</title>
+      <description>Chatbot complies with user requests for specific summary lengths (e.g., "3-sentence summary").</description>
+      <evidence>HR-E 07.00 ADA Accommodation Request Process returned accurate 3-sentence summary when asked.</evidence>
+      <preserve>true</preserve>
+    </finding>
+    <finding id="POS-002">
+      <title>Contact Information Extraction</title>
+      <description>Chatbot correctly identifies and returns contact information (names, emails, offices) embedded in policy documents.</description>
+      <evidence>Employee Appeals Policy — chatbot returned Office of Institutional Equity at Ngan_K_Luong@rush.edu.</evidence>
+      <preserve>true</preserve>
+    </finding>
+    <finding id="POS-003">
+      <title>Step-by-Step Process Extraction</title>
+      <description>Chatbot can identify and present procedural steps when explicitly prompted.</description>
+      <evidence>Employee Appeals Policy — 3-step process correctly identified and summarized.</evidence>
+      <preserve>true</preserve>
+    </finding>
+    <finding id="POS-004">
+      <title>Full Title Search Works</title>
+      <description>Queries using the complete policy title reliably retrieve correct documents.</description>
+      <evidence>Multiple policies confirmed: HR-C 05.00, HR-C 06.00, HR-E 03.00, HR-E 07.00.</evidence>
+      <preserve>true</preserve>
+    </finding>
+    <finding id="POS-005">
+      <title>Cross-Policy Citation</title>
+      <description>Chatbot can cite multiple related policies in a single response when appropriate.</description>
+      <evidence>"Holiday Premium Pay" query returned HR-C 05.00, Paid Time Off and Sick Time, and HR-B 13.00 with cross-references.</evidence>
+      <preserve>true</preserve>
+    </finding>
+  </positive_findings>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- PRODUCTION RAG RECOMMENDATIONS                                      -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <production_recommendations>
+    <recommendation id="REC-001" category="Ingestion">
+      <title>Implement per-page chunking with overlap</title>
+      <description>
+        Chunk each page independently with 100-200 token overlap between consecutive
+        page chunks. Attach page_number, policy_number, policy_title, and section_number
+        metadata to every chunk.
+      </description>
+      <priority>P0 — Required for BUG-001 fix</priority>
+    </recommendation>
+
+    <recommendation id="REC-002" category="Metadata">
+      <title>Build a policy registry / lookup table</title>
+      <description>
+        Maintain a small lookup table mapping policy_number → policy_title → filename.
+        Use this for deterministic retrieval when users query by policy number, bypassing
+        semantic search entirely for exact-match scenarios.
+      </description>
+      <priority>P1 — Required for BUG-002 fix</priority>
+    </recommendation>
+
+    <recommendation id="REC-003" category="Query Pipeline">
+      <title>Implement multi-stage retrieval</title>
+      <description>
+        Stage 1: Detect policy number in query → metadata filter.
+        Stage 2: Detect policy title keywords → hybrid keyword+vector search.
+        Stage 3: Fall back to pure semantic search if stages 1-2 return no results.
+        This tiered approach handles all three query patterns (number, title, natural language).
+      </description>
+      <priority>P1 — Addresses all 3 bugs systemically</priority>
+    </recommendation>
+
+    <recommendation id="REC-004" category="Query Pipeline">
+      <title>Add query normalization layer</title>
+      <description>
+        Before any retrieval: strip punctuation (except hyphens/periods in policy numbers),
+        normalize whitespace, lowercase for keyword matching. This prevents BUG-003 class
+        issues and improves general retrieval robustness.
+      </description>
+      <priority>P2 — Required for BUG-003 fix</priority>
+    </recommendation>
+
+    <recommendation id="REC-005" category="Testing">
+      <title>Build automated regression test suite</title>
+      <description>
+        Create a test harness with the queries from this document. Run automatically
+        after every re-index or pipeline change. Include:
+        - Page 1 retrieval (baseline)
+        - Page 2+ retrieval (BUG-001)
+        - Policy number queries (BUG-002)
+        - Partial title queries without punctuation (BUG-003)
+        - Full title queries (regression)
+        - Contact information extraction
+        - Multi-policy cross-referencing
+      </description>
+      <priority>P1 — Prevents future regressions</priority>
+    </recommendation>
+
+    <recommendation id="REC-006" category="Monitoring">
+      <title>Log retrieval misses and zero-result queries</title>
+      <description>
+        Track queries where the chatbot returns "Unable to verify," "Not found," or
+        "Outside my scope." Alert when miss rate exceeds threshold. These logs would
+        have caught all 3 bugs before user testing.
+      </description>
+      <priority>P2 — Production observability</priority>
+    </recommendation>
+
+    <recommendation id="REC-007" category="Chunking">
+      <title>Include section headers in every chunk</title>
+      <description>
+        Prepend the policy number, policy title, and current section header to every
+        chunk as a prefix. This improves both semantic similarity (the chunk is
+        self-describing) and keyword matching (section references are always present).
+        Example chunk prefix: "[HR-C 06.00 Time and Attendance Recording — Section 6.03 Supervisor Entry/Editing]"
+      </description>
+      <priority>P1 — Significantly improves retrieval quality for all query types</priority>
+    </recommendation>
+
+    <recommendation id="REC-008" category="Fallback">
+      <title>Improve "not found" responses with suggestions</title>
+      <description>
+        When retrieval returns no confident results, instead of "Unable to verify" or
+        "Outside my scope," return: "I couldn't find an exact match. Did you mean one
+        of these policies: [list top 3 closest matches]?" This helps users reformulate
+        queries and reduces dead-end interactions.
+      </description>
+      <priority>P3 — UX improvement</priority>
+    </recommendation>
+  </production_recommendations>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- IMPLEMENTATION ROADMAP                                              -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <implementation_roadmap>
+    <phase number="1" name="Critical Fix Sprint" duration="1-2 days">
+      <objective>Fix multi-page retrieval (BUG-001) — the highest-impact bug</objective>
+      <tasks>
+        <task>Audit PDF parser for page truncation</task>
+        <task>Fix parser to iterate all pages</task>
+        <task>Add page_number + policy_number metadata to chunks</task>
+        <task>Re-index all 8 test documents</task>
+        <task>Run verification tests V-001-A through V-001-D</task>
+      </tasks>
+      <exit_criteria>All Page 2+ queries return correct content</exit_criteria>
+    </phase>
+
+    <phase number="2" name="Metadata + Query Enhancement" duration="1-2 days">
+      <objective>Fix policy number lookup (BUG-002) and punctuation matching (BUG-003)</objective>
+      <tasks>
+        <task>Add policy_number to vector store schema</task>
+        <task>Implement query preprocessing: policy number detection + punctuation normalization</task>
+        <task>Implement multi-stage retrieval (REC-003)</task>
+        <task>Run verification tests V-002-* and V-003-*</task>
+      </tasks>
+      <dependency>Phase 1 must be complete (re-indexing includes new metadata)</dependency>
+      <exit_criteria>Policy number queries and partial title queries all pass</exit_criteria>
+    </phase>
+
+    <phase number="3" name="Production Hardening" duration="3-5 days">
+      <objective>Build regression test suite and monitoring</objective>
+      <tasks>
+        <task>Build automated test harness (REC-005)</task>
+        <task>Implement retrieval miss logging (REC-006)</task>
+        <task>Add section header prefixes to chunks (REC-007)</task>
+        <task>Improve fallback responses (REC-008)</task>
+        <task>Full regression test across all 8 documents</task>
+      </tasks>
+      <exit_criteria>All automated tests pass; monitoring is live; no regressions</exit_criteria>
+    </phase>
+  </implementation_roadmap>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- SUMMARY                                                             -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <summary>
+    <total_bugs>3</total_bugs>
+    <total_test_cases>17</total_test_cases>
+    <test_cases_passing>6</test_cases_passing>
+    <test_cases_failing>11</test_cases_failing>
+    <positive_findings>5</positive_findings>
+    <production_recommendations>8</production_recommendations>
+    <estimated_fix_effort>5-9 days across 3 phases</estimated_fix_effort>
+    <principle>Think like a senior developer: prefer the smallest, simplest change; write the fewest lines necessary; do not over-engineer.</principle>
+  </summary>
+
+</bug_tracker>
