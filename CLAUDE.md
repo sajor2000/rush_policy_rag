@@ -54,6 +54,26 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step Azure resource creation
 - Backend: `https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
 - Frontend: `https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
 
+### Azure AD Easy Auth Configuration
+
+Both Container Apps have Azure AD Easy Auth enabled at the **ingress layer** (before traffic reaches the app):
+
+| Container App | Unauthenticated Action | Excluded Paths |
+|---------------|----------------------|----------------|
+| **Frontend** | `RedirectToLoginPage` | `/api/chat`, `/api/chat/stream`, `/api/health`, `/api/search-instances`, `/api/sync-info`, `/api/pdf` |
+| **Backend** | `AllowAnonymous` | None (all traffic allowed) |
+
+The frontend API routes (`/api/*`) are excluded from auth so the Next.js proxy can forward requests to the backend without AAD tokens. UI pages still require AAD login.
+
+**Known issue**: The `az containerapp auth update --excluded-paths` CLI command has a [bug that trims path characters](https://github.com/microsoft/azure-container-apps/issues/464). Use the REST API instead:
+```bash
+az rest --method PUT \
+  --url "/subscriptions/e5282183-61c9-4c17-a58a-9442db9594d5/resourceGroups/RU-A-NonProd-AI-Innovation-RG/providers/Microsoft.App/containerApps/rush-policy-frontend/authConfigs/current?api-version=2024-03-01" \
+  --body '{ "properties": { "platform": { "enabled": true }, "globalValidation": { "unauthenticatedClientAction": "RedirectToLoginPage", "redirectToProvider": "azureactivedirectory", "excludedPaths": ["/api/chat", "/api/chat/stream", "/api/health", "/api/search-instances", "/api/sync-info", "/api/pdf"] }, "identityProviders": { "azureActiveDirectory": { "isAutoProvisioned": true, "registration": { "clientId": "ea94d628-0f36-40f5-98b2-48fcf9167aa0", "clientSecretSettingName": "microsoft-provider-authentication-secret", "openIdIssuer": "https://sts.windows.net/822ee4ca-eeac-4bf4-957b-97a4bb0b1697/v2.0" }, "validation": { "allowedAudiences": ["api://ea94d628-0f36-40f5-98b2-48fcf9167aa0"] } } } } }'
+```
+
+**If new frontend API routes are added**, they must be appended to the `excludedPaths` array or they will be blocked by Easy Auth with a 401.
+
 **Before deploying**, ensure you're logged into the correct subscription:
 ```bash
 az account set --subscription "RU-Azure-NonProd"
