@@ -68,7 +68,6 @@ class Settings(BaseSettings):
 
     # Cohere Rerank 4.0 Pro (cross-encoder for negation-aware search)
     # Deployed on Azure AI Foundry as serverless API
-    # v4.0 Pro (Dec 2025): 32k context, 9.5% accuracy improvement, healthcare-optimized
     USE_COHERE_RERANK: bool = False  # Feature flag: use Cohere instead of On Your Data
     COHERE_RERANK_ENDPOINT: Optional[str] = None  # Supports v1 and v2 API formats
     COHERE_RERANK_API_KEY: Optional[str] = None

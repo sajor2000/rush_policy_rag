@@ -12,8 +12,8 @@ Start here to understand the system's security posture, audit trail, document so
 
 | Document | What It Answers |
 |----------|----------------|
-| [SECURITY.md](../SECURITY.md) | How is the system secured? (Auth, input validation, HIPAA controls) |
-| [SECURITY.md](SECURITY.md) | Detailed security architecture (encryption, headers, static analysis) |
+| [SECURITY.md](../SECURITY.md) | Vulnerability reporting and security policy (repo root) |
+| [Security Architecture](SECURITY.md) | Detailed security architecture (encryption, headers, HIPAA controls) |
 | [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) | How are inputs/outputs monitored and improved over time? |
 | [RAG_EVALUATION_MATRIX.md](RAG_EVALUATION_MATRIX.md) | What testing happens, when, and what thresholds apply? |
 | [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md) | How do documents get from PolicyTech into the RAG system? |
@@ -29,6 +29,8 @@ Monthly updates, deployment procedures, and troubleshooting.
 |----------|----------------|
 | [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) | How do I process monthly policy updates? (Full procedures + quick reference) |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | How do I deploy to Azure Container Apps? |
+| [CICD_PIPELINE.md](CICD_PIPELINE.md) | How does automated CI/CD deployment work? |
+| [GITHUB_ENVIRONMENTS_SETUP.md](GITHUB_ENVIRONMENTS_SETUP.md) | How do I configure GitHub Environments and branch protection? |
 | [AZURE_INDEX_UPDATE_GUIDE.md](AZURE_INDEX_UPDATE_GUIDE.md) | How do I update the Azure Search index schema? |
 | [PDF_INDEXING_GUIDE.md](PDF_INDEXING_GUIDE.md) | How do I ingest and index PDFs? |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and solutions |
@@ -59,13 +61,15 @@ Getting started, testing, and contributing.
 | [POLICYTECH_DOCUMENT_SOURCING.md](POLICYTECH_DOCUMENT_SOURCING.md) | PolicyTech → RAG document flow | Compliance, Operators | ✅ Current | 2026-02-12 |
 | [AUDIT_AND_QUALITY.md](AUDIT_AND_QUALITY.md) | Audit logging and RAG quality assessment | Compliance, Developers | ✅ Current | 2026-02-12 |
 | [RAG_EVALUATION_MATRIX.md](RAG_EVALUATION_MATRIX.md) | Evaluation context matrix (what runs when) | Compliance, Auditors | ✅ Current | 2026-02-12 |
-| [SECURITY.md](../SECURITY.md) | Security policy and vulnerability reporting | Auditors | ✅ Current | 2026-02-12 |
-| [SECURITY.md](SECURITY.md) | Security architecture documentation | Security Team | ✅ Current | 2026-02-12 |
+| [SECURITY.md](../SECURITY.md) | Vulnerability reporting and security policy | Auditors | ✅ Current | 2026-02-12 |
+| [Security Architecture](SECURITY.md) | Security architecture (encryption, headers, HIPAA) | Security Team | ✅ Current | 2026-02-12 |
 | [TECHNICAL_ARCHITECTURE_PWC.md](TECHNICAL_ARCHITECTURE_PWC.md) | Technical architecture review | Architects | ✅ Current | 2026-02-12 |
 | [RAG_DESIGN.md](RAG_DESIGN.md) | RAG architecture decisions | Developers | ✅ Current | 2026-02-12 |
 | [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) | Visual system diagrams (Mermaid) | All | ✅ Current | 2026-02-03 |
 | [RushPolicyAssistant_Architecture.pdf](RushPolicyAssistant_Architecture.pdf) | Azure cloud diagram | All | ✅ Current | 2026-02-03 |
 | [MONTHLY_UPDATE_PROCEDURES.md](MONTHLY_UPDATE_PROCEDURES.md) | Monthly policy update workflow | Operators | ✅ Current | 2026-02-12 |
+| [CICD_PIPELINE.md](CICD_PIPELINE.md) | CI/CD pipeline architecture and deployment flow | DevOps | ✅ Current | 2026-02-12 |
+| [GITHUB_ENVIRONMENTS_SETUP.md](GITHUB_ENVIRONMENTS_SETUP.md) | GitHub Environments and branch protection setup | DevOps | ✅ Current | 2026-02-12 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Step-by-step Azure deployment | DevOps | ✅ Current | 2026-01-11 |
 | [AZURE_INDEX_UPDATE_GUIDE.md](AZURE_INDEX_UPDATE_GUIDE.md) | Azure Search index update procedures | DevOps | ✅ Current | 2026-01-31 |
 | [PDF_INDEXING_GUIDE.md](PDF_INDEXING_GUIDE.md) | PDF ingestion and indexing guide | Operators | ✅ Current | 2026-01-31 |
@@ -101,6 +105,8 @@ docs/
 ├── ARCHITECTURE_DIAGRAMS.md         # Visual system diagrams (Mermaid)
 ├── RushPolicyAssistant_Architecture.pdf # Azure cloud architecture
 ├── MONTHLY_UPDATE_PROCEDURES.md     # Monthly policy update workflow
+├── CICD_PIPELINE.md                 # CI/CD pipeline architecture
+├── GITHUB_ENVIRONMENTS_SETUP.md     # GitHub Environments setup guide
 ├── DEPLOYMENT.md                    # Step-by-step Azure deployment
 ├── AZURE_INDEX_UPDATE_GUIDE.md      # Azure Search index update procedures
 ├── PDF_INDEXING_GUIDE.md            # PDF ingestion and indexing guide
@@ -124,4 +130,4 @@ docs/
 1. **Development questions**: See [CLAUDE.md](../CLAUDE.md)
 2. **Deployment issues**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 3. **Configuration**: See [ENV_VARS.md](ENV_VARS.md)
-4. **Report issues**: [GitHub Issues](https://github.com/sajor2000/rush_policy_rag/issues)
+4. **Report issues**: [GitHub Issues](https://github.com/RushAI-jcr/policychat_rush/issues)

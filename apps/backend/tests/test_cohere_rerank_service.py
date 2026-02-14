@@ -317,7 +317,6 @@ class TestNegationHandling:
         - Doc with "NOT authorized to accept" should rank LOWER than
         - Doc with "authorized to accept verbal orders"
 
-        v4.0 Pro has 32k context and 9.5% accuracy improvement over v3.5.
         This is tested in the full enhanced evaluation suite.
         """
         # This test documents the expected behavior

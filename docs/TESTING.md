@@ -290,15 +290,7 @@ def test_with_mock(mock_index):
 
 ## Performance Benchmarks
 
-Run performance tests:
-
-```bash
-python scripts/measure_backend_performance.py
-```
-
 Expected baselines:
 - Cold start: < 5 seconds
 - Warm query: < 2 seconds
 - Cache hit: < 100ms
-
-See `docs/baselines/` for historical performance data.

@@ -236,6 +236,20 @@ def compare_periods(
     }
 
 
+def _parse_month_arg(value: str, name: str) -> tuple[int, int]:
+    """Parse and validate a YYYY-MM argument, returning (year, month)."""
+    parts = value.split("-")
+    if len(parts) != 2:
+        raise SystemExit(f"Invalid {name}: expected YYYY-MM, got '{value}'")
+    try:
+        year, month = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise SystemExit(f"Invalid {name}: expected YYYY-MM, got '{value}'")
+    if not (2020 <= year <= 2100) or not (1 <= month <= 12):
+        raise SystemExit(f"Invalid {name}: year={year}, month={month}")
+    return year, month
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Detect operational drift between monthly audit periods"
@@ -282,12 +296,12 @@ def main() -> int:
 
     # Resolve current/baseline months
     if args.current:
-        current_year, current_month = (int(x) for x in args.current.split("-"))
+        current_year, current_month = _parse_month_arg(args.current, "--current")
     else:
         current_year, current_month = now.year, now.month
 
     if args.baseline:
-        baseline_year, baseline_month = (int(x) for x in args.baseline.split("-"))
+        baseline_year, baseline_month = _parse_month_arg(args.baseline, "--baseline")
     else:
         # Previous month
         if current_month == 1:

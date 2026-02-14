@@ -11,6 +11,7 @@ import PDFViewer from "./PDFViewer";
 import InstanceSearchModal from "./InstanceSearchModal";
 import {
   sendMessage,
+  sendMessageStream,
   searchInstances,
   type Source,
   type Evidence,
@@ -37,6 +38,8 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingStatus, setStreamingStatus] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -250,40 +253,105 @@ export default function ChatInterface() {
       return;
     }
 
-    // Normal Q&A mode (non-streaming)
+    // Normal Q&A mode — streaming for real-time progress
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setIsLoading(true);
+    setIsStreaming(true);
+    setStreamingStatus(undefined);
 
-    try {
-      const result = await sendMessage(userMessage);
+    // Add placeholder assistant message that will be progressively filled
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "", found: undefined },
+    ]);
 
-      // Check if clarification is needed (e.g., ambiguous device terms like "IV")
-      if (result.confidence === "clarification_needed" && result.clarification) {
+    await sendMessageStream(userMessage, {
+      onStatus: (message) => {
+        setStreamingStatus(message);
+      },
+      onAnswerChunk: (content) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last.role === "assistant") {
+            updated[updated.length - 1] = { ...last, content: last.content + content };
+          }
+          return updated;
+        });
+      },
+      onEvidence: (items) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last.role === "assistant") {
+            updated[updated.length - 1] = { ...last, evidence: items };
+          }
+          return updated;
+        });
+      },
+      onSources: (items) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last.role === "assistant") {
+            updated[updated.length - 1] = { ...last, sources: items };
+          }
+          return updated;
+        });
+      },
+      onMetadata: (data) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last.role === "assistant") {
+            updated[updated.length - 1] = {
+              ...last,
+              found: data.found !== undefined ? data.found : (last.evidence?.length ?? 0) > 0,
+            };
+          }
+          return updated;
+        });
+      },
+      onClarification: (data) => {
+        // Remove the empty placeholder message
+        setMessages((prev) => prev.slice(0, -1));
         setShowClarification({
-          ...result.clarification,
+          ...data,
           originalQuery: userMessage,
         });
         setIsLoading(false);
-        return;
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: result.summary || result.response,
-          summary: result.summary || result.response,
-          evidence: result.evidence || [],
-          sources: result.sources || [],
-          rawResponse: result.raw_response,
-          found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0,
-        },
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setIsLoading(false);
-    }
+        setIsStreaming(false);
+        setStreamingStatus(undefined);
+      },
+      onDone: () => {
+        // Set summary = content for the completed message
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last.role === "assistant") {
+            updated[updated.length - 1] = { ...last, summary: last.content };
+          }
+          return updated;
+        });
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingStatus(undefined);
+      },
+      onError: (err) => {
+        // Remove the empty placeholder message if no content was streamed
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last.role === "assistant" && !last.content) {
+            return prev.slice(0, -1);
+          }
+          return prev;
+        });
+        setError(err.message);
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingStatus(undefined);
+      },
+    });
   };
 
   const handleRetry = () => {
@@ -386,7 +454,7 @@ export default function ChatInterface() {
             ))}
             {isLoading && (
               <div aria-live="assertive" aria-busy="true">
-                <LoadingState />
+                <LoadingState status={streamingStatus} isStreaming={isStreaming} />
               </div>
             )}
             {error && (

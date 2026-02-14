@@ -134,7 +134,7 @@ flowchart LR
 ### RAG query pipeline
 
 - Hybrid retrieval from **Azure AI Search** (keyword + vector) with semantic ranking.
-- Optional cross-encoder reranking via **Cohere Rerank 4.0 Pro** to improve precision and handle negation (9.5% accuracy improvement over v3.5, 32k context window).
+- Optional cross-encoder reranking via **Cohere Rerank 4.0 Pro** to improve precision and handle negation.
 - Deterministic generation settings (e.g., `temperature=0.0`) and strict prompting to reduce hallucinations.
 - Response payload includes:
   - `summary` / `response` text

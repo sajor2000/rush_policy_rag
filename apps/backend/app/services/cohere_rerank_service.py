@@ -4,11 +4,8 @@ Cohere Rerank Service
 Provides cross-encoder reranking for negation-aware search.
 Supports Cohere Rerank v4.0 Pro deployed on Azure AI Foundry.
 
-Rerank 4.0 Pro (Dec 2025):
-- Healthcare-optimized: "tuned for healthcare, finance, government"
-- 9.5% accuracy improvement over v3.5 with same latency
-- Context length: 32,768 tokens (8x larger than v3.5's 4,096)
-- Query token limit: 16,384 tokens (8x larger than v3.5's 2,048)
+Rerank 4.0 Pro:
+- Cross-encoder for negation-aware retrieval
 - Supports v2 API endpoint format
 - Semi-structured data (JSON/YAML) support
 
@@ -126,13 +123,13 @@ class CohereRerankService:
 
             # Sync client (for backwards compatibility)
             self._client = httpx.Client(
-                timeout=30.0,
+                timeout=20.0,
                 headers=headers
             )
             
             # Async client with connection pooling for better performance
             self._async_client = httpx.AsyncClient(
-                timeout=30.0,
+                timeout=20.0,
                 headers=headers,
                 limits=httpx.Limits(
                     max_keepalive_connections=5,
@@ -261,7 +258,7 @@ class CohereRerankService:
         return reranked
 
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(2),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         # Retry on HTTP errors AND network/timeout errors for production resilience
         retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TransportError)),
@@ -404,7 +401,7 @@ class CohereRerankService:
         # Async retry with exponential backoff (matches sync rerank behavior)
         # Retry on HTTP errors AND network/timeout errors for production resilience
         async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(3),
+            stop=stop_after_attempt(2),
             wait=wait_exponential(multiplier=1, min=2, max=10),
             retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TransportError)),
             reraise=True

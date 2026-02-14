@@ -84,7 +84,6 @@ USE_ON_YOUR_DATA=true
 USE_COHERE_RERANK=true
 
 # Cohere Rerank 4.0 Pro (REQUIRED for healthcare RAG quality)
-# Dec 2025 release: 9.5% accuracy improvement, 32k context, healthcare-optimized
 COHERE_RERANK_ENDPOINT=https://<cohere>.models.ai.azure.com
 COHERE_RERANK_API_KEY=your_key
 COHERE_RERANK_MODEL=Cohere-rerank-v4.0-pro
@@ -118,7 +117,7 @@ The ingestion pipeline uses IBM Docling for PDF processing:
 2. **Docling Processing** → TableFormer table extraction + checkbox detection
 3. **Chunking** → Hierarchical section-aware chunking (~1,500 chars)
 4. **Embedding** → Generate 3072-dim vectors (text-embedding-3-large)
-5. **Indexing** → Upload to Azure AI Search with 29-field schema
+5. **Indexing** → Upload to Azure AI Search with 38-field schema
 6. **Sync** → Copy to `policies-active` with content hash metadata
 
 ### Key Features

@@ -1,5 +1,7 @@
 # Azure Deployment Guide - RUSH Policy RAG Agent
 
+> **Note:** Deployment to Azure Container Apps is now automated via GitHub Actions. Pushing to `main` triggers CI, and on success, images are built and deployed automatically. See [CICD_PIPELINE.md](CICD_PIPELINE.md) for the pipeline architecture and [GITHUB_ENVIRONMENTS_SETUP.md](GITHUB_ENVIRONMENTS_SETUP.md) for environment configuration. The manual instructions below are retained for initial setup and emergency use.
+
 ## For the Deployment Team
 
 This guide provides **exact commands** to deploy the RUSH Policy RAG Agent to Azure. Follow the steps in order.
@@ -35,7 +37,7 @@ This guide provides **exact commands** to deploy the RUSH Policy RAG Agent to Az
 
 **AI Services:**
 - Azure OpenAI (GPT-4.1 + embeddings)
-- Cohere Rerank 4.0 Pro (cross-encoder reranking via Azure AI Foundry, 9.5% accuracy improvement)
+- Cohere Rerank 4.0 Pro (cross-encoder reranking via Azure AI Foundry)
 
 ---
 
@@ -60,8 +62,8 @@ az login
 az account set --subscription "RU-Azure-NonProd"
 
 # Clone the repo (if not already done)
-git clone https://github.com/sajor2000/rush_policy_rag.git
-cd rush_policy_rag
+git clone https://github.com/RushAI-jcr/policychat_rush.git
+cd policychat_rush
 ```
 
 ---
@@ -222,9 +224,6 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides cross-encoder reranking for negation-a
 **Why Cohere Rerank 4.0 Pro?**
 - Cross-encoders understand negation ("NOT authorized" contradicts "Can accept verbal orders?")
 - Bi-encoders (like Azure's L2 reranker) only see vocabulary overlap
-- 9.5% accuracy improvement over v3.5 (nDCG@10: 0.219 vs 0.200)
-- 32k token context window (processes full policy documents)
-- Healthcare-optimized: "tuned for healthcare, finance, government"
 - Critical for healthcare policy accuracy
 
 ### 5.5.1 Deploy via Azure AI Foundry Portal
@@ -659,7 +658,7 @@ az containerapp update \
 
 ### Backend - Cohere Rerank 4.0 Pro (Required for best quality)
 
-Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, with 32k context window and healthcare-optimized ranking.
+Cohere Rerank 4.0 Pro provides cross-encoder reranking for negation-aware retrieval.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -722,11 +721,11 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, w
 
 ## Alternative: Bicep Template Deployment
 
-If you prefer Infrastructure-as-Code or are using GitHub Actions CI/CD, use the Bicep templates instead of manual CLI deployment.
+If you prefer Infrastructure-as-Code, use the Bicep templates instead of manual CLI deployment.
 
 ### Prerequisites
 
-1. Container images must be built and pushed to GitHub Container Registry (GHCR)
+1. Container images must be built and pushed to Azure Container Registry (ACR)
 2. All Azure services (AI Search, OpenAI, Blob Storage, Cohere) must be created first (Steps 4-6 above)
 3. Container Apps Environment must exist (Step 7 above)
 
@@ -740,8 +739,8 @@ cp infrastructure/parameters.json.template infrastructure/parameters.json
 ```
 
 Required parameters:
-- `containerImage`: GHCR image URL (e.g., `ghcr.io/YOUR_ORG/rush_policy_rag/backend:latest`)
-- `registryPassword`: GitHub PAT with `packages:read` scope
+- `containerImage`: ACR image URL (e.g., `aiinnovation.azurecr.io/rush-policy-backend:$TAG`)
+- `registryPassword`: ACR admin password (from `az acr credential show`)
 - `searchEndpoint`, `searchApiKey`: From Azure AI Search
 - `aoaiEndpoint`, `aoaiApiKey`: From Azure OpenAI
 - `storageConnectionString`: From Azure Blob Storage
@@ -768,22 +767,10 @@ az deployment group create \
   --parameters backendUrl="https://rush-policy-backend-production.$(az group show -n $RESOURCE_GROUP --query location -o tsv).azurecontainerapps.io"
 ```
 
-### Container Registry Options
-
-**Option A: GitHub Container Registry (GHCR)** - Used by CI/CD workflow
-- Images: `ghcr.io/YOUR_ORG/rush_policy_rag/backend:latest`
-- Auth: GitHub PAT with `packages:read` scope
-- Bicep templates default to GHCR
-
-**Option B: Azure Container Registry (ACR)** - Used by manual CLI deployment
-- Images: `${ACR_NAME}.azurecr.io/rush-policy-backend:$TAG`
-- Auth: ACR admin credentials or managed identity
-- Requires updating Bicep `registries` section
-
 ---
 
 ## Support
 
 - **Documentation**: See `CLAUDE.md` for development guidance
-- **Issues**: https://github.com/sajor2000/rush_policy_rag/issues
+- **Issues**: https://github.com/RushAI-jcr/policychat_rush/issues
 - **Policy Admin**: https://rushumc.navexone.com/

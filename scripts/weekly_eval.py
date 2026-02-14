@@ -92,7 +92,8 @@ class WeeklyEvalConfig:
 
     def __post_init__(self):
         if self.email_recipients is None:
-            self.email_recipients = ["juan_rojas@rush.edu"]
+            default = os.getenv("WEEKLY_REPORT_RECIPIENTS", "juan_rojas@rush.edu")
+            self.email_recipients = [r.strip() for r in default.split(",")]
 
 
 @dataclass
@@ -990,7 +991,7 @@ def main():
         dry_run=args.dry_run,
         local_queries_file=args.local_queries,
         output_dir=args.output_dir,
-        email_recipients=args.email if args.email else ["juan_rojas@rush.edu"],
+        email_recipients=args.email if args.email else None,
     )
 
     evaluator = WeeklyEvaluator(config)

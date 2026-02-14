@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Default repository**: [RushAI-jcr/policychat_rush](https://github.com/RushAI-jcr/policychat_rush). `origin` is configured as the default push target; use `git push` to update it.
+
 ## Project Overview
 
 RUSH Policy RAG Agent - A production-ready RAG (Retrieval-Augmented Generation) system for policy retrieval at Rush University System for Health.
@@ -54,6 +56,26 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step Azure resource creation
 - Backend: `https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
 - Frontend: `https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io`
 
+### Azure AD Easy Auth Configuration
+
+Both Container Apps have Azure AD Easy Auth enabled at the **ingress layer** (before traffic reaches the app):
+
+| Container App | Unauthenticated Action | Excluded Paths |
+|---------------|----------------------|----------------|
+| **Frontend** | `RedirectToLoginPage` | `/api/chat`, `/api/chat/stream`, `/api/health`, `/api/search-instances`, `/api/sync-info`, `/api/pdf` |
+| **Backend** | `AllowAnonymous` | None (all traffic allowed) |
+
+The frontend API routes (`/api/*`) are excluded from auth so the Next.js proxy can forward requests to the backend without AAD tokens. UI pages still require AAD login.
+
+**Known issue**: The `az containerapp auth update --excluded-paths` CLI command has a [bug that trims path characters](https://github.com/microsoft/azure-container-apps/issues/464). Use the REST API instead:
+```bash
+az rest --method PUT \
+  --url "/subscriptions/e5282183-61c9-4c17-a58a-9442db9594d5/resourceGroups/RU-A-NonProd-AI-Innovation-RG/providers/Microsoft.App/containerApps/rush-policy-frontend/authConfigs/current?api-version=2024-03-01" \
+  --body '{ "properties": { "platform": { "enabled": true }, "globalValidation": { "unauthenticatedClientAction": "RedirectToLoginPage", "redirectToProvider": "azureactivedirectory", "excludedPaths": ["/api/chat", "/api/chat/stream", "/api/health", "/api/search-instances", "/api/sync-info", "/api/pdf"] }, "identityProviders": { "azureActiveDirectory": { "isAutoProvisioned": true, "registration": { "clientId": "ea94d628-0f36-40f5-98b2-48fcf9167aa0", "clientSecretSettingName": "microsoft-provider-authentication-secret", "openIdIssuer": "https://sts.windows.net/822ee4ca-eeac-4bf4-957b-97a4bb0b1697/v2.0" }, "validation": { "allowedAudiences": ["api://ea94d628-0f36-40f5-98b2-48fcf9167aa0"] } } } } }'
+```
+
+**If new frontend API routes are added**, they must be appended to the `excludedPaths` array or they will be blocked by Easy Auth with a 401.
+
 **Before deploying**, ensure you're logged into the correct subscription:
 ```bash
 az account set --subscription "RU-Azure-NonProd"
@@ -62,7 +84,9 @@ az account show  # Verify: should show "RU-Azure-NonProd"
 
 ## Container Deployment (ACR → Azure Container Apps)
 
-**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required. This builds on Azure's infrastructure and pushes to ACR automatically.
+**Automated**: Deployment is handled by GitHub Actions. Pushing to `main` triggers CI (`ci.yml`), and on success, `deploy.yml` builds SHA-tagged images and deploys to NonProd automatically. See [docs/CICD_PIPELINE.md](docs/CICD_PIPELINE.md) for the full pipeline architecture.
+
+**Manual fallback**: Use the commands below for emergency deployments or local debugging. Always use `az acr build` for remote builds — no local Docker required.
 
 ### Deploy Backend
 ```bash
@@ -113,7 +137,7 @@ flowchart TB
     end
 ```
 
-**Ingestion**: PDF → PolicyChunker (PyMuPDF + Docling) → 3072-dim embeddings → Azure AI Search (29-field schema, 9 entity filters)
+**Ingestion**: PDF → PolicyChunker (PyMuPDF + Docling) → 3072-dim embeddings → Azure AI Search (38-field schema, 9 entity filters)
 
 **Query**: User → Next.js → FastAPI → Synonym expansion → vectorSemanticHybrid (GPT-4.1) → Cohere Rerank (top 5, min 0.40) → Context expansion (±1 siblings) → Cited response
 
@@ -267,7 +291,7 @@ rag_pt_rush/
 - **Fallback chain**: PyMuPDF → Docling → Regex
 
 ### Azure AI Search Schema
-- 29 fields: `content`, `content_vector` (3072-dim), `title`, `reference_number`, etc.
+- 38 fields: `content`, `content_vector` (3072-dim), `title`, `reference_number`, etc.
 - 9 entity boolean filters: `applies_to_rumc`, `applies_to_rumg`, `applies_to_rmg`, etc.
 - Hierarchical chunking: `chunk_level`, `parent_chunk_id`, `chunk_index`
 

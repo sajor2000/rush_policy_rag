@@ -7,7 +7,7 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 | **Tech Stack** | FastAPI (Python 3.12) + Next.js 16 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
 | **Deployment** | Azure Container Apps (Non-Prod + Prod) |
-| **Current Version** | melissa-feedback-v1-hotfix2 (2026-01-08) |
+| **Repository** | [RushAI-jcr/policychat_rush](https://github.com/RushAI-jcr/policychat_rush) — default push target (`origin`) |
 
 ---
 
@@ -39,22 +39,19 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 
 Targets **RU-Azure-NonProd** / `RU-A-NonProd-AI-Innovation-RG` per `docs/RushPolicyAssistant_Architecture.pdf`.
 
-**CRITICAL**: Always build with `--platform linux/amd64` for Azure Container Apps.
+**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required. Builds run on Azure's infrastructure (linux/amd64) and push to ACR automatically.
 
 ```bash
 # Login + select subscription
 az login
 az account set --subscription "RU-Azure-NonProd"
-az acr login --name aiinnovation
 
 # Get current commit for tagging
 TAG=$(git rev-parse --short HEAD)
 
-# Step 1: Build and push backend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-backend:$TAG \
-  -f apps/backend/Dockerfile apps/backend
-docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
+# Step 1: Build backend (remote build on ACR)
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-backend:$TAG --file apps/backend/Dockerfile apps/backend
 
 # Step 2: Deploy Backend
 az containerapp update \
@@ -62,11 +59,9 @@ az containerapp update \
   -g RU-A-NonProd-AI-Innovation-RG \
   --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
-# Step 3: Build and push frontend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG \
-  -f apps/frontend/Dockerfile apps/frontend
-docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
+# Step 3: Build frontend (remote build on ACR)
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-frontend:$TAG --file apps/frontend/Dockerfile apps/frontend
 
 # Step 4: Deploy Frontend
 az containerapp update \
@@ -79,35 +74,26 @@ az containerapp update \
 
 Targets **RU-Azure-Prod** / `RU-A-Prod-AI-Innovation-RG`.
 
-**CRITICAL**: Always build with `--platform linux/amd64` for Azure Container Apps.
+**CRITICAL**: Always use `az acr build` for remote builds — no local Docker required.
 
 ```bash
 az login
 az account set --subscription "RU-Azure-Prod"
-az acr login --name aiinnovation
 
 # Get current commit for tagging
 TAG=$(git rev-parse --short HEAD)
 
-# Build and push backend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-backend:$TAG \
-  -f apps/backend/Dockerfile apps/backend
-docker push aiinnovation.azurecr.io/rush-policy-backend:$TAG
-
-# Deploy backend
+# Build and deploy backend
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-backend:$TAG --file apps/backend/Dockerfile apps/backend
 az containerapp update \
   -n rush-policy-backend \
   -g RU-A-Prod-AI-Innovation-RG \
   --image aiinnovation.azurecr.io/rush-policy-backend:$TAG
 
-# Build and push frontend (linux/amd64 required)
-docker build --platform linux/amd64 \
-  -t aiinnovation.azurecr.io/rush-policy-frontend:$TAG \
-  -f apps/frontend/Dockerfile apps/frontend
-docker push aiinnovation.azurecr.io/rush-policy-frontend:$TAG
-
-# Deploy frontend
+# Build and deploy frontend
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-frontend:$TAG --file apps/frontend/Dockerfile apps/frontend
 az containerapp update \
   -n rush-policy-frontend \
   -g RU-A-Prod-AI-Innovation-RG \
@@ -167,7 +153,7 @@ az containerapp update \
 
 **AI Services:**
 - Azure OpenAI (GPT-4.1 chat + embeddings)
-- Cohere Rerank 4.0 Pro (cross-encoder for negation-aware retrieval, 9.5% accuracy improvement over v3.5)
+- Cohere Rerank 4.0 Pro (cross-encoder for negation-aware retrieval)
 
 ---
 
@@ -175,8 +161,8 @@ az containerapp update \
 
 ### Prerequisites
 
-- Python 3.9+
-- Node.js 18+
+- Python 3.11+
+- Node.js 20+
 - Azure AI Search service with `rush-policies-active` alias
 - Azure OpenAI service (GPT-4.1 + text-embedding-3-large)
 - Azure Blob Storage account
@@ -206,8 +192,7 @@ STORAGE_CONNECTION_STRING=<connection_string>
 # Enable On Your Data (vectorSemanticHybrid)
 USE_ON_YOUR_DATA=true
 
-# Cohere Rerank 4.0 Pro (cross-encoder reranking - Dec 2025 release)
-# 9.5% accuracy improvement over v3.5, 32k context, healthcare-optimized
+# Cohere Rerank 4.0 Pro (cross-encoder reranking)
 USE_COHERE_RERANK=true
 COHERE_RERANK_ENDPOINT=https://<cohere-endpoint>.models.ai.azure.com
 COHERE_RERANK_API_KEY=<key>
@@ -320,21 +305,12 @@ See `.gitignore` for the full list.
 ### Core RAG Pipeline
 
 - **Azure OpenAI "On Your Data"**: vectorSemanticHybrid search (Vector + BM25 + L2 Reranking)
-- **Cohere Rerank 4.0 Pro**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval (9.5% accuracy improvement, 32k context window)
+- **Cohere Rerank 4.0 Pro**: Cross-encoder reranking via Azure AI Foundry for negation-aware retrieval
 - **Production Security**: Rate limiting, input validation, CSP headers
 - **PDF Upload & Viewing**: End-to-end pipeline with async blob storage
 - **1,800+ Document Support**: top_k=50 with semantic ranker optimization
 - **Healthcare Synonyms**: 132 synonym rules for medical terminology
 
-### Recent Enhancements (melissa-feedback-v1, 2026-01-08)
-
-- **Device Ambiguity Detection**: Intelligent clarification UI for ambiguous medical device queries (IV, catheter, line, port)
-- **Three-Tier PDF Access**: Quick access buttons on each evidence card + sticky panel + bottom section
-- **Score Windowing**: Post-rerank filtering (60% threshold) reduces irrelevant results by 60-70%
-- **Collapsible Related Evidence**: Prevents users from following incorrect policies
-- **Context-Aware Synonym Expansion**: Priority-based stopping prevents cascading query noise
-
----
 
 ## Security
 

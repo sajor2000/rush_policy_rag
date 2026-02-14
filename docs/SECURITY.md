@@ -331,6 +331,46 @@ GitHub Actions runs the following security checks on every PR:
 
 ---
 
+## CI/CD Security
+
+### Branch Protection
+
+- Pull requests required for all changes to `main`
+- At least 1 approving review required
+- `CI Gate` status check must pass before merge
+- Administrators included (audit compliance)
+
+### Environment-Scoped Secrets
+
+Deployment credentials (`AZURE_CREDENTIALS`) are scoped to GitHub Environments (`nonprod`, `production`), not stored at the repository level. This ensures:
+
+- NonProd deployments cannot use production credentials
+- Production deployments require manual approval via GitHub Environment reviewers
+- Secret access is limited to workflows that reference the specific environment
+
+### Deployment Gating
+
+1. All 7 CI jobs (lint, test, security scan, etc.) must pass
+2. The `ci-gate` summary job aggregates results into a single status check
+3. `deploy.yml` only triggers via `workflow_run` when CI succeeds on `main`
+4. Manual dispatch is available for emergencies but logs a warning annotation
+
+### Audit Traceability
+
+Every deployment is traceable:
+
+```
+Git commit SHA → Docker image tag → Container App revision
+```
+
+- Image tags use the commit SHA (deterministic, immutable)
+- GitHub Actions deployment summary records exact images deployed
+- GitHub Environment history tracks all deployments with timestamps
+
+See [CICD_PIPELINE.md](CICD_PIPELINE.md) for full pipeline documentation.
+
+---
+
 ## Production Checklist
 
 Before deploying to production:

@@ -31,6 +31,7 @@
 | `AOAI_API_KEY`* | Azure OpenAI API key | `abc123...` |
 | `AOAI_CHAT_DEPLOYMENT` | Chat model deployment name | `gpt-4.1` |
 | `AOAI_EMBEDDING_DEPLOYMENT` | Embedding model deployment | `text-embedding-3-large` |
+| `AOAI_EVAL_DEPLOYMENT` | Evaluation model (faster, cheaper for CI/CD) | `gpt-4.1-mini` |
 
 > **Note**: Use `AOAI_API_KEY` not `AOAI_API`. The older `AOAI_API` is deprecated.
 
@@ -50,7 +51,7 @@ Alternative (for managed identity in production):
 
 ### Cohere Rerank 4.0 Pro (Required for Healthcare RAG*)
 
-Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, with 32k context window and healthcare-optimized ranking.
+Cohere Rerank 4.0 Pro provides cross-encoder reranking for negation-aware retrieval.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -141,6 +142,12 @@ Cohere Rerank 4.0 Pro (Dec 2025) provides 9.5% accuracy improvement over v3.5, w
 | `BACKEND_PORT` | Server port | `8000` |
 | `LOG_FORMAT` | Log format (`text` or `json`) | `text` |
 | `MAX_REQUEST_SIZE` | Max request body (bytes) | `1048576` (1MB) |
+
+### Weekly Evaluation Email
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WEEKLY_REPORT_RECIPIENTS` | Comma-separated email recipients for weekly reports | `team-lead@rush.edu` |
 
 ### Observability (Optional)
 

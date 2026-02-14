@@ -25,10 +25,6 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-# SSL verification toggle for corporate proxy environments (e.g., Netskope)
-# Set DISABLE_SSL_VERIFY=true in .env for development on corporate machines
-DISABLE_SSL_VERIFY = os.environ.get("DISABLE_SSL_VERIFY", "false").lower() == "true"
-
 # Retry configuration for Azure OpenAI calls
 RETRY_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError)
 

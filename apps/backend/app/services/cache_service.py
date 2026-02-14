@@ -95,8 +95,8 @@ class QueryNormalizer:
         else:
             key_input = normalized
 
-        # Use MD5 hash for compact keys (32 chars)
-        return hashlib.md5(key_input.encode()).hexdigest()
+        # MD5 for compact cache keys only — not used for security/integrity
+        return hashlib.md5(key_input.encode(), usedforsecurity=False).hexdigest()
 
     @staticmethod
     def search_cache_key(
@@ -107,7 +107,8 @@ class QueryNormalizer:
         """Generate cache key for search results."""
         # Don't normalize search query as much - preserve original intent
         key_input = f"{query.lower().strip()}|{filter_expr or ''}|{top_k}"
-        return hashlib.md5(key_input.encode()).hexdigest()
+        # MD5 for compact cache keys only — not used for security/integrity
+        return hashlib.md5(key_input.encode(), usedforsecurity=False).hexdigest()
 
 
 class CacheService:

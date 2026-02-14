@@ -1233,9 +1233,10 @@ def _run_ragas_regression_gate(*, run_dir: Path, backend_url: str) -> None:
         result.stdout + result.stderr, encoding="utf-8"
     )
     if result.returncode != 0:
-        print(
-            f"[WARN] RAGAS regression returned exit code {result.returncode} "
-            f"(non-blocking): {result.stderr[:300]}"
+        raise RuntimeError(
+            f"RAGAS regression gate FAILED (exit code {result.returncode}). "
+            f"See {run_dir / '13c_ragas_regression.txt'} for details.\n"
+            f"Error: {result.stderr[:500]}"
         )
     else:
         print("      RAGAS regression gate passed")
@@ -1249,8 +1250,8 @@ def _run_ragas_regression_gate(*, run_dir: Path, backend_url: str) -> None:
             print(f"      RAGAS status: {status}")
             for metric, score in metrics.items():
                 print(f"        {metric}: {score:.3f}" if isinstance(score, float) else f"        {metric}: {score}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] Failed to parse RAGAS results: {e}")
 
 
 def _run_promptfoo_gate(*, run_dir: Path, backend_url: str) -> None:

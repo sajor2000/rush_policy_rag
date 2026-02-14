@@ -67,9 +67,8 @@ from dataclasses import asdict
 
 # SSL fix for corporate proxies
 try:
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context
-except Exception:
+    import ssl_fix  # noqa: F401 — side-effect import for corporate proxy SSL
+except ImportError:
     pass
 
 # Add parent directory to path for imports
@@ -124,7 +123,8 @@ class CombinedWeeklyReportConfig:
         local_queries_file: Optional[str] = None,
         days: int = 7,
     ):
-        self.email_recipients = email_recipients or ["juan_rojas@rush.edu"]
+        default_recipients = os.getenv("WEEKLY_REPORT_RECIPIENTS", "juan_rojas@rush.edu").split(",")
+        self.email_recipients = email_recipients or default_recipients
         self.dry_run = dry_run
         self.output_dir = output_dir
         self.sample_size = sample_size
