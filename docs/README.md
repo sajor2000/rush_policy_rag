@@ -2,7 +2,7 @@
 
 > This documentation describes the RUSH Policy RAG Agent, a read-only retrieval system that helps staff find approved policies from PolicyTech (NavexOne). The system does not create or modify policies. All documents are sourced from the authoritative PolicyTech platform via a monthly manual handoff, processed through a quality-gated pipeline, and made searchable via Azure AI Search.
 >
-> Last Updated: 2026-02-12
+> Last Updated: 2026-02-14
 
 ---
 
@@ -79,7 +79,7 @@ Getting started, testing, and contributing.
 | [ONBOARDING.md](ONBOARDING.md) | Full onboarding guide | Developers | ✅ Current | 2026-01-31 |
 | [ENV_VARS.md](ENV_VARS.md) | Environment variables reference | All | ✅ Current | 2026-02-12 |
 | [SCRIPTS.md](SCRIPTS.md) | Script reference | Developers | ✅ Current | 2026-02-12 |
-| [TESTING.md](TESTING.md) | Test strategy and commands | Developers | ✅ Current | 2026-02-12 |
+| [TESTING.md](TESTING.md) | Test strategy and commands | Developers | ✅ Current | 2026-02-14 |
 | [RAG_TESTING_PLAN.md](RAG_TESTING_PLAN.md) | RAG evaluation strategy | Developers | ✅ Current | 2026-01-31 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines | Contributors | ✅ Current | 2026-02-03 |
 | [STYLE_GUIDE.md](STYLE_GUIDE.md) | RUSH brand style guide | Contributors | ✅ Current | 2026-02-12 |
@@ -120,7 +120,9 @@ docs/
 ├── RAG_TESTING_PLAN.md              # RAG evaluation strategy
 ├── CONTRIBUTING.md                  # Contribution guidelines
 ├── STYLE_GUIDE.md                   # RUSH brand style guide
-└── CHANGELOG.md                     # Release history
+├── CHANGELOG.md                     # Release history
+└── archive/                         # Historical reference files
+    └── rush_policy_chat_bug_tracker.xml
 ```
 
 ---

@@ -4,7 +4,7 @@ Production-ready RAG (Retrieval-Augmented Generation) system for RUSH University
 
 | | |
 |---|---|
-| **Tech Stack** | FastAPI (Python 3.12) + Next.js 16 + Azure OpenAI |
+| **Tech Stack** | FastAPI (Python 3.11+) + Next.js 16 + Azure OpenAI |
 | **Search** | vectorSemanticHybrid (Vector + BM25 + L2 Reranking) |
 | **Deployment** | Azure Container Apps (Non-Prod + Prod) |
 | **Repository** | [RushAI-jcr/policychat_rush](https://github.com/RushAI-jcr/policychat_rush) — default push target (`origin`) |
@@ -224,7 +224,7 @@ rag_pt_rush/
 │   │   ├── app/
 │   │   │   ├── api/routes/            # chat.py, search.py, pdf.py, admin.py
 │   │   │   ├── core/                  # config, auth, security, rate_limit
-│   │   │   ├── services/              # 24 services (RAG pipeline)
+│   │   │   ├── services/              # 25 services (RAG pipeline)
 │   │   │   ├── models/                # schemas.py, audit_schemas.py
 │   │   │   └── evaluation/            # DeepEval metrics, diagnostics
 │   │   ├── preprocessing/             # PolicyChunker (Docling + PyMuPDF)

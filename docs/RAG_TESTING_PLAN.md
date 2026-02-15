@@ -1,5 +1,7 @@
 # RAG Testing Plan: Pre-Production & Weekly Production Monitoring
 
+> **See also**: [TESTING.md](TESTING.md) for quick-start test commands, backend unit tests, and CI/CD test pipeline.
+
 ## Executive Summary
 
 This document defines the comprehensive testing strategy for the RUSH Policy RAG system using **100 realistic staff questions** derived from actual policy content. The framework implements:

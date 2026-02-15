@@ -204,7 +204,7 @@ rag_pt_rush/
 │   │   │   ├── core/               # config, auth, security, rate_limit,
 │   │   │   │                       #   circuit_breaker, index_safety,
 │   │   │   │                       #   logging_middleware, prompts
-│   │   │   ├── services/           # 24 services (see catalog below)
+│   │   │   ├── services/           # 25 services (see catalog below)
 │   │   │   ├── models/             # schemas.py, audit_schemas.py
 │   │   │   └── evaluation/         # DeepEval metrics, diagnostics
 │   │   ├── preprocessing/          # PolicyChunker (Docling + PyMuPDF)
@@ -273,6 +273,7 @@ rag_pt_rush/
 | `citation_verifier.py` | Citation accuracy verification |
 | `safety_validator.py` | Safety and compliance validation |
 | `confidence_calculator.py` | Response confidence scoring |
+| `phi_filter.py` | PHI/PII detection and filtering |
 
 **Infrastructure**
 

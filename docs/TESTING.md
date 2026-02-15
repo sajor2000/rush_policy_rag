@@ -2,7 +2,9 @@
 
 > Test strategy and commands for the RUSH Policy RAG system.
 >
-> Last Updated: 2026-02-12
+> Last Updated: 2026-02-14
+>
+> **See also**: [RAG_TESTING_PLAN.md](RAG_TESTING_PLAN.md) for the full RAG evaluation strategy, pre-production gates, and weekly monitoring metrics.
 
 ## Quick Start
 
