@@ -10,8 +10,8 @@ never modified, summarized, or paraphrased.
 Extracted from chunker.py as part of tech debt refactoring.
 """
 
-import re
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -38,15 +38,16 @@ class PolicyChunk:
         char_count: Character count for the chunk
         content_hash: MD5 hash of text for deduplication
     """
+
     chunk_id: str
     policy_title: str
     policy_number: str
     reference_number: str
     section_number: str
     section_title: str
-    text: str                    # EXACT text - never modified
+    text: str  # EXACT text - never modified
     date_updated: str
-    applies_to: str              # Comma-separated string (backward compatibility)
+    applies_to: str  # Comma-separated string (backward compatibility)
     source_file: str
     char_count: int
     content_hash: str = field(default="")
@@ -54,18 +55,18 @@ class PolicyChunk:
     date_approved: str = field(default="")
 
     # Entity-specific boolean filters (for efficient Azure Search filtering)
-    applies_to_rumc: bool = field(default=False)   # Rush University Medical Center
-    applies_to_rumg: bool = field(default=False)   # Rush University Medical Group
-    applies_to_rmg: bool = field(default=False)    # Rush Medical Group
-    applies_to_roph: bool = field(default=False)   # Rush Oak Park Hospital
-    applies_to_rcmc: bool = field(default=False)   # Rush Copley Medical Center
-    applies_to_rch: bool = field(default=False)    # Rush Children's Hospital
+    applies_to_rumc: bool = field(default=False)  # Rush University Medical Center
+    applies_to_rumg: bool = field(default=False)  # Rush University Medical Group
+    applies_to_rmg: bool = field(default=False)  # Rush Medical Group
+    applies_to_roph: bool = field(default=False)  # Rush Oak Park Hospital
+    applies_to_rcmc: bool = field(default=False)  # Rush Copley Medical Center
+    applies_to_rch: bool = field(default=False)  # Rush Children's Hospital
     applies_to_roppg: bool = field(default=False)  # Rush Oak Park Physicians Group
-    applies_to_rcmg: bool = field(default=False)   # Rush Copley Medical Group
-    applies_to_ru: bool = field(default=False)     # Rush University
+    applies_to_rcmg: bool = field(default=False)  # Rush Copley Medical Group
+    applies_to_ru: bool = field(default=False)  # Rush University
 
     # Hierarchical chunking fields
-    chunk_level: str = field(default="semantic")   # "document" | "section" | "semantic"
+    chunk_level: str = field(default="semantic")  # "document" | "section" | "semantic"
     parent_chunk_id: Optional[str] = field(default=None)
     chunk_index: int = field(default=0)
 
@@ -79,13 +80,17 @@ class PolicyChunk:
     page_number: Optional[int] = field(default=None)  # 1-indexed page number
 
     # Version control fields (for monthly update tracking)
-    version_number: str = field(default="1.0")           # Policy version (e.g., "1.0", "2.0")
-    version_date: Optional[str] = field(default=None)    # ISO datetime when version was created
+    version_number: str = field(default="1.0")  # Policy version (e.g., "1.0", "2.0")
+    version_date: Optional[str] = field(
+        default=None
+    )  # ISO datetime when version was created
     effective_date: Optional[str] = field(default=None)  # When policy takes effect
-    expiration_date: Optional[str] = field(default=None) # When policy expires (if any)
-    policy_status: str = field(default="ACTIVE")         # ACTIVE, SUPERSEDED, RETIRED, DRAFT
-    superseded_by: Optional[str] = field(default=None)   # Version that replaced this (e.g., "2.0")
-    version_sequence: int = field(default=1)             # Numeric sequence for sorting
+    expiration_date: Optional[str] = field(default=None)  # When policy expires (if any)
+    policy_status: str = field(default="ACTIVE")  # ACTIVE, SUPERSEDED, RETIRED, DRAFT
+    superseded_by: Optional[str] = field(
+        default=None
+    )  # Version that replaced this (e.g., "2.0")
+    version_sequence: int = field(default=1)  # Numeric sequence for sorting
 
     def __post_init__(self):
         if not self.content_hash:
@@ -93,7 +98,9 @@ class PolicyChunk:
 
     def get_citation(self) -> str:
         """Generate citation for RAG response."""
-        ref_part = f"Ref: {self.reference_number}" if self.reference_number else "No Ref #"
+        ref_part = (
+            f"Ref: {self.reference_number}" if self.reference_number else "No Ref #"
+        )
         if self.section_number and self.section_title:
             return f"{self.policy_title} ({ref_part}), Section {self.section_number}. {self.section_title}"
         return f"{self.policy_title} ({ref_part})"
@@ -117,7 +124,7 @@ class PolicyChunk:
             # Avoid duplicating the policy number if the title already contains it
             title = self.policy_title
             if self.policy_number and title.startswith(self.policy_number):
-                title = title[len(self.policy_number):].strip()
+                title = title[len(self.policy_number) :].strip()
             if title:
                 parts.append(title)
         section_label = ""
@@ -128,7 +135,8 @@ class PolicyChunk:
         if section_label:
             parts.append(section_label)
         if parts:
-            return f"[{' \u2014 '.join(parts)}]\n"
+            sep = " \u2014 "
+            return f"[{sep.join(parts)}]\n"
         return ""
 
     def to_azure_document(self) -> dict:
@@ -155,8 +163,11 @@ class PolicyChunk:
         - related_policies: Edm.String (searchable)
         """
         # Azure requires alphanumeric IDs that don't start with underscore
-        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', self.chunk_id)
-        safe_id = safe_id.lstrip('_') or 'doc'
+        safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", self.chunk_id)
+        safe_id = (
+            safe_id.lstrip("_")
+            or f"doc{hashlib.md5(self.chunk_id.encode(), usedforsecurity=False).hexdigest()[:8]}"
+        )
         # REC-007: Prefix content with policy metadata for self-describing chunks
         content = self._build_content_prefix() + self.text
         return {
@@ -165,7 +176,11 @@ class PolicyChunk:
             "title": self.policy_title,
             "policy_number": self.policy_number,
             "reference_number": self.reference_number,
-            "section": f"{self.section_number}. {self.section_title}" if self.section_number else "",
+            "section": (
+                f"{self.section_number}. {self.section_title}"
+                if self.section_number
+                else ""
+            ),
             "citation": self.get_citation(),
             "applies_to": self.applies_to,
             "date_updated": self.date_updated,

@@ -6,6 +6,7 @@ FastAPI backend server for RUSH Policy RAG Agent
 # Must be done BEFORE any SSL connections are made
 try:
     import truststore
+
     truststore.inject_into_ssl()
 except ImportError:
     pass  # truststore not installed, SSL uses default cert handling
@@ -14,8 +15,9 @@ import asyncio
 import json
 import logging
 import os
+from typing import Any, Dict
+
 import uvicorn
-from typing import Dict, Any
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -23,29 +25,36 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.api.routes import admin, chat, pdf, search
+from app.api.routes.admin import verify_admin_key
+from app.core.circuit_breaker import get_all_circuit_status
 from app.core.config import settings
 from app.core.logging_middleware import (
     RequestLoggingMiddleware,
-    configure_structured_logging
+    configure_structured_logging,
 )
-from app.core.rate_limit import limiter  # Shared rate limiter with load balancer support
-from app.core.circuit_breaker import get_all_circuit_status
-from app.dependencies import lifespan, increment_requests, decrement_requests
-from app.api.routes import chat, admin, pdf, search
-from app.api.routes.admin import verify_admin_key
+from app.core.rate_limit import (
+    limiter,  # Shared rate limiter with load balancer support
+)
+from app.dependencies import decrement_requests, increment_requests, lifespan
 
 # Optional instrumentation - gracefully handle missing dependencies
 try:
     from instrumentation import setup_tracing
+
     _tracing_available = True
 except ImportError as e:
     logging.warning(f"Instrumentation module not available: {e}")
     _tracing_available = False
-    def setup_tracing(app): pass  # No-op fallback
+
+    def setup_tracing(app):
+        pass  # No-op fallback
+
 
 # Prometheus metrics - gracefully handle missing dependency
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
+
     _prometheus_available = True
 except ImportError:
     _prometheus_available = False
@@ -71,7 +80,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     content={
                         "detail": f"Request body too large. Maximum size is {MAX_REQUEST_SIZE // 1024}KB"
-                    }
+                    },
                 )
         return await call_next(request)
 
@@ -86,11 +95,12 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
         finally:
             await decrement_requests()
 
+
 app = FastAPI(
     title="RUSH Policy RAG API",
     description="Backend API for RUSH Policy retrieval using Azure OpenAI On Your Data",
     version="3.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Rate limiting setup
@@ -108,7 +118,9 @@ if _prometheus_available and Instrumentator:
         should_instrument_requests_inprogress=True,
         excluded_handlers=["/health", "/metrics"],
     )
-    instrumentator.instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    instrumentator.instrument(app).expose(
+        app, endpoint="/metrics", include_in_schema=False
+    )
     logger.info("Prometheus metrics enabled at /metrics")
 
 # Request tracking middleware (for graceful shutdown)
@@ -144,6 +156,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin (deprecated)"
 app.include_router(pdf.router, prefix="/api/pdf", tags=["PDF (deprecated)"])
 app.include_router(search.router, prefix="/api", tags=["Search (deprecated)"])
 
+
 @app.get("/health")
 async def health_check():
     """Public health check — returns status only (no architecture details)."""
@@ -172,19 +185,16 @@ async def health_check():
 
     if health_status == "unhealthy":
         return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=response_body
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=response_body
         )
 
     return response_body
 
 
 @app.get("/health/detailed")
-async def health_check_detailed(
-    _: str = Depends(verify_admin_key)
-):
+async def health_check_detailed(_: str = Depends(verify_admin_key)):
     """Admin-only detailed health check with architecture diagnostics."""
-    from app.dependencies import get_search_index, get_on_your_data_service_dep
+    from app.dependencies import get_on_your_data_service_dep, get_search_index
 
     health_status = "healthy"
     errors = []
@@ -209,13 +219,21 @@ async def health_check_detailed(
     try:
         on_your_data_service = get_on_your_data_service_dep()
         on_your_data_status = {
-            "configured": bool(on_your_data_service and on_your_data_service.is_configured),
+            "configured": bool(
+                on_your_data_service and on_your_data_service.is_configured
+            ),
             "query_type": "vectorSemanticHybrid" if on_your_data_service else None,
-            "semantic_config": on_your_data_service.semantic_config if on_your_data_service else None,
+            "semantic_config": (
+                on_your_data_service.semantic_config if on_your_data_service else None
+            ),
             "enabled": settings.USE_ON_YOUR_DATA,
         }
     except Exception as e:
-        on_your_data_status = {"configured": False, "error": str(e), "enabled": settings.USE_ON_YOUR_DATA}
+        on_your_data_status = {
+            "configured": False,
+            "error": str(e),
+            "enabled": settings.USE_ON_YOUR_DATA,
+        }
 
     # Check circuit breakers
     circuit_breakers = get_all_circuit_status()
@@ -227,14 +245,15 @@ async def health_check_detailed(
     # Check blob storage connectivity (for PDF viewing)
     blob_status = {"configured": False}
     try:
-        from pdf_service import get_blob_service_client, CONTAINER_NAME
+        from pdf_service import CONTAINER_NAME, get_blob_service_client
+
         client = get_blob_service_client()
         container = client.get_container_client(CONTAINER_NAME)
         exists = await asyncio.to_thread(container.exists)
         blob_status = {
             "configured": True,
             "container": CONTAINER_NAME,
-            "accessible": exists
+            "accessible": exists,
         }
         if not exists:
             health_status = "degraded"
@@ -257,8 +276,7 @@ async def health_check_detailed(
 
     if health_status == "unhealthy":
         return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=response_body
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=response_body
         )
 
     return response_body
@@ -276,16 +294,14 @@ async def get_sync_info() -> Dict[str, Any]:
         Dict with last_sync_date, last_sync_date_display, and sync_batch_id
     """
     try:
-        from pdf_service import get_blob_service_client, CONTAINER_NAME
+        from pdf_service import CONTAINER_NAME, get_blob_service_client
 
         client = get_blob_service_client()
         container = client.get_container_client(CONTAINER_NAME)
         blob_client = container.get_blob_client("latest_sync_info.json")
 
         # Download sync info JSON
-        content = await asyncio.to_thread(
-            lambda: blob_client.download_blob().readall()
-        )
+        content = await asyncio.to_thread(lambda: blob_client.download_blob().readall())
         return json.loads(content)
     except Exception as e:
         logger.warning(f"Could not retrieve sync info: {e}")
@@ -293,7 +309,7 @@ async def get_sync_info() -> Dict[str, Any]:
         return {
             "last_sync_date_display": "Unknown",
             "last_sync_date": None,
-            "sync_batch_id": None
+            "sync_batch_id": None,
         }
 
 
@@ -304,5 +320,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=settings.BACKEND_PORT,
         reload=False,
-        log_level="info"
+        log_level="info",
     )

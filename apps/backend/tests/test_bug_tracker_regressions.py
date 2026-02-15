@@ -21,8 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.services.query_enhancer import (
-    normalize_query_punctuation,
     detect_policy_number,
+    normalize_query_punctuation,
 )
 from preprocessing.metadata_extractor import (
     extract_policy_number,
@@ -30,12 +30,12 @@ from preprocessing.metadata_extractor import (
 )
 from preprocessing.policy_chunk import PolicyChunk
 
-
 # ============================================================================
 # BUG-001: Multi-Page Retrieval
 # Validates that the ingestion pipeline produces chunks with page numbers
 # and that content prefix includes section metadata for Page 2+ retrieval.
 # ============================================================================
+
 
 class TestBug001ChunkContentPrefix:
     """REC-007: Section header prefixes make chunks self-describing."""
@@ -115,6 +115,7 @@ class TestBug001ChunkContentPrefix:
 # BUG-002: Policy Number Lookup
 # Validates detection, normalization, and OData filter generation.
 # ============================================================================
+
 
 class TestBug002PolicyNumberDetection:
     """All TC-002 test cases from the bug tracker."""
@@ -209,6 +210,7 @@ class TestBug002PolicyNumberNormalization:
 # searches work regardless of commas/semicolons.
 # ============================================================================
 
+
 class TestBug003PunctuationNormalization:
     """All TC-003 test cases from the bug tracker."""
 
@@ -223,7 +225,9 @@ class TestBug003PunctuationNormalization:
     # --- TC-003-B: Different phrasing without comma ---
     def test_policy_on_shift_differentials(self):
         """TC-003-B: 'What's the policy on Shift Differentials?'"""
-        result = normalize_query_punctuation("What's the policy on Shift Differentials?")
+        result = normalize_query_punctuation(
+            "What's the policy on Shift Differentials?"
+        )
         # Possessive removed: What's -> What
         assert "Shift Differentials" in result
         assert "," not in result  # No spurious commas
@@ -231,20 +235,26 @@ class TestBug003PunctuationNormalization:
     # --- TC-003-C: Trailing comma query ---
     def test_trailing_comma_stripped(self):
         """TC-003-C: 'What's the policy on Shift Differentials,'"""
-        result = normalize_query_punctuation("What's the policy on Shift Differentials,")
+        result = normalize_query_punctuation(
+            "What's the policy on Shift Differentials,"
+        )
         assert result.endswith("Differentials")
         assert not result.endswith(",")
 
     # --- TC-003-D: End-of-title word matches fine (no punctuation issue) ---
     def test_holiday_premium_pay(self):
         """TC-003-D: 'What's the policy on Holiday Premium Pay?' — should pass regardless."""
-        result = normalize_query_punctuation("What's the policy on Holiday Premium Pay?")
+        result = normalize_query_punctuation(
+            "What's the policy on Holiday Premium Pay?"
+        )
         assert "Holiday Premium Pay" in result
 
     # --- V-003 verification cases ---
     def test_v003a_strip_trailing(self):
         """V-003-A: 'Shift Differentials,' -> 'Shift Differentials'"""
-        assert normalize_query_punctuation("Shift Differentials,") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation("Shift Differentials,") == "Shift Differentials"
+        )
 
     def test_v003b_preserves_policy_hyphens(self):
         """V-003-B: 'HR-C 05.00' unchanged."""
@@ -279,4 +289,5 @@ class TestBug003PunctuationNormalization:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

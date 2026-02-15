@@ -19,19 +19,20 @@ Usage:
 # Corporate proxy SSL fix - must be before other imports
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 try:
-    import ssl_fix
+    pass
 except ImportError:
     pass
 
-import os
-import sys
 import argparse
 import logging
-from pathlib import Path
+import os
+import sys
 from datetime import datetime
-from typing import Optional, Dict, Any
+from pathlib import Path
+from typing import Dict
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -44,20 +45,23 @@ load_dotenv(env_path)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Azure configuration from environment
-SEARCH_ENDPOINT = os.environ.get("SEARCH_ENDPOINT", "https://policychataisearch.search.windows.net")
+SEARCH_ENDPOINT = os.environ.get(
+    "SEARCH_ENDPOINT", "https://policychataisearch.search.windows.net"
+)
 SEARCH_API_KEY = os.environ.get("SEARCH_API_KEY")
 STORAGE_CONNECTION_STRING = os.environ.get("STORAGE_CONNECTION_STRING")
 CONTAINER_NAME = os.environ.get("CONTAINER_NAME", "policies-active")
 SOURCE_CONTAINER_NAME = os.environ.get("SOURCE_CONTAINER_NAME", "policies-source")
 AOAI_ENDPOINT = os.environ.get("AOAI_ENDPOINT")
 AOAI_API_KEY = os.environ.get("AOAI_API")
-AOAI_EMBEDDING_DEPLOYMENT = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
+AOAI_EMBEDDING_DEPLOYMENT = os.environ.get(
+    "AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large"
+)
 
 
 def check_environment() -> Dict[str, bool]:
@@ -109,25 +113,29 @@ def setup_blob_storage() -> bool:
         return False
 
     try:
-        from azure.storage.blob import BlobServiceClient, ContainerClient
+        from azure.storage.blob import BlobServiceClient
 
-        blob_service = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
+        blob_service = BlobServiceClient.from_connection_string(
+            STORAGE_CONNECTION_STRING
+        )
 
         # Create source container (for incoming PDFs)
         print(f"\n  Creating container: {SOURCE_CONTAINER_NAME}")
         try:
-            source_container = blob_service.create_container(SOURCE_CONTAINER_NAME)
+            blob_service.create_container(SOURCE_CONTAINER_NAME)
             print(f"    [CREATED] Container '{SOURCE_CONTAINER_NAME}' created")
         except Exception as e:
             if "ContainerAlreadyExists" in str(e):
-                print(f"    [EXISTS] Container '{SOURCE_CONTAINER_NAME}' already exists")
+                print(
+                    f"    [EXISTS] Container '{SOURCE_CONTAINER_NAME}' already exists"
+                )
             else:
                 raise
 
         # Create active container (for processed PDFs with metadata)
         print(f"\n  Creating container: {CONTAINER_NAME}")
         try:
-            active_container = blob_service.create_container(CONTAINER_NAME)
+            blob_service.create_container(CONTAINER_NAME)
             print(f"    [CREATED] Container '{CONTAINER_NAME}' created")
         except Exception as e:
             if "ContainerAlreadyExists" in str(e):
@@ -144,18 +152,25 @@ def setup_blob_storage() -> bool:
             props = blob_service.get_service_properties()
 
             # Enable soft delete if not already
-            if not props.delete_retention_policy or not props.delete_retention_policy.enabled:
+            if (
+                not props.delete_retention_policy
+                or not props.delete_retention_policy.enabled
+            ):
                 blob_service.set_service_properties(
                     delete_retention_policy=RetentionPolicy(enabled=True, days=14)
                 )
                 print("    [ENABLED] Soft delete enabled (14 day retention)")
             else:
                 days = props.delete_retention_policy.days
-                print(f"    [EXISTS] Soft delete already enabled ({days} day retention)")
+                print(
+                    f"    [EXISTS] Soft delete already enabled ({days} day retention)"
+                )
 
         except Exception as e:
             logger.warning(f"Could not configure soft delete: {e}")
-            print(f"    [WARN] Could not configure soft delete (may require Storage Admin)")
+            print(
+                "    [WARN] Could not configure soft delete (may require Storage Admin)"
+            )
 
         # List containers to verify
         print("\n  Verifying containers:")
@@ -168,7 +183,9 @@ def setup_blob_storage() -> bool:
         return True
 
     except ImportError:
-        logger.error("azure-storage-blob not installed. Run: pip install azure-storage-blob")
+        logger.error(
+            "azure-storage-blob not installed. Run: pip install azure-storage-blob"
+        )
         return False
     except Exception as e:
         logger.error(f"Blob storage setup failed: {e}")
@@ -190,7 +207,7 @@ def setup_search_index() -> bool:
         return False
 
     try:
-        from azure_policy_index import PolicySearchIndex, INDEX_NAME, SYNONYM_MAP_NAME
+        from azure_policy_index import INDEX_NAME, SYNONYM_MAP_NAME, PolicySearchIndex
 
         index = PolicySearchIndex()
 
@@ -220,9 +237,15 @@ def setup_search_index() -> bool:
 
         # Display new schema features
         print("\n  Schema features:")
-        print("    [OK] 9 entity boolean filters (applies_to_rumc, applies_to_rmg, etc.)")
-        print("    [OK] Hierarchical chunking fields (chunk_level, parent_chunk_id, chunk_index)")
-        print("    [OK] Enhanced metadata (category, subcategory, regulatory_citations)")
+        print(
+            "    [OK] 9 entity boolean filters (applies_to_rumc, applies_to_rmg, etc.)"
+        )
+        print(
+            "    [OK] Hierarchical chunking fields (chunk_level, parent_chunk_id, chunk_index)"
+        )
+        print(
+            "    [OK] Enhanced metadata (category, subcategory, regulatory_citations)"
+        )
 
         print("\n  [SUCCESS] Search index setup complete")
         return True
@@ -254,9 +277,7 @@ def validate_aoai_embedding() -> bool:
         print(f"  Deployment: {AOAI_EMBEDDING_DEPLOYMENT}")
 
         client = AzureOpenAI(
-            azure_endpoint=AOAI_ENDPOINT,
-            api_key=AOAI_API_KEY,
-            api_version="2024-06-01"
+            azure_endpoint=AOAI_ENDPOINT, api_key=AOAI_API_KEY, api_version="2024-06-01"
         )
 
         # Test embedding generation
@@ -264,19 +285,20 @@ def validate_aoai_embedding() -> bool:
         test_text = "This is a test policy document about patient care procedures."
 
         response = client.embeddings.create(
-            input=test_text,
-            model=AOAI_EMBEDDING_DEPLOYMENT
+            input=test_text, model=AOAI_EMBEDDING_DEPLOYMENT
         )
 
         embedding = response.data[0].embedding
         dimensions = len(embedding)
 
-        print(f"    [OK] Embedding generated successfully")
+        print("    [OK] Embedding generated successfully")
         print(f"    Dimensions: {dimensions}")
-        print(f"    Expected: 3072 (text-embedding-3-large)")
+        print("    Expected: 3072 (text-embedding-3-large)")
 
         if dimensions != 3072:
-            print(f"    [WARN] Dimensions mismatch - update EMBEDDING_DIMENSIONS in azure_policy_index.py")
+            print(
+                "    [WARN] Dimensions mismatch - update EMBEDDING_DIMENSIONS in azure_policy_index.py"
+            )
 
         print("\n  [SUCCESS] Azure OpenAI validation complete")
         return True
@@ -310,7 +332,7 @@ def validate_docling() -> bool:
         print(f"    Docling available: {info.get('docling_available', 'N/A')}")
         print(f"    Table mode: {info.get('table_mode', 'N/A')}")
 
-        if info.get('docling_available') == 'True':
+        if info.get("docling_available") == "True":
             print("\n  [SUCCESS] Docling is available and working")
             return True
         else:
@@ -343,7 +365,9 @@ def run_full_setup() -> Dict[str, bool]:
     results["environment"] = env_status["all_present"]
 
     if not results["environment"]:
-        print("\n[ERROR] Missing required environment variables. Setup cannot continue.")
+        print(
+            "\n[ERROR] Missing required environment variables. Setup cannot continue."
+        )
         print("Please set the missing variables in your .env file and try again.")
         return results
 
@@ -369,7 +393,9 @@ def run_full_setup() -> Dict[str, bool]:
         print("\n[SUCCESS] All infrastructure components are ready!")
         print("\nNext steps:")
         print("  1. Run ingestion: python scripts/ingest_all_policies.py")
-        print("  2. Test search: python azure_policy_index.py search \"chaperone policy\"")
+        print(
+            '  2. Test search: python azure_policy_index.py search "chaperone policy"'
+        )
     else:
         print("\n[WARNING] Some components failed. Review errors above.")
 
@@ -383,23 +409,13 @@ def main():
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Validate configuration only (no changes)"
+        help="Validate configuration only (no changes)",
     )
+    parser.add_argument("--index", action="store_true", help="Setup search index only")
     parser.add_argument(
-        "--index",
-        action="store_true",
-        help="Setup search index only"
+        "--storage", action="store_true", help="Setup blob storage only"
     )
-    parser.add_argument(
-        "--storage",
-        action="store_true",
-        help="Setup blob storage only"
-    )
-    parser.add_argument(
-        "--docling",
-        action="store_true",
-        help="Validate Docling only"
-    )
+    parser.add_argument("--docling", action="store_true", help="Validate Docling only")
 
     args = parser.parse_args()
 

@@ -1,27 +1,29 @@
+import asyncio
+import json
+import logging
+import time
+from typing import Optional
+
+import pybreaker
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from app.models.schemas import ChatRequest, ChatResponse, SearchRequest, SearchResponse
-import json
+from openai import APIConnectionError, APITimeoutError, RateLimitError
+
+from app.core.circuit_breaker import azure_openai_breaker, is_circuit_open
+from app.core.rate_limit import (
+    limiter,  # Shared rate limiter with load balancer support
+)
+from app.core.security import build_applies_to_filter, validate_query
 from app.dependencies import (
-    get_search_index,
-    get_on_your_data_service_dep,
+    get_chat_service,
     get_cohere_rerank_service,
     get_current_user_claims,
+    get_search_index,
 )
-from app.services.chat_service import ChatService
-from app.core.security import build_applies_to_filter, validate_query
-from app.core.rate_limit import limiter  # Shared rate limiter with load balancer support
-from app.core.circuit_breaker import azure_openai_breaker, is_circuit_open
-from azure_policy_index import PolicySearchIndex
-from app.services.on_your_data_service import OnYourDataService
-from app.services.search_result import search_result_to_item
-from openai import RateLimitError, APITimeoutError, APIConnectionError
-from typing import Optional
-import logging
-import asyncio
-import time
-import pybreaker
+from app.models.schemas import ChatRequest, ChatResponse, SearchRequest, SearchResponse
 from app.services.chat_audit_service import get_chat_audit_service
+from app.services.search_result import search_result_to_item
+from azure_policy_index import PolicySearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +39,14 @@ def _handle_audit_task_exception(task: asyncio.Task) -> None:
     except asyncio.CancelledError:
         pass  # Task was cancelled, not an error
 
+
 @router.post("/search", response_model=SearchResponse)
 @limiter.limit("30/minute")
 async def search_policies(
     request: Request,
     body: SearchRequest,
     search_index: PolicySearchIndex = Depends(get_search_index),
-    _: Optional[dict] = Depends(get_current_user_claims)
+    _: Optional[dict] = Depends(get_current_user_claims),
 ):
     """
     Direct search endpoint - returns raw search results.
@@ -63,23 +66,22 @@ async def search_policies(
         search_index.search,
         query=validated_query,
         top=body.top,
-        filter_expr=filter_expr
+        filter_expr=filter_expr,
     )
 
     return SearchResponse(
         results=[search_result_to_item(r) for r in results],
         query=validated_query,
-        count=len(results)
+        count=len(results),
     )
+
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat(
     request: Request,
     body: ChatRequest,
-    search_index: PolicySearchIndex = Depends(get_search_index),
-    on_your_data_service: Optional[OnYourDataService] = Depends(get_on_your_data_service_dep),
-    _: Optional[dict] = Depends(get_current_user_claims)
+    _: Optional[dict] = Depends(get_current_user_claims),
 ):
     """
     Process a chat message using Azure OpenAI "On Your Data" (vectorSemanticHybrid).
@@ -106,24 +108,19 @@ async def chat(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "detail": "Service temporarily unavailable. Please try again in a few moments.",
-                "retry_after": azure_openai_breaker.reset_timeout
+                "retry_after": azure_openai_breaker.reset_timeout,
             },
-            headers={"Retry-After": str(azure_openai_breaker.reset_timeout)}
+            headers={"Retry-After": str(azure_openai_breaker.reset_timeout)},
         )
 
-    cohere_service = get_cohere_rerank_service()
-    service = ChatService(
-        search_index,
-        on_your_data_service,
-        cohere_rerank_service=cohere_service
-    )
+    service = get_chat_service()
 
     try:
         response = await service.process_chat(body)
 
         # Non-blocking audit logging with exception handling
         latency_ms = int((time.perf_counter() - start_time) * 1000)
-        pipeline = "cohere_rerank" if cohere_service else "on_your_data"
+        pipeline = "cohere_rerank" if get_cohere_rerank_service() else "on_your_data"
         audit_task = asyncio.create_task(
             get_chat_audit_service().log_chat(
                 request=body,
@@ -142,16 +139,18 @@ async def chat(
     except RateLimitError as e:
         # Azure OpenAI rate limit - return 429 with Retry-After header
         retry_after = 60  # Default 60 seconds
-        if hasattr(e, 'response') and e.response:
-            retry_after = int(e.response.headers.get('Retry-After', 60))
-        logger.warning(f"Rate limited by Azure OpenAI: {e}. Retry-After: {retry_after}s")
+        if hasattr(e, "response") and e.response:
+            retry_after = int(e.response.headers.get("Retry-After", 60))
+        logger.warning(
+            f"Rate limited by Azure OpenAI: {e}. Retry-After: {retry_after}s"
+        )
         return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             content={
                 "detail": "Too many requests. Please wait before trying again.",
-                "retry_after": retry_after
+                "retry_after": retry_after,
             },
-            headers={"Retry-After": str(retry_after)}
+            headers={"Retry-After": str(retry_after)},
         )
     except APITimeoutError as e:
         # Timeout - return 504 Gateway Timeout
@@ -160,9 +159,9 @@ async def chat(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             content={
                 "detail": "Request timed out. Please try again.",
-                "retry_after": 5
+                "retry_after": 5,
             },
-            headers={"Retry-After": "5"}
+            headers={"Retry-After": "5"},
         )
     except APIConnectionError as e:
         # Connection error - return 503 Service Unavailable
@@ -171,9 +170,9 @@ async def chat(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "detail": "Service temporarily unavailable. Please try again.",
-                "retry_after": 10
+                "retry_after": 10,
             },
-            headers={"Retry-After": "10"}
+            headers={"Retry-After": "10"},
         )
     except pybreaker.CircuitBreakerError as e:
         # Circuit breaker tripped during request
@@ -182,9 +181,9 @@ async def chat(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "detail": "Service temporarily unavailable. Please try again in a few moments.",
-                "retry_after": azure_openai_breaker.reset_timeout
+                "retry_after": azure_openai_breaker.reset_timeout,
             },
-            headers={"Retry-After": str(azure_openai_breaker.reset_timeout)}
+            headers={"Retry-After": str(azure_openai_breaker.reset_timeout)},
         )
     except asyncio.TimeoutError:
         # Internal timeout (from asyncio.wait_for)
@@ -193,19 +192,22 @@ async def chat(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             content={
                 "detail": "Request timed out. Please try again.",
-                "retry_after": 5
+                "retry_after": 5,
             },
-            headers={"Retry-After": "5"}
+            headers={"Retry-After": "5"},
         )
     except Exception as e:
         # Log detailed error server-side but return generic message to client
         logger.error(f"Chat processing failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred processing your request")
+        raise HTTPException(
+            status_code=500, detail="An error occurred processing your request"
+        )
 
 
 # =============================================================================
 # Streaming Chat Endpoint (SSE)
 # =============================================================================
+
 
 def _sse_event(event_type: str, data: dict) -> str:
     """Format a Server-Sent Event."""
@@ -217,9 +219,7 @@ def _sse_event(event_type: str, data: dict) -> str:
 async def chat_stream(
     request: Request,
     body: ChatRequest,
-    search_index: PolicySearchIndex = Depends(get_search_index),
-    on_your_data_service: Optional[OnYourDataService] = Depends(get_on_your_data_service_dep),
-    _: Optional[dict] = Depends(get_current_user_claims)
+    _: Optional[dict] = Depends(get_current_user_claims),
 ):
     """
     Stream chat response using Server-Sent Events (SSE).
@@ -238,34 +238,33 @@ async def chat_stream(
         validated_message = validate_query(body.message, max_length=2000)
         body.message = validated_message
     except ValueError as e:
+        error_msg = str(e)
+
         async def error_gen():
-            yield _sse_event("error", {"type": "error", "message": str(e)})
+            yield _sse_event("error", {"type": "error", "message": error_msg})
+
         return StreamingResponse(
-            error_gen(),
-            media_type="text/event-stream",
-            status_code=400
+            error_gen(), media_type="text/event-stream", status_code=400
         )
 
     # Check circuit breaker
     if is_circuit_open(azure_openai_breaker):
+
         async def circuit_error_gen():
-            yield _sse_event("error", {
-                "type": "error",
-                "message": "Service temporarily unavailable. Please try again in a few moments.",
-                "retry_after": azure_openai_breaker.reset_timeout
-            })
+            yield _sse_event(
+                "error",
+                {
+                    "type": "error",
+                    "message": "Service temporarily unavailable. Please try again in a few moments.",
+                    "retry_after": azure_openai_breaker.reset_timeout,
+                },
+            )
+
         return StreamingResponse(
-            circuit_error_gen(),
-            media_type="text/event-stream",
-            status_code=503
+            circuit_error_gen(), media_type="text/event-stream", status_code=503
         )
 
-    cohere_service = get_cohere_rerank_service()
-    service = ChatService(
-        search_index,
-        on_your_data_service,
-        cohere_rerank_service=cohere_service
-    )
+    service = get_chat_service()
 
     return StreamingResponse(
         service.process_chat_stream(body),
@@ -274,5 +273,5 @@ async def chat_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Disable nginx buffering
-        }
+        },
     )

@@ -6,9 +6,9 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
 
-from .models import Manifest, DocumentRecord, AuditEntry, DocumentStatus
+from .models import AuditEntry, DocumentRecord, DocumentStatus, Manifest
 
 
 class ManifestManager:
@@ -22,7 +22,9 @@ class ManifestManager:
     - Full audit log of all changes
     """
 
-    DEFAULT_MANIFEST_PATH = Path(__file__).parent.parent / "data" / "document_manifest.json"
+    DEFAULT_MANIFEST_PATH = (
+        Path(__file__).parent.parent / "data" / "document_manifest.json"
+    )
 
     def __init__(self, manifest_path: Optional[Path] = None):
         """
@@ -292,6 +294,10 @@ class ManifestManager:
             "synced_documents": self.manifest.synced_count,
             "status_breakdown": status_counts,
             "audit_log_entries": len(self.manifest.audit_log),
-            "last_updated": self.manifest.last_updated.isoformat() if self.manifest.last_updated else None,
+            "last_updated": (
+                self.manifest.last_updated.isoformat()
+                if self.manifest.last_updated
+                else None
+            ),
             "azure_container": self.manifest.azure_container,
         }

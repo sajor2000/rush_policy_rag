@@ -6,12 +6,14 @@ Used for RAG quality auditing - captures all chat interactions globally
 """
 
 from datetime import datetime
-from typing import Optional, List, Literal
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
 class AuditCitation(BaseModel):
     """Citation captured in audit record."""
+
     title: str
     reference_number: str
     section: Optional[str] = None
@@ -25,13 +27,16 @@ class ChatAuditRecord(BaseModel):
 
     Designed for JSONL storage - each record is one line.
     """
+
     # Identifiers
     audit_id: str = Field(description="UUID for this audit record")
     timestamp: datetime = Field(description="UTC timestamp of chat request")
 
     # Request data
     question: str = Field(description="User's question (truncated if too long)")
-    filter_applies_to: Optional[str] = Field(default=None, description="Entity filter if applied")
+    filter_applies_to: Optional[str] = Field(
+        default=None, description="Entity filter if applied"
+    )
 
     # Response data
     response: str = Field(description="LLM response text (truncated if too long)")
@@ -53,19 +58,24 @@ class ChatAuditRecord(BaseModel):
 
     # Pipeline info
     pipeline_used: str = Field(default="cohere_rerank")
-    search_query: Optional[str] = Field(default=None, description="Expanded query after synonym expansion")
+    search_query: Optional[str] = Field(
+        default=None, description="Expanded query after synonym expansion"
+    )
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class AuditQueryRequest(BaseModel):
     """Request for querying audit logs."""
+
     date: Optional[str] = Field(default=None, description="Date to query (YYYY-MM-DD)")
-    start_date: Optional[str] = Field(default=None, description="Start date for range query")
-    end_date: Optional[str] = Field(default=None, description="End date for range query")
+    start_date: Optional[str] = Field(
+        default=None, description="Start date for range query"
+    )
+    end_date: Optional[str] = Field(
+        default=None, description="End date for range query"
+    )
 
     # Filters
     found: Optional[bool] = Field(default=None, description="Filter by found status")
@@ -80,6 +90,7 @@ class AuditQueryRequest(BaseModel):
 
 class AuditQueryResponse(BaseModel):
     """Response for audit log queries."""
+
     records: List[ChatAuditRecord]
     total_count: int
     query_date: Optional[str] = None
@@ -88,6 +99,7 @@ class AuditQueryResponse(BaseModel):
 
 class AuditStatsResponse(BaseModel):
     """Aggregated statistics from audit logs."""
+
     date: str
     total_queries: int
     found_count: int

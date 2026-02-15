@@ -9,16 +9,15 @@ Tests the query validation functions in app/services/query_validation.py:
 - Unclear query detection
 """
 
-import pytest
 from app.services.query_validation import (
+    ADVERSARIAL_PATTERNS,
+    ALWAYS_OUT_OF_SCOPE,
+    NOT_FOUND_PHRASES,
+    is_adversarial_query,
+    is_multi_policy_query,
     is_not_found_response,
     is_out_of_scope_query,
-    is_multi_policy_query,
-    is_adversarial_query,
     is_unclear_query,
-    NOT_FOUND_PHRASES,
-    ALWAYS_OUT_OF_SCOPE,
-    ADVERSARIAL_PATTERNS,
 )
 
 
@@ -51,7 +50,9 @@ class TestNotFoundDetection:
             "Per policy 704, dress code requires professional attire.",
         ]
         for response in valid_responses:
-            assert is_not_found_response(response) is False, f"False positive: {response}"
+            assert (
+                is_not_found_response(response) is False
+            ), f"False positive: {response}"
 
     def test_exact_not_found_message_match(self):
         """Should detect exact match to configured not-found message."""
@@ -96,9 +97,12 @@ class TestOutOfScopeDetection:
 
     def test_suspension_does_not_match_pension_keyword(self):
         """Regression: substring matching must not classify suspension as pension."""
-        assert is_out_of_scope_query(
-            "What are the levels of warning with or without suspension?"
-        ) is False
+        assert (
+            is_out_of_scope_query(
+                "What are the levels of warning with or without suspension?"
+            )
+            is False
+        )
         assert is_out_of_scope_query("What are the pension contribution rules?") is True
 
     def test_case_insensitive_detection(self):
@@ -120,7 +124,9 @@ class TestMultiPolicyDetection:
             "List all policies about communication",
         ]
         for query in multi_policy_queries:
-            assert is_multi_policy_query(query, use_decomposer=False) is True, f"Not detected: {query}"
+            assert (
+                is_multi_policy_query(query, use_decomposer=False) is True
+            ), f"Not detected: {query}"
 
     def test_single_policy_queries_not_flagged(self):
         """Simple single-policy queries should not be flagged."""
@@ -131,11 +137,16 @@ class TestMultiPolicyDetection:
             "When should I use SBAR?",
         ]
         for query in single_policy_queries:
-            assert is_multi_policy_query(query, use_decomposer=False) is False, f"False positive: {query}"
+            assert (
+                is_multi_policy_query(query, use_decomposer=False) is False
+            ), f"False positive: {query}"
 
     def test_case_insensitive_detection(self):
         """Multi-policy detection should be case insensitive."""
-        assert is_multi_policy_query("COMPARE THESE POLICIES", use_decomposer=False) is True
+        assert (
+            is_multi_policy_query("COMPARE THESE POLICIES", use_decomposer=False)
+            is True
+        )
 
 
 class TestAdversarialDetection:
@@ -234,9 +245,15 @@ class TestPhraseListCompleteness:
 
     def test_adversarial_patterns_non_empty(self):
         """ADVERSARIAL_PATTERNS should have sufficient entries."""
-        assert len(ADVERSARIAL_PATTERNS) >= 10, "ADVERSARIAL_PATTERNS needs more entries"
+        assert (
+            len(ADVERSARIAL_PATTERNS) >= 10
+        ), "ADVERSARIAL_PATTERNS needs more entries"
 
     def test_no_duplicate_phrases(self):
         """Phrase lists should not have duplicates."""
-        assert len(NOT_FOUND_PHRASES) == len(set(NOT_FOUND_PHRASES)), "Duplicates in NOT_FOUND_PHRASES"
-        assert len(ALWAYS_OUT_OF_SCOPE) == len(set(ALWAYS_OUT_OF_SCOPE)), "Duplicates in ALWAYS_OUT_OF_SCOPE"
+        assert len(NOT_FOUND_PHRASES) == len(
+            set(NOT_FOUND_PHRASES)
+        ), "Duplicates in NOT_FOUND_PHRASES"
+        assert len(ALWAYS_OUT_OF_SCOPE) == len(
+            set(ALWAYS_OUT_OF_SCOPE)
+        ), "Duplicates in ALWAYS_OUT_OF_SCOPE"

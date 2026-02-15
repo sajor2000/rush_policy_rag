@@ -5,9 +5,9 @@ Uses APPLICATIONINSIGHTS_CONNECTION_STRING environment variable for Azure Monito
 Instruments FastAPI, OpenAI client, and Azure AI Inference (when available).
 """
 
-import os
 import logging
-from typing import Optional
+import os
+
 from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,9 @@ def setup_tracing(app: FastAPI):
     connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
 
     if not connection_string:
-        logger.warning("No Application Insights connection string found. Tracing disabled.")
+        logger.warning(
+            "No Application Insights connection string found. Tracing disabled."
+        )
         return
 
     try:
@@ -53,10 +55,13 @@ def setup_tracing(app: FastAPI):
         # Try to instrument Azure AI Inference
         try:
             from azure.ai.inference.tracing import AIInferenceInstrumentor
+
             AIInferenceInstrumentor().instrument()
             logger.info("Azure AI Inference instrumentation enabled")
         except ImportError:
-            logger.debug("azure-ai-inference not available, skipping AI Inference instrumentation")
+            logger.debug(
+                "azure-ai-inference not available, skipping AI Inference instrumentation"
+            )
         except Exception as e:
             logger.warning(f"Failed to instrument AI Inference: {e}")
 

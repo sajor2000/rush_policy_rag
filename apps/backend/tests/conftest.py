@@ -8,12 +8,13 @@ Provides:
 - Test data fixtures
 """
 
-import os
 import json
-import pytest
 import logging
+import os
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
+
+import pytest
 
 # ============================================================================
 # DeepEval Timeout Configuration (MUST be set before importing deepeval)
@@ -21,7 +22,9 @@ from typing import Dict, List, Any, Optional
 # Increase timeout for DeepEval metrics to avoid timeouts during LLM evaluation.
 # Default is 60 seconds, but Azure OpenAI can take longer for complex evaluations.
 # Using gpt-4.1-mini makes this faster, but we still need generous timeouts.
-os.environ.setdefault("DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "240")  # 4 min/attempt
+os.environ.setdefault(
+    "DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "240"
+)  # 4 min/attempt
 os.environ.setdefault("DEEPEVAL_TIMEOUT_SECONDS", "600")  # 10 minutes total
 os.environ.setdefault("DEEPEVAL_MAX_RETRIES", "3")  # Retry up to 3 times
 
@@ -31,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 from dotenv import load_dotenv
+
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
 load_dotenv(env_path)
 
@@ -47,21 +51,29 @@ TEST_DATASET_PATH = Path(__file__).parent.parent / "data" / "test_dataset_v5.jso
 # Skip markers for conditional test execution
 # ============================================================================
 
+
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line("markers", "critical: mark test as critical (highest priority)")
+    config.addinivalue_line(
+        "markers", "critical: mark test as critical (highest priority)"
+    )
     config.addinivalue_line("markers", "deepeval: mark test as requiring DeepEval")
-    config.addinivalue_line("markers", "integration: mark test as integration test requiring backend")
+    config.addinivalue_line(
+        "markers", "integration: mark test as integration test requiring backend"
+    )
     config.addinivalue_line("markers", "slow: mark test as slow running")
     config.addinivalue_line("markers", "security: marks security audit tests")
     config.addinivalue_line("markers", "prompt_injection: marks prompt injection tests")
-    config.addinivalue_line("markers", "rag_security: marks RAG-specific security tests")
+    config.addinivalue_line(
+        "markers", "rag_security: marks RAG-specific security tests"
+    )
     config.addinivalue_line("markers", "api_security: marks API-level security tests")
 
 
 # ============================================================================
 # DeepEval Fixtures
 # ============================================================================
+
 
 @pytest.fixture(scope="session")
 def azure_model():
@@ -79,7 +91,9 @@ def azure_model():
         endpoint = os.getenv("AOAI_ENDPOINT")
         api_key = os.getenv("AOAI_API_KEY")
         # Use gpt-4.1-mini for evaluation to avoid token limits and reduce cost
-        deployment = os.getenv("AOAI_EVAL_DEPLOYMENT", os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini"))
+        deployment = os.getenv(
+            "AOAI_EVAL_DEPLOYMENT", os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini")
+        )
 
         if not endpoint or not api_key:
             logger.warning("Azure OpenAI credentials not configured")
@@ -93,7 +107,7 @@ def azure_model():
             deployment_name=deployment,
             base_url=endpoint,
             api_key=api_key,
-            api_version="2024-08-01-preview"
+            api_version="2024-08-01-preview",
         )
     except ImportError:
         logger.warning("DeepEval not installed")
@@ -123,7 +137,7 @@ def faithfulness_metric(azure_model):
         return FaithfulnessMetric(
             threshold=0.85,  # Healthcare-calibrated
             model=azure_model,
-            include_reason=True
+            include_reason=True,
         )
     except ImportError:
         pytest.skip("DeepEval not installed")
@@ -147,9 +161,7 @@ def answer_relevancy_metric(azure_model):
         from deepeval.metrics import AnswerRelevancyMetric
 
         return AnswerRelevancyMetric(
-            threshold=0.70,
-            model=azure_model,
-            include_reason=True
+            threshold=0.70, model=azure_model, include_reason=True
         )
     except ImportError:
         pytest.skip("DeepEval not installed")
@@ -173,9 +185,7 @@ def context_precision_metric(azure_model):
         from deepeval.metrics import ContextualPrecisionMetric
 
         return ContextualPrecisionMetric(
-            threshold=0.75,
-            model=azure_model,
-            include_reason=True
+            threshold=0.75, model=azure_model, include_reason=True
         )
     except ImportError:
         pytest.skip("DeepEval not installed")
@@ -197,6 +207,7 @@ def deepeval_metrics(azure_model):
 
     try:
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from app.evaluation.metrics import DeepEvalMetrics
 
@@ -221,6 +232,7 @@ def rag_diagnostics(azure_model):
 
     try:
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from app.evaluation.diagnostics import RAGDiagnostics
 
@@ -233,6 +245,7 @@ def rag_diagnostics(azure_model):
 # API Client Fixtures
 # ============================================================================
 
+
 @pytest.fixture(scope="session")
 def http_client():
     """
@@ -243,6 +256,7 @@ def http_client():
     """
     try:
         import httpx
+
         client = httpx.Client(timeout=60.0, base_url=BACKEND_URL)
         yield client
         client.close()
@@ -260,6 +274,7 @@ def async_http_client():
     """
     try:
         import httpx
+
         return httpx.AsyncClient(timeout=60.0, base_url=BACKEND_URL)
     except ImportError:
         pytest.skip("httpx not installed")
@@ -276,12 +291,10 @@ def query_backend(http_client):
     Returns:
         Function that queries the backend
     """
+
     def _query(query: str) -> Dict[str, Any]:
         try:
-            response = http_client.post(
-                "/api/chat",
-                json={"message": query}
-            )
+            response = http_client.post("/api/chat", json={"message": query})
             response.raise_for_status()
             data = response.json()
             return {
@@ -299,6 +312,7 @@ def query_backend(http_client):
 # ============================================================================
 # Test Data Fixtures
 # ============================================================================
+
 
 @pytest.fixture(scope="session")
 def test_dataset() -> List[Dict[str, Any]]:
@@ -333,7 +347,9 @@ def negation_test_cases(test_dataset) -> List[Dict[str, Any]]:
 @pytest.fixture
 def hallucination_test_cases(test_dataset) -> List[Dict[str, Any]]:
     """Fixture providing hallucination prevention test cases."""
-    return [tc for tc in test_dataset if tc.get("category") == "hallucination_prevention"]
+    return [
+        tc for tc in test_dataset if tc.get("category") == "hallucination_prevention"
+    ]
 
 
 @pytest.fixture
@@ -351,6 +367,7 @@ def risen_test_cases(test_dataset) -> List[Dict[str, Any]]:
 # ============================================================================
 # Sample Data Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def sample_query():
@@ -384,6 +401,7 @@ def sample_context():
 # DeepEval Test Case Factory
 # ============================================================================
 
+
 @pytest.fixture
 def create_test_case():
     """
@@ -392,11 +410,12 @@ def create_test_case():
     Returns:
         Function that creates LLMTestCase instances
     """
+
     def _create(
         query: str,
         response: str,
         context: List[str],
-        expected_output: Optional[str] = None
+        expected_output: Optional[str] = None,
     ):
         try:
             from deepeval.test_case import LLMTestCase
@@ -416,6 +435,7 @@ def create_test_case():
 # ============================================================================
 # Environment Check Fixtures
 # ============================================================================
+
 
 @pytest.fixture(scope="session")
 def check_azure_credentials():

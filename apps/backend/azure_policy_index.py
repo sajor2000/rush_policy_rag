@@ -19,12 +19,12 @@ Note: SearchResult, SYNONYMS, and format_rag_context have been extracted to
 separate modules but are re-exported here for backward compatibility.
 """
 
-import os
-import hashlib
 import logging
+import os
 import time
-from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -32,55 +32,62 @@ env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(env_path)
 
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
-from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
 from azure.search.documents.indexes.models import (
-    SearchIndex,
-    SearchField,
-    SearchFieldDataType,
-    SimpleField,
-    SearchableField,
-    VectorSearch,
-    VectorSearchProfile,
-    HnswAlgorithmConfiguration,
     AzureOpenAIVectorizer,
     AzureOpenAIVectorizerParameters,
+    HnswAlgorithmConfiguration,
+    SearchableField,
+    SearchField,
+    SearchFieldDataType,
+    SearchIndex,
     SemanticConfiguration,
     SemanticField,
     SemanticPrioritizedFields,
     SemanticSearch,
+    SimpleField,
     SynonymMap,
+    VectorSearch,
+    VectorSearchProfile,
 )
 from azure.search.documents.models import VectorizableTextQuery
 from openai import AzureOpenAI
 
-# Import our chunker
-from preprocessing.chunker import PolicyChunk
+from app.core.security import build_source_file_filter, escape_odata_string
 
 # Import extracted modules for backward compatibility
 # These were extracted as part of tech debt refactoring
-from app.services.search_result import SearchResult, format_rag_context
-from app.core.security import build_source_file_filter, escape_odata_string
+from app.services.search_result import SearchResult
 from app.services.search_synonyms import (
-    SYNONYMS,
     SYNONYM_MAP_NAME,
-    get_synonym_rules,
-    get_synonyms_text,
+    SYNONYMS,
 )
 
+# Import our chunker
+from preprocessing.chunker import PolicyChunk
 
 # Configuration from environment
-SEARCH_ENDPOINT = os.environ.get("SEARCH_ENDPOINT", "https://policychataisearch.search.windows.net")
+SEARCH_ENDPOINT = os.environ.get(
+    "SEARCH_ENDPOINT", "https://policychataisearch.search.windows.net"
+)
 SEARCH_API_KEY = os.environ.get("SEARCH_API_KEY")
 AOAI_ENDPOINT = os.environ.get("AOAI_ENDPOINT")
 AOAI_API_KEY = os.environ.get("AOAI_API_KEY")
-AOAI_EMBEDDING_DEPLOYMENT = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
+AOAI_EMBEDDING_DEPLOYMENT = os.environ.get(
+    "AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large"
+)
 
 # Index configuration
 INDEX_NAME = os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active")
@@ -107,7 +114,7 @@ class PolicySearchIndex:
         aoai_endpoint: str = AOAI_ENDPOINT,
         aoai_api_key: str = AOAI_API_KEY,
         embedding_deployment: str = AOAI_EMBEDDING_DEPLOYMENT,
-        default_batch_size: int = 100  # Configurable default batch size
+        default_batch_size: int = 100,  # Configurable default batch size
     ):
         """
         Initialize search index client.
@@ -155,13 +162,12 @@ class PolicySearchIndex:
 
         # Azure Search clients
         self.index_client = SearchIndexClient(
-            endpoint=self.search_endpoint,
-            credential=self.credential
+            endpoint=self.search_endpoint, credential=self.credential
         )
         self.search_client = SearchClient(
             endpoint=self.search_endpoint,
             index_name=index_name,
-            credential=self.credential
+            credential=self.credential,
         )
 
         # Azure OpenAI client for embeddings
@@ -169,7 +175,7 @@ class PolicySearchIndex:
             azure_endpoint=aoai_endpoint,
             api_key=aoai_api_key,
             api_version="2024-06-01",
-            timeout=15.0  # 15-second timeout for fast failure detection
+            timeout=15.0,  # 15-second timeout for fast failure detection
         )
 
         # Store AOAI config for vectorizer
@@ -186,27 +192,26 @@ class PolicySearchIndex:
     def create_synonym_map(self) -> None:
         """
         Create or update the synonym map for domain-specific terminology.
-        
+
         Synonym maps enable Azure AI Search to find documents even when users
-        use different terms than what's in the documents (e.g., "radiology" 
+        use different terms than what's in the documents (e.g., "radiology"
         finds "diagnostic services").
         """
         # Parse synonyms - filter out comments and empty lines
         synonym_rules = []
-        for line in SYNONYMS.strip().split('\n'):
+        for line in SYNONYMS.strip().split("\n"):
             line = line.strip()
-            if line and not line.startswith('#'):
+            if line and not line.startswith("#"):
                 synonym_rules.append(line)
-        
-        synonyms_text = '\n'.join(synonym_rules)
-        
-        synonym_map = SynonymMap(
-            name=SYNONYM_MAP_NAME,
-            synonyms=synonyms_text
-        )
-        
+
+        synonyms_text = "\n".join(synonym_rules)
+
+        synonym_map = SynonymMap(name=SYNONYM_MAP_NAME, synonyms=synonyms_text)
+
         self.index_client.create_or_update_synonym_map(synonym_map)
-        logger.info(f"Synonym map '{SYNONYM_MAP_NAME}' created/updated with {len(synonym_rules)} rules")
+        logger.info(
+            f"Synonym map '{SYNONYM_MAP_NAME}' created/updated with {len(synonym_rules)} rules"
+        )
 
     def create_index(self) -> None:
         """
@@ -221,256 +226,213 @@ class PolicySearchIndex:
         fields = [
             # Key field
             SimpleField(
-                name="id",
-                type=SearchFieldDataType.String,
-                key=True,
-                filterable=True
+                name="id", type=SearchFieldDataType.String, key=True, filterable=True
             ),
-
             # Main content - searchable for keyword matching with synonym expansion
             SearchableField(
                 name="content",
                 type=SearchFieldDataType.String,
                 analyzer_name="en.microsoft",
-                synonym_map_names=[SYNONYM_MAP_NAME]
+                synonym_map_names=[SYNONYM_MAP_NAME],
             ),
-
             # Vector field for semantic search
             SearchField(
                 name="content_vector",
                 type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                 searchable=True,
                 vector_search_dimensions=EMBEDDING_DIMENSIONS,
-                vector_search_profile_name="default-profile"
+                vector_search_profile_name="default-profile",
             ),
-
             # Policy title - searchable and filterable
             SearchableField(
                 name="title",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
-
             # Reference number - for exact lookups
             SimpleField(
                 name="reference_number",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
-
             # Canonical coded policy number (e.g., HR-C 05.00)
             SimpleField(
                 name="policy_number",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
-
             # Section info - searchable for section-specific queries
             SearchableField(
-                name="section",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="section", type=SearchFieldDataType.String, filterable=True
             ),
-
             # Pre-formatted citation - just retrieve, no search
             SimpleField(
-                name="citation",
-                type=SearchFieldDataType.String,
-                filterable=False
+                name="citation", type=SearchFieldDataType.String, filterable=False
             ),
-
             # Applies to which entities (RUMC, RMG, etc.)
             SimpleField(
                 name="applies_to",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
-
             # Date updated - for filtering by recency
             SimpleField(
                 name="date_updated",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                sortable=True
+                sortable=True,
             ),
-
             # Source file - for tracking
             SimpleField(
-                name="source_file",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="source_file", type=SearchFieldDataType.String, filterable=True
             ),
-
             # Content hash - for differential sync
             SimpleField(
-                name="content_hash",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="content_hash", type=SearchFieldDataType.String, filterable=True
             ),
-
             # Document owner - for accountability tracking
             SimpleField(
-                name="document_owner",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="document_owner", type=SearchFieldDataType.String, filterable=True
             ),
-
             # Date approved - for compliance tracking
             SimpleField(
-                name="date_approved",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="date_approved", type=SearchFieldDataType.String, filterable=True
             ),
-
             # Entity-specific boolean filters (for efficient O(1) filtering)
             SimpleField(
                 name="applies_to_rumc",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_rumg",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_rmg",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_roph",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_rcmc",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_rch",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_roppg",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_rcmg",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="applies_to_ru",
                 type=SearchFieldDataType.Boolean,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
-
             # Hierarchical chunking fields
             SearchableField(
-                name="chunk_level",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="chunk_level", type=SearchFieldDataType.String, filterable=True
             ),
             SimpleField(
-                name="parent_chunk_id",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="parent_chunk_id", type=SearchFieldDataType.String, filterable=True
             ),
             SimpleField(
                 name="chunk_index",
                 type=SearchFieldDataType.Int32,
                 sortable=True,
-                filterable=True  # Required for context expansion (sibling chunk retrieval)
+                filterable=True,  # Required for context expansion (sibling chunk retrieval)
             ),
-
             # Enhanced metadata fields
             SearchableField(
                 name="category",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SearchableField(
                 name="subcategory",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SearchableField(
-                name="regulatory_citations",
-                type=SearchFieldDataType.String
+                name="regulatory_citations", type=SearchFieldDataType.String
             ),
-            SearchableField(
-                name="related_policies",
-                type=SearchFieldDataType.String
-            ),
-
+            SearchableField(name="related_policies", type=SearchFieldDataType.String),
             # Page number for PDF navigation
             SimpleField(
                 name="page_number",
                 type=SearchFieldDataType.Int32,
                 filterable=False,
-                sortable=True
+                sortable=True,
             ),
-
             # Version control fields (for monthly update tracking v1 → v2 transitions)
             SimpleField(
                 name="version_number",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True
+                facetable=True,
             ),
             SimpleField(
                 name="version_date",
                 type=SearchFieldDataType.DateTimeOffset,
                 filterable=True,
-                sortable=True
+                sortable=True,
             ),
             SimpleField(
                 name="effective_date",
                 type=SearchFieldDataType.DateTimeOffset,
                 filterable=True,
-                sortable=True
+                sortable=True,
             ),
             SimpleField(
                 name="expiration_date",
                 type=SearchFieldDataType.DateTimeOffset,
                 filterable=True,
-                sortable=True
+                sortable=True,
             ),
             SimpleField(
                 name="policy_status",
                 type=SearchFieldDataType.String,
                 filterable=True,
-                facetable=True  # ACTIVE, SUPERSEDED, RETIRED, DRAFT
+                facetable=True,  # ACTIVE, SUPERSEDED, RETIRED, DRAFT
             ),
             SimpleField(
-                name="superseded_by",
-                type=SearchFieldDataType.String,
-                filterable=True
+                name="superseded_by", type=SearchFieldDataType.String, filterable=True
             ),
             SimpleField(
                 name="version_sequence",
                 type=SearchFieldDataType.Int32,
                 filterable=True,
-                sortable=True
+                sortable=True,
             ),
         ]
 
@@ -483,15 +445,15 @@ class PolicySearchIndex:
                         "m": 4,
                         "efConstruction": 400,
                         "efSearch": 500,
-                        "metric": "cosine"
-                    }
+                        "metric": "cosine",
+                    },
                 )
             ],
             profiles=[
                 VectorSearchProfile(
                     name="default-profile",
                     algorithm_configuration_name="hnsw-algo",
-                    vectorizer_name="aoai-vectorizer"
+                    vectorizer_name="aoai-vectorizer",
                 )
             ],
             vectorizers=[
@@ -501,10 +463,10 @@ class PolicySearchIndex:
                         resource_url=self.aoai_endpoint,
                         deployment_name=self.embedding_deployment,
                         model_name="text-embedding-3-large",
-                        api_key=self.aoai_api_key
-                    )
+                        api_key=self.aoai_api_key,
+                    ),
                 )
-            ]
+            ],
         )
 
         # Semantic search configuration for re-ranking
@@ -513,13 +475,13 @@ class PolicySearchIndex:
             prioritized_fields=SemanticPrioritizedFields(
                 content_fields=[SemanticField(field_name="content")],
                 title_field=SemanticField(field_name="title"),
-                keywords_fields=[SemanticField(field_name="section")]
-            )
+                keywords_fields=[SemanticField(field_name="section")],
+            ),
         )
 
         semantic_search = SemanticSearch(
             configurations=[semantic_config],
-            default_configuration_name="default-semantic"
+            default_configuration_name="default-semantic",
         )
 
         # Create index
@@ -527,7 +489,7 @@ class PolicySearchIndex:
             name=self.index_name,
             fields=fields,
             vector_search=vector_search,
-            semantic_search=semantic_search
+            semantic_search=semantic_search,
         )
 
         self.index_client.create_or_update_index(index)
@@ -536,20 +498,19 @@ class PolicySearchIndex:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((HttpResponseError, ConnectionError, TimeoutError))
+        retry=retry_if_exception_type(
+            (HttpResponseError, ConnectionError, TimeoutError)
+        ),
     )
     def generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for text using Azure OpenAI with retry logic."""
         response = self.aoai_client.embeddings.create(
-            input=text,
-            model=self.embedding_deployment
+            input=text, model=self.embedding_deployment
         )
         return response.data[0].embedding
 
     def _upload_batch_with_retry(
-        self,
-        documents: List[dict],
-        max_retries: int = 3
+        self, documents: List[dict], max_retries: int = 3
     ) -> Tuple[int, int]:
         """
         Upload a batch of documents with retry logic for partial failures (HTTP 207).
@@ -582,35 +543,73 @@ class PolicySearchIndex:
                         succeeded += 1
                     else:
                         # Log the specific error for debugging
-                        logger.warning(f"Document upload failed: {r.key} - {r.error_message}")
+                        logger.warning(
+                            f"Document upload failed: {r.key} - {r.error_message}"
+                        )
                         new_failed.append(failed_docs[i])
 
                 failed_docs = new_failed
 
                 if failed_docs and attempt < max_retries - 1:
                     # Exponential backoff before retry
-                    wait_time = (2 ** attempt) * 0.5  # 0.5s, 1s, 2s
-                    logger.info(f"Retrying {len(failed_docs)} failed documents in {wait_time}s (attempt {attempt + 2}/{max_retries})")
+                    wait_time = (2**attempt) * 0.5  # 0.5s, 1s, 2s
+                    logger.info(
+                        f"Retrying {len(failed_docs)} failed documents in {wait_time}s (attempt {attempt + 2}/{max_retries})"
+                    )
                     time.sleep(wait_time)
 
             except HttpResponseError as e:
                 logger.error(f"Batch upload HTTP error (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:
                     return succeeded, len(failed_docs)
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
 
         return succeeded, len(failed_docs)
+
+    @staticmethod
+    def _validate_chunks(
+        chunks: List[PolicyChunk],
+    ) -> tuple:
+        """
+        Validate chunks have required fields before upload.
+
+        Returns:
+            Tuple of (valid_chunks, rejected_details) where rejected_details
+            is a list of dicts with chunk_id and missing field names.
+        """
+        valid = []
+        rejected = []
+        for chunk in chunks:
+            missing = []
+            if not chunk.text or not chunk.text.strip():
+                missing.append("text")
+            if not getattr(chunk, "policy_title", "") or not chunk.policy_title.strip():
+                missing.append("policy_title")
+            if not (
+                (getattr(chunk, "policy_number", "") and chunk.policy_number.strip())
+                or (
+                    getattr(chunk, "reference_number", "")
+                    and chunk.reference_number.strip()
+                )
+            ):
+                missing.append("policy_number or reference_number")
+            if missing:
+                rejected.append({"chunk_id": chunk.chunk_id, "missing": missing})
+            else:
+                valid.append(chunk)
+        return valid, rejected
 
     def upload_chunks(
         self,
         chunks: List[PolicyChunk],
         batch_size: Optional[int] = None,
-        generate_embeddings: bool = True
+        generate_embeddings: bool = True,
     ) -> Dict[str, int]:
         """
         Upload chunks to Azure Search index with production-grade error handling.
 
         Features:
+        - Pre-upload validation of required fields
         - Batched uploads (configurable, Azure max is 1000)
         - Retry logic for HTTP 207 partial failures
         - Exponential backoff for transient errors
@@ -622,24 +621,35 @@ class PolicySearchIndex:
             generate_embeddings: Whether to generate embeddings (set False if using integrated vectorizer)
 
         Returns:
-            Dict with 'uploaded' and 'failed' counts
+            Dict with 'uploaded', 'failed', and 'rejected' counts
         """
+        # Validate required fields before upload
+        valid_chunks, rejected = self._validate_chunks(chunks)
+        if rejected:
+            for r in rejected:
+                logger.warning(
+                    f"Chunk {r['chunk_id']} rejected: missing {', '.join(r['missing'])}"
+                )
+            logger.warning(
+                f"{len(rejected)} chunk(s) rejected due to missing required fields"
+            )
+
         # Use provided batch_size, fall back to instance default
         batch_size = min(batch_size or self.default_batch_size, 1000)
 
-        stats = {'uploaded': 0, 'failed': 0}
+        stats = {"uploaded": 0, "failed": 0, "rejected": len(rejected)}
         documents = []
 
-        for chunk in chunks:
+        for chunk in valid_chunks:
             doc = chunk.to_azure_document()
 
             # Generate embedding if requested
             if generate_embeddings:
                 try:
-                    doc['content_vector'] = self.generate_embedding(chunk.text)
+                    doc["content_vector"] = self.generate_embedding(chunk.text)
                 except Exception as e:
                     logger.warning(f"Embedding failed for {chunk.chunk_id}: {e}")
-                    stats['failed'] += 1
+                    stats["failed"] += 1
                     continue
 
             documents.append(doc)
@@ -647,17 +657,20 @@ class PolicySearchIndex:
             # Upload in batches
             if len(documents) >= batch_size:
                 succeeded, failed = self._upload_batch_with_retry(documents)
-                stats['uploaded'] += succeeded
-                stats['failed'] += failed
+                stats["uploaded"] += succeeded
+                stats["failed"] += failed
                 documents = []
 
         # Upload remaining documents
         if documents:
             succeeded, failed = self._upload_batch_with_retry(documents)
-            stats['uploaded'] += succeeded
-            stats['failed'] += failed
+            stats["uploaded"] += succeeded
+            stats["failed"] += failed
 
-        logger.info(f"Uploaded {stats['uploaded']} chunks, {stats['failed']} failed")
+        logger.info(
+            f"Uploaded {stats['uploaded']} chunks, "
+            f"{stats['failed']} failed, {stats['rejected']} rejected"
+        )
         return stats
 
     def delete_chunks(self, chunk_ids: List[str]) -> int:
@@ -707,10 +720,10 @@ class PolicySearchIndex:
                 search_text="*",
                 filter=build_source_file_filter(source_file),
                 select=["id"],
-                top=1000
+                top=1000,
             )
 
-            chunk_ids = [r['id'] for r in results]
+            chunk_ids = [r["id"] for r in results]
 
             if not chunk_ids:
                 break
@@ -718,7 +731,9 @@ class PolicySearchIndex:
             deleted = self.delete_chunks(chunk_ids)
             total_deleted += deleted
 
-            logger.debug(f"Delete batch {batch_count}: removed {deleted} chunks from {source_file}")
+            logger.debug(
+                f"Delete batch {batch_count}: removed {deleted} chunks from {source_file}"
+            )
 
             # If we got fewer than 1000, we've reached the end
             if len(chunk_ids) < 1000:
@@ -734,7 +749,9 @@ class PolicySearchIndex:
                 raise RuntimeError(error_msg)
 
         if total_deleted > 0:
-            logger.info(f"Deleted {total_deleted} total chunks from {source_file} ({batch_count} batches)")
+            logger.info(
+                f"Deleted {total_deleted} total chunks from {source_file} ({batch_count} batches)"
+            )
 
         return total_deleted
 
@@ -744,7 +761,7 @@ class PolicySearchIndex:
         top: int = 5,
         filter_expr: Optional[str] = None,
         use_semantic_ranking: bool = True,
-        use_fuzzy: bool = True
+        use_fuzzy: bool = True,
     ) -> List[SearchResult]:
         """
         Hybrid search combining vector + keyword + semantic ranking.
@@ -769,7 +786,9 @@ class PolicySearchIndex:
         # Filters reduce result pool, so we need a larger k to ensure quality results
         if filter_expr:
             # When filtering, use a larger k to ensure enough candidates after filter
-            semantic_k = max(100, top * 10) if use_semantic_ranking else max(50, top * 5)
+            semantic_k = (
+                max(100, top * 10) if use_semantic_ranking else max(50, top * 5)
+            )
         else:
             semantic_k = max(50, top * 5) if use_semantic_ranking else max(20, top * 3)
 
@@ -778,7 +797,7 @@ class PolicySearchIndex:
         vector_query = VectorizableTextQuery(
             text=query,
             k=semantic_k,  # More candidates for better re-ranking
-            fields="content_vector"
+            fields="content_vector",
         )
 
         search_params = {
@@ -827,7 +846,9 @@ class PolicySearchIndex:
         # Semantic ranking provides best results and handles typos via embedding similarity
         # Note: Synonym maps are applied at index time for keyword matching
         # Check if semantic search is disabled (e.g., quota exceeded)
-        disable_semantic = os.environ.get("DISABLE_SEMANTIC_SEARCH", "").lower() == "true"
+        disable_semantic = (
+            os.environ.get("DISABLE_SEMANTIC_SEARCH", "").lower() == "true"
+        )
         if use_semantic_ranking and not disable_semantic:
             search_params["query_type"] = "semantic"
             search_params["semantic_configuration_name"] = "default-semantic"
@@ -835,13 +856,14 @@ class PolicySearchIndex:
             search_params["query_language"] = "en-us"
             search_params["query_speller"] = "lexicon"
         elif use_semantic_ranking and disable_semantic:
-            logger.info("Semantic search disabled via DISABLE_SEMANTIC_SEARCH env var, using simple search")
+            logger.info(
+                "Semantic search disabled via DISABLE_SEMANTIC_SEARCH env var, using simple search"
+            )
         elif use_fuzzy:
             # Fallback to fuzzy search if semantic ranking is disabled
             # Apply fuzzy matching to each word in the query for typo tolerance
             fuzzy_query = " ".join(
-                f"{word}~1" if len(word) >= 4 else word
-                for word in query.split()
+                f"{word}~1" if len(word) >= 4 else word for word in query.split()
             )
             search_params["search_text"] = fuzzy_query
             search_params["query_type"] = "full"  # Required for fuzzy search syntax
@@ -936,6 +958,27 @@ class PolicySearchIndex:
             logger.warning(f"HTTP error retrieving chunk {chunk_id}: {e}")
             raise  # Re-raise for caller to handle
 
+    def lookup_page_number(
+        self, source_file: str, content_snippet: str
+    ) -> Optional[int]:
+        """Look up page_number by matching a content snippet against the index for a source file."""
+        if not source_file or not content_snippet:
+            return None
+        try:
+            # Use first 100 chars of content as search text for matching
+            search_text = content_snippet[:100].replace('"', " ")
+            results = self.search_client.search(
+                search_text=search_text,
+                filter=build_source_file_filter(source_file),
+                select=["page_number"],
+                top=1,
+            )
+            for r in results:
+                return r.get("page_number")
+        except Exception as e:
+            logger.debug(f"Page number lookup failed for {source_file}: {e}")
+        return None
+
     def get_metadata_by_source_file(self, source_file: str) -> Optional[Dict]:
         """
         Retrieve metadata for a document by its source_file.
@@ -977,7 +1020,7 @@ class PolicySearchIndex:
                     "applies_to_rcmg",
                     "applies_to_ru",
                 ],
-                top=1
+                top=1,
             )
 
             for result in results:
@@ -986,15 +1029,24 @@ class PolicySearchIndex:
                 if not applies_to:
                     # Build from boolean fields
                     entities = []
-                    if result.get("applies_to_rumc"): entities.append("RUMC")
-                    if result.get("applies_to_rumg"): entities.append("RUMG")
-                    if result.get("applies_to_rmg"): entities.append("RMG")
-                    if result.get("applies_to_roph"): entities.append("ROPH")
-                    if result.get("applies_to_rcmc"): entities.append("RCMC")
-                    if result.get("applies_to_rch"): entities.append("RCH")
-                    if result.get("applies_to_roppg"): entities.append("ROPPG")
-                    if result.get("applies_to_rcmg"): entities.append("RCMG")
-                    if result.get("applies_to_ru"): entities.append("RU")
+                    if result.get("applies_to_rumc"):
+                        entities.append("RUMC")
+                    if result.get("applies_to_rumg"):
+                        entities.append("RUMG")
+                    if result.get("applies_to_rmg"):
+                        entities.append("RMG")
+                    if result.get("applies_to_roph"):
+                        entities.append("ROPH")
+                    if result.get("applies_to_rcmc"):
+                        entities.append("RCMC")
+                    if result.get("applies_to_rch"):
+                        entities.append("RCH")
+                    if result.get("applies_to_roppg"):
+                        entities.append("ROPPG")
+                    if result.get("applies_to_rcmg"):
+                        entities.append("RCMG")
+                    if result.get("applies_to_ru"):
+                        entities.append("RU")
                     applies_to = ", ".join(entities) if entities else ""
 
                 return {
@@ -1024,9 +1076,7 @@ class PolicySearchIndex:
             index = self.index_client.get_index(self.index_name)
             # Count documents
             results = self.search_client.search(
-                search_text="*",
-                include_total_count=True,
-                top=0
+                search_text="*", include_total_count=True, top=0
             )
             return {
                 "index_name": self.index_name,
@@ -1054,7 +1104,7 @@ class PolicySearchIndex:
 
         if self.search_client is not None:
             try:
-                if hasattr(self.search_client, 'close'):
+                if hasattr(self.search_client, "close"):
                     self.search_client.close()
                 logger.info("PolicySearchIndex search client closed")
             except Exception as e:
@@ -1062,7 +1112,7 @@ class PolicySearchIndex:
 
         if self.index_client is not None:
             try:
-                if hasattr(self.index_client, 'close'):
+                if hasattr(self.index_client, "close"):
                     self.index_client.close()
                 logger.info("PolicySearchIndex index client closed")
             except Exception as e:
@@ -1072,6 +1122,7 @@ class PolicySearchIndex:
 # CLI for testing
 if __name__ == "__main__":
     import sys
+
     from preprocessing.chunker import PolicyChunker
 
     print("=" * 60)
@@ -1105,10 +1156,12 @@ if __name__ == "__main__":
             chunker = PolicyChunker(max_chunk_size=1500)
             result = chunker.process_folder(folder)
 
-            print(f"Chunked {result['stats']['total_docs']} docs into {result['stats']['total_chunks']} chunks")
+            print(
+                f"Chunked {result['stats']['total_docs']} docs into {result['stats']['total_chunks']} chunks"
+            )
 
             # Upload to index
-            index.upload_chunks(result['chunks'])
+            index.upload_chunks(result["chunks"])
 
         elif command == "search" and len(sys.argv) > 2:
             query = " ".join(sys.argv[2:])
@@ -1130,10 +1183,13 @@ if __name__ == "__main__":
             index.create_synonym_map()
             # Count synonym rules
             synonym_rules = [
-                line.strip() for line in SYNONYMS.strip().split('\n')
-                if line.strip() and not line.strip().startswith('#')
+                line.strip()
+                for line in SYNONYMS.strip().split("\n")
+                if line.strip() and not line.strip().startswith("#")
             ]
-            print(f"Synonym map '{SYNONYM_MAP_NAME}' updated with {len(synonym_rules)} rules")
+            print(
+                f"Synonym map '{SYNONYM_MAP_NAME}' updated with {len(synonym_rules)} rules"
+            )
             print("\nSample rules:")
             for rule in synonym_rules[:5]:
                 print(f"  - {rule[:80]}{'...' if len(rule) > 80 else ''}")
@@ -1146,6 +1202,7 @@ if __name__ == "__main__":
             # Test query-time expansion via SynonymService
             try:
                 from app.services.synonym_service import get_synonym_service
+
                 svc = get_synonym_service()
                 result = svc.expand_query(query)
                 print(f"Query-time expansion: '{result.expanded_query}'")
@@ -1157,11 +1214,13 @@ if __name__ == "__main__":
                 print(f"Query expansion unavailable: {e}")
 
             # Test search with synonyms
-            print(f"\nSearching with expanded query...")
+            print("\nSearching with expanded query...")
             results = index.search(query, top=3)
             for i, r in enumerate(results, 1):
                 print(f"\n  Result {i}: {r.title}")
-                print(f"    Score: {r.score:.2f} | Reranker: {r.reranker_score or 'N/A'}")
+                print(
+                    f"    Score: {r.score:.2f} | Reranker: {r.reranker_score or 'N/A'}"
+                )
                 print(f"    Content: {r.content[:150]}...")
 
         elif command == "verify" and len(sys.argv) > 2:
@@ -1172,13 +1231,24 @@ if __name__ == "__main__":
 
             search_client = index.get_search_client()
             safe_ref = escape_odata_string(ref_number)
-            results = list(search_client.search(
-                search_text="*",
-                filter=f"reference_number eq '{safe_ref}'",
-                select=["id", "title", "reference_number", "version_number", "policy_status",
-                        "effective_date", "source_file", "section", "applies_to"],
-                top=100
-            ))
+            results = list(
+                search_client.search(
+                    search_text="*",
+                    filter=f"reference_number eq '{safe_ref}'",
+                    select=[
+                        "id",
+                        "title",
+                        "reference_number",
+                        "version_number",
+                        "policy_status",
+                        "effective_date",
+                        "source_file",
+                        "section",
+                        "applies_to",
+                    ],
+                    top=100,
+                )
+            )
 
             if not results:
                 print(f"ERROR: No chunks found for reference number '{ref_number}'")
@@ -1189,7 +1259,10 @@ if __name__ == "__main__":
             for r in results:
                 v = r.get("version_number", "1.0")
                 if v not in versions:
-                    versions[v] = {"chunks": 0, "status": r.get("policy_status", "UNKNOWN")}
+                    versions[v] = {
+                        "chunks": 0,
+                        "status": r.get("policy_status", "UNKNOWN"),
+                    }
                 versions[v]["chunks"] += 1
 
             title = results[0].get("title", "Unknown")
@@ -1198,14 +1271,16 @@ if __name__ == "__main__":
             print(f"Policy: {title}")
             print(f"Reference: {ref_number}")
             print(f"Source: {source_file}")
-            print(f"\nVersions:")
+            print("\nVersions:")
             print(f"{'Version':<10} {'Status':<12} {'Chunks':<8}")
             print("-" * 30)
             for v, info in sorted(versions.items(), key=lambda x: x[0], reverse=True):
                 status_icon = "✓" if info["status"] == "ACTIVE" else " "
                 print(f"{v:<10} {info['status']:<12} {info['chunks']:<8} {status_icon}")
 
-            print(f"\n✓ Verification complete: {len(results)} total chunks across {len(versions)} version(s)")
+            print(
+                f"\n✓ Verification complete: {len(results)} total chunks across {len(versions)} version(s)"
+            )
 
         elif command == "list-versions" and len(sys.argv) > 2:
             # List all versions of a policy
@@ -1215,12 +1290,19 @@ if __name__ == "__main__":
 
             search_client = index.get_search_client()
             safe_ref = escape_odata_string(ref_number)
-            results = list(search_client.search(
-                search_text="*",
-                filter=f"reference_number eq '{safe_ref}'",
-                select=["version_number", "policy_status", "effective_date", "superseded_by"],
-                top=1000
-            ))
+            results = list(
+                search_client.search(
+                    search_text="*",
+                    filter=f"reference_number eq '{safe_ref}'",
+                    select=[
+                        "version_number",
+                        "policy_status",
+                        "effective_date",
+                        "superseded_by",
+                    ],
+                    top=1000,
+                )
+            )
 
             if not results:
                 print(f"ERROR: No chunks found for '{ref_number}'")
@@ -1235,16 +1317,22 @@ if __name__ == "__main__":
                         "status": r.get("policy_status", "UNKNOWN"),
                         "effective_date": r.get("effective_date", ""),
                         "superseded_by": r.get("superseded_by", ""),
-                        "chunk_count": 0
+                        "chunk_count": 0,
                     }
                 versions[v]["chunk_count"] += 1
 
-            print(f"{'Version':<10} {'Status':<12} {'Effective':<20} {'Superseded By':<12} {'Chunks':<8}")
+            print(
+                f"{'Version':<10} {'Status':<12} {'Effective':<20} {'Superseded By':<12} {'Chunks':<8}"
+            )
             print("-" * 70)
             for v, info in sorted(versions.items(), key=lambda x: x[0], reverse=True):
-                eff_date = info["effective_date"][:10] if info["effective_date"] else "N/A"
+                eff_date = (
+                    info["effective_date"][:10] if info["effective_date"] else "N/A"
+                )
                 sup_by = info["superseded_by"] or "-"
-                print(f"{v:<10} {info['status']:<12} {eff_date:<20} {sup_by:<12} {info['chunk_count']:<8}")
+                print(
+                    f"{v:<10} {info['status']:<12} {eff_date:<20} {sup_by:<12} {info['chunk_count']:<8}"
+                )
 
         elif command == "verify-all":
             # Verify all active policies
@@ -1254,12 +1342,14 @@ if __name__ == "__main__":
             search_client = index.get_search_client()
 
             # Get unique reference numbers with ACTIVE status
-            results = list(search_client.search(
-                search_text="*",
-                filter="policy_status eq 'ACTIVE'",
-                select=["reference_number", "title", "source_file"],
-                top=5000
-            ))
+            results = list(
+                search_client.search(
+                    search_text="*",
+                    filter="policy_status eq 'ACTIVE'",
+                    select=["reference_number", "title", "source_file"],
+                    top=5000,
+                )
+            )
 
             # Group by reference number
             policies = {}
@@ -1269,72 +1359,121 @@ if __name__ == "__main__":
                     policies[ref] = {
                         "title": r.get("title", "Unknown"),
                         "source_file": r.get("source_file", ""),
-                        "chunk_count": 0
+                        "chunk_count": 0,
                     }
                 policies[ref]["chunk_count"] += 1
 
-            print(f"Found {len(policies)} ACTIVE policies with {len(results)} total chunks\n")
+            print(
+                f"Found {len(policies)} ACTIVE policies with {len(results)} total chunks\n"
+            )
             print(f"{'Ref #':<15} {'Chunks':<8} {'Title':<50}")
             print("-" * 75)
             for ref, info in sorted(policies.items()):
-                title = info["title"][:47] + "..." if len(info["title"]) > 50 else info["title"]
+                title = (
+                    info["title"][:47] + "..."
+                    if len(info["title"]) > 50
+                    else info["title"]
+                )
                 print(f"{ref:<15} {info['chunk_count']:<8} {title}")
 
-            print(f"\n✓ Verification complete: {len(policies)} policies, {len(results)} chunks")
+            print(
+                f"\n✓ Verification complete: {len(policies)} policies, {len(results)} chunks"
+            )
 
         elif command == "backup":
             # Backup index metadata to JSON
             import json
             from datetime import datetime
 
-            output_file = sys.argv[2] if len(sys.argv) > 2 else f"index_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            output_file = (
+                sys.argv[2]
+                if len(sys.argv) > 2
+                else f"index_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
             print(f"\nBacking up index to: {output_file}")
             print("-" * 60)
 
             search_client = index.get_search_client()
 
             # Get all documents (metadata only, not content)
-            results = list(search_client.search(
-                search_text="*",
-                select=["id", "title", "reference_number", "version_number", "policy_status",
-                        "effective_date", "source_file", "section", "applies_to",
-                        "applies_to_rumc", "applies_to_rumg", "applies_to_rmg",
-                        "applies_to_roph", "applies_to_rcmc", "applies_to_rch"],
-                top=50000
-            ))
+            results = list(
+                search_client.search(
+                    search_text="*",
+                    select=[
+                        "id",
+                        "title",
+                        "reference_number",
+                        "version_number",
+                        "policy_status",
+                        "effective_date",
+                        "source_file",
+                        "section",
+                        "applies_to",
+                        "applies_to_rumc",
+                        "applies_to_rumg",
+                        "applies_to_rmg",
+                        "applies_to_roph",
+                        "applies_to_rcmc",
+                        "applies_to_rch",
+                    ],
+                    top=50000,
+                )
+            )
 
             backup_data = {
                 "backup_date": datetime.now().isoformat(),
                 "index_name": INDEX_NAME,
                 "total_documents": len(results),
-                "documents": [dict(r) for r in results]
+                "documents": [dict(r) for r in results],
             }
 
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 json.dump(backup_data, f, indent=2, default=str)
 
             print(f"✓ Backed up {len(results)} documents to {output_file}")
 
             # Summary stats
             active = sum(1 for r in results if r.get("policy_status") == "ACTIVE")
-            superseded = sum(1 for r in results if r.get("policy_status") == "SUPERSEDED")
+            superseded = sum(
+                1 for r in results if r.get("policy_status") == "SUPERSEDED"
+            )
             retired = sum(1 for r in results if r.get("policy_status") == "RETIRED")
-            print(f"\nStatus breakdown:")
+            print("\nStatus breakdown:")
             print(f"  ACTIVE: {active}")
             print(f"  SUPERSEDED: {superseded}")
             print(f"  RETIRED: {retired}")
 
         else:
             print("Usage:")
-            print("  python azure_policy_index.py create                  # Create index")
-            print("  python azure_policy_index.py upload <folder>         # Upload chunks")
-            print("  python azure_policy_index.py search <query>          # Test search")
+            print(
+                "  python azure_policy_index.py create                  # Create index"
+            )
+            print(
+                "  python azure_policy_index.py upload <folder>         # Upload chunks"
+            )
+            print(
+                "  python azure_policy_index.py search <query>          # Test search"
+            )
             print("  python azure_policy_index.py stats                   # Get stats")
-            print("  python azure_policy_index.py synonyms                # Update synonym map")
-            print("  python azure_policy_index.py test-synonyms <query>   # Test synonym expansion")
-            print("  python azure_policy_index.py verify <ref_number>     # Verify a policy")
-            print("  python azure_policy_index.py list-versions <ref>     # List policy versions")
-            print("  python azure_policy_index.py verify-all              # Verify all policies")
-            print("  python azure_policy_index.py backup [filename]       # Backup index metadata")
+            print(
+                "  python azure_policy_index.py synonyms                # Update synonym map"
+            )
+            print(
+                "  python azure_policy_index.py test-synonyms <query>   # Test synonym expansion"
+            )
+            print(
+                "  python azure_policy_index.py verify <ref_number>     # Verify a policy"
+            )
+            print(
+                "  python azure_policy_index.py list-versions <ref>     # List policy versions"
+            )
+            print(
+                "  python azure_policy_index.py verify-all              # Verify all policies"
+            )
+            print(
+                "  python azure_policy_index.py backup [filename]       # Backup index metadata"
+            )
     else:
-        print("\nRun with 'create', 'upload', 'search', 'stats', 'synonyms', 'verify', 'list-versions', 'verify-all', or 'backup' command")
+        print(
+            "\nRun with 'create', 'upload', 'search', 'stats', 'synonyms', 'verify', 'list-versions', 'verify-all', or 'backup' command"
+        )

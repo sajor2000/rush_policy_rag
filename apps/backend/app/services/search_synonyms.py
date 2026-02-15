@@ -426,9 +426,9 @@ def get_synonym_rules() -> list[str]:
         List of synonym rules in Apache Solr format
     """
     rules = []
-    for line in SYNONYMS.strip().split('\n'):
+    for line in SYNONYMS.strip().split("\n"):
         line = line.strip()
-        if line and not line.startswith('#'):
+        if line and not line.startswith("#"):
             rules.append(line)
     return rules
 
@@ -440,4 +440,4 @@ def get_synonyms_text() -> str:
     Returns:
         Newline-separated synonym rules without comments
     """
-    return '\n'.join(get_synonym_rules())
+    return "\n".join(get_synonym_rules())

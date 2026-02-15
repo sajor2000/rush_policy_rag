@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-
 DEFAULT_ACTIVE_ALIAS = "rush-policies-active"
 
 
@@ -55,4 +54,3 @@ def ensure_safe_index_target(
         "Refusing direct index write against "
         f"'{index_name}'. Use alias '{active_alias}' or pass --allow-direct-index."
     )
-

@@ -2,11 +2,12 @@
 Security tests for input validation and injection prevention.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
 
-from app.core.security import validate_query, build_applies_to_filter
+from app.core.security import build_applies_to_filter, validate_query
 
 
 class TestValidateQuery:
@@ -113,7 +114,26 @@ class TestBuildAppliesToFilter:
 
     def test_special_chars_blocked(self):
         """Special characters should be blocked."""
-        special_chars = ["$", "&", "|", "!", "@", "#", "%", "^", "*", "=", "<", ">", "[", "]", "{", "}", "/", "\\"]
+        special_chars = [
+            "$",
+            "&",
+            "|",
+            "!",
+            "@",
+            "#",
+            "%",
+            "^",
+            "*",
+            "=",
+            "<",
+            ">",
+            "[",
+            "]",
+            "{",
+            "}",
+            "/",
+            "\\",
+        ]
         for char in special_chars:
             with pytest.raises(ValueError, match="Invalid filter value"):
                 build_applies_to_filter(f"RUMC{char}test")

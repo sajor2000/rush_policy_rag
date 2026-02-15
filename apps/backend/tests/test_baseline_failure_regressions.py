@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -45,7 +44,9 @@ def test_metadata_contract_uses_policy_chunk_text_field():
 
 
 def test_audit_report_handles_zero_files_without_division_error():
-    audit = _load_module("audit_ingestion_quality", "scripts/audit_ingestion_quality.py")
+    audit = _load_module(
+        "audit_ingestion_quality", "scripts/audit_ingestion_quality.py"
+    )
 
     report = audit.AuditReport(files_audited=0)
     # Should not raise ZeroDivisionError when no files are audited.

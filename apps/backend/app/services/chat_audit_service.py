@@ -12,6 +12,7 @@ HIPAA / PHI Risk Notice:
     for policy retrieval (not clinical data), users MAY include patient information
     in their queries (e.g., "What is the policy for patient X's insulin pump?").
     Mitigations:
+    - PHI is redacted via phi_filter.py before logging (names, MRNs, SSNs, DOBs, emails)
     - Questions are truncated to CHAT_AUDIT_MAX_QUESTION_LENGTH (default 2,000 chars)
     - Responses are truncated to CHAT_AUDIT_MAX_RESPONSE_LENGTH (default 5,000 chars)
     - No user identifiers (name, email, IP) are stored unless Azure AD is enabled
@@ -32,7 +33,6 @@ Usage:
 """
 
 import asyncio
-import json
 import logging
 import uuid
 from collections import deque
@@ -45,6 +45,7 @@ from azure.storage.blob import BlobServiceClient, ContainerClient
 from app.core.config import settings
 from app.models.audit_schemas import AuditCitation, ChatAuditRecord
 from app.models.schemas import ChatRequest, ChatResponse
+from app.services.phi_filter import redact_phi
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,14 @@ class ChatAuditService:
         buffer_size: Optional[int] = None,
         flush_interval: Optional[int] = None,
     ):
-        self._connection_string = connection_string or settings.STORAGE_CONNECTION_STRING
+        self._connection_string = (
+            connection_string or settings.STORAGE_CONNECTION_STRING
+        )
         self._container_name = container_name or settings.CHAT_AUDIT_CONTAINER
         self._buffer_size = buffer_size or settings.CHAT_AUDIT_BUFFER_SIZE
-        self._flush_interval = flush_interval or settings.CHAT_AUDIT_FLUSH_INTERVAL_SECONDS
+        self._flush_interval = (
+            flush_interval or settings.CHAT_AUDIT_FLUSH_INTERVAL_SECONDS
+        )
 
         # Thread-safe buffer
         self._buffer: deque[ChatAuditRecord] = deque(maxlen=self._buffer_size * 2)
@@ -94,7 +99,9 @@ class ChatAuditService:
     async def start(self) -> None:
         """Start the background flush task."""
         if not self.is_enabled:
-            logger.warning("Chat audit disabled - skipping start (no connection string or disabled)")
+            logger.warning(
+                "Chat audit disabled - skipping start (no connection string or disabled)"
+            )
             return
 
         if self._running:
@@ -175,9 +182,14 @@ class ChatAuditService:
         search_query: Optional[str],
     ) -> ChatAuditRecord:
         """Build a ChatAuditRecord from request/response."""
+        # Redact PHI before logging (HIPAA Safe Harbor compliance)
+        question_redacted, phi_flags = redact_phi(request.message)
+        if phi_flags:
+            logger.info(f"PHI redacted from audit question: {phi_flags}")
+
         # Truncate long fields to prevent storage bloat
-        question = request.message[:settings.CHAT_AUDIT_MAX_QUESTION_LENGTH]
-        response_text = response.response[:settings.CHAT_AUDIT_MAX_RESPONSE_LENGTH]
+        question = question_redacted[: settings.CHAT_AUDIT_MAX_QUESTION_LENGTH]
+        response_text = response.response[: settings.CHAT_AUDIT_MAX_RESPONSE_LENGTH]
         summary_text = response.summary[:500] if response.summary else ""
 
         # Extract citations from evidence
@@ -251,7 +263,9 @@ class ChatAuditService:
         for date_path, date_records in records_by_date.items():
             try:
                 await self._append_to_blob(date_path, date_records)
-                logger.debug(f"Flushed {len(date_records)} audit records to {date_path}.jsonl")
+                logger.debug(
+                    f"Flushed {len(date_records)} audit records to {date_path}.jsonl"
+                )
             except Exception as e:
                 logger.error(f"Failed to flush audit records to {date_path}: {e}")
                 # Re-add failed records to buffer for retry
@@ -259,7 +273,9 @@ class ChatAuditService:
                     for record in date_records:
                         self._buffer.appendleft(record)
 
-    async def _append_to_blob(self, date_path: str, records: List[ChatAuditRecord]) -> None:
+    async def _append_to_blob(
+        self, date_path: str, records: List[ChatAuditRecord]
+    ) -> None:
         """
         Append records to a date-partitioned JSONL blob.
 
@@ -308,7 +324,9 @@ class ChatAuditService:
                 self._connection_string,
             )
 
-        self._container_client = self._blob_service.get_container_client(self._container_name)
+        self._container_client = self._blob_service.get_container_client(
+            self._container_name
+        )
 
         try:
             exists = await asyncio.to_thread(self._container_client.exists)
@@ -371,7 +389,10 @@ class ChatAuditService:
                         continue
                     if confidence is not None and record.confidence != confidence:
                         continue
-                    if needs_human_review is not None and record.needs_human_review != needs_human_review:
+                    if (
+                        needs_human_review is not None
+                        and record.needs_human_review != needs_human_review
+                    ):
                         continue
 
                     records.append(record)
@@ -407,7 +428,9 @@ class ChatAuditService:
 
         pipeline_breakdown: dict[str, int] = {}
         for r in records:
-            pipeline_breakdown[r.pipeline_used] = pipeline_breakdown.get(r.pipeline_used, 0) + 1
+            pipeline_breakdown[r.pipeline_used] = (
+                pipeline_breakdown.get(r.pipeline_used, 0) + 1
+            )
 
         return {
             "date": date,

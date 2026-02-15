@@ -30,75 +30,145 @@ logger = logging.getLogger(__name__)
 # - type: Internal identifier for the device type
 
 AMBIGUOUS_DEVICE_TERMS: Dict[str, Dict] = {
-    'iv': {
-        'device_types': ['peripheral_iv', 'picc', 'cvc', 'port'],
-        'message': 'Your query mentions "IV" which could refer to different devices. Which type are you asking about?',
-        'options': [
+    "iv": {
+        "device_types": ["peripheral_iv", "picc", "cvc", "port"],
+        "message": 'Your query mentions "IV" which could refer to different devices. Which type are you asking about?',
+        "options": [
             {
-                'label': 'Peripheral IV (short-term, 72-96 hours)',
-                'expansion': 'peripheral intravenous PIV short-term',
-                'type': 'peripheral_iv'
+                "label": "Peripheral IV (short-term, 72-96 hours)",
+                "expansion": "peripheral intravenous PIV short-term",
+                "type": "peripheral_iv",
             },
             {
-                'label': 'PICC line (long-term central line)',
-                'expansion': 'PICC peripherally inserted central catheter long-term',
-                'type': 'picc'
+                "label": "PICC line (long-term central line)",
+                "expansion": "PICC peripherally inserted central catheter long-term",
+                "type": "picc",
             },
             {
-                'label': 'Central venous catheter (CVC, triple lumen)',
-                'expansion': 'central venous catheter CVC TLC long-term',
-                'type': 'cvc'
+                "label": "Central venous catheter (CVC, triple lumen)",
+                "expansion": "central venous catheter CVC TLC long-term",
+                "type": "cvc",
             },
             {
-                'label': 'Any IV or catheter (show all results)',
-                'expansion': 'intravenous vascular access',
-                'type': 'all'
-            }
-        ]
+                "label": "Any IV or catheter (show all results)",
+                "expansion": "intravenous vascular access",
+                "type": "all",
+            },
+        ],
     },
-    'catheter': {
-        'device_types': ['urinary', 'peripheral_iv', 'central_line', 'epidural'],
-        'message': 'Your query mentions "catheter" which could refer to different types. Which are you asking about?',
-        'options': [
-            {'label': 'Urinary catheter (Foley)', 'expansion': 'urinary catheter Foley bladder', 'type': 'urinary'},
-            {'label': 'IV catheter (peripheral or central)', 'expansion': 'intravenous catheter vascular', 'type': 'iv'},
-            {'label': 'Epidural catheter', 'expansion': 'epidural catheter spinal', 'type': 'epidural'},
-            {'label': 'Any catheter (show all results)', 'expansion': 'catheter tube', 'type': 'all'}
-        ]
+    "catheter": {
+        "device_types": ["urinary", "peripheral_iv", "central_line", "epidural"],
+        "message": 'Your query mentions "catheter" which could refer to different types. Which are you asking about?',
+        "options": [
+            {
+                "label": "Urinary catheter (Foley)",
+                "expansion": "urinary catheter Foley bladder",
+                "type": "urinary",
+            },
+            {
+                "label": "IV catheter (peripheral or central)",
+                "expansion": "intravenous catheter vascular",
+                "type": "iv",
+            },
+            {
+                "label": "Epidural catheter",
+                "expansion": "epidural catheter spinal",
+                "type": "epidural",
+            },
+            {
+                "label": "Any catheter (show all results)",
+                "expansion": "catheter tube",
+                "type": "all",
+            },
+        ],
     },
-    'line': {
-        'device_types': ['peripheral_iv', 'central_line', 'arterial'],
-        'message': 'Your query mentions "line" which could refer to different vascular access types. Which are you asking about?',
-        'options': [
-            {'label': 'Peripheral IV line', 'expansion': 'peripheral intravenous PIV', 'type': 'peripheral'},
-            {'label': 'Central line (PICC, CVC)', 'expansion': 'central venous catheter PICC CVC', 'type': 'central'},
-            {'label': 'Arterial line', 'expansion': 'arterial line A-line', 'type': 'arterial'},
-            {'label': 'Any line (show all results)', 'expansion': 'vascular access line', 'type': 'all'}
-        ]
+    "line": {
+        "device_types": ["peripheral_iv", "central_line", "arterial"],
+        "message": 'Your query mentions "line" which could refer to different vascular access types. Which are you asking about?',
+        "options": [
+            {
+                "label": "Peripheral IV line",
+                "expansion": "peripheral intravenous PIV",
+                "type": "peripheral",
+            },
+            {
+                "label": "Central line (PICC, CVC)",
+                "expansion": "central venous catheter PICC CVC",
+                "type": "central",
+            },
+            {
+                "label": "Arterial line",
+                "expansion": "arterial line A-line",
+                "type": "arterial",
+            },
+            {
+                "label": "Any line (show all results)",
+                "expansion": "vascular access line",
+                "type": "all",
+            },
+        ],
     },
-    'port': {
-        'device_types': ['implanted_port', 'dialysis_port'],
-        'message': 'Your query mentions "port" which could refer to different access devices. Which are you asking about?',
-        'options': [
-            {'label': 'Implanted port (chemotherapy port)', 'expansion': 'implanted port chemotherapy vascular access', 'type': 'implanted'},
-            {'label': 'Dialysis port (apheresis catheter)', 'expansion': 'dialysis port apheresis catheter', 'type': 'dialysis'},
-            {'label': 'Any port (show all results)', 'expansion': 'port vascular access', 'type': 'all'}
-        ]
-    }
+    "port": {
+        "device_types": ["implanted_port", "dialysis_port"],
+        "message": 'Your query mentions "port" which could refer to different access devices. Which are you asking about?',
+        "options": [
+            {
+                "label": "Implanted port (chemotherapy port)",
+                "expansion": "implanted port chemotherapy vascular access",
+                "type": "implanted",
+            },
+            {
+                "label": "Dialysis port (apheresis catheter)",
+                "expansion": "dialysis port apheresis catheter",
+                "type": "dialysis",
+            },
+            {
+                "label": "Any port (show all results)",
+                "expansion": "port vascular access",
+                "type": "all",
+            },
+        ],
+    },
 }
 
 # Keywords indicating the query is about device policies/procedures
 DEVICE_CONTEXT_KEYWORDS = [
-    'dwell', 'stay', 'place', 'long', 'care', 'change', 'remove',
-    'insertion', 'maintain', 'flush', 'dressing', 'duration', 'access',
-    'policy', 'guideline', 'protocol', 'procedure', 'rule'
+    "dwell",
+    "stay",
+    "place",
+    "long",
+    "care",
+    "change",
+    "remove",
+    "insertion",
+    "maintain",
+    "flush",
+    "dressing",
+    "duration",
+    "access",
+    "policy",
+    "guideline",
+    "protocol",
+    "procedure",
+    "rule",
 ]
 
 # Terms that disambiguate device types (if present, no clarification needed)
 DISAMBIGUATING_TERMS = [
-    'peripheral', 'central', 'urinary', 'foley', 'epidural',
-    'picc', 'cvc', 'tlc', 'arterial', 'implanted', 'dialysis',
-    'apheresis', 'port-a-cath', 'chemo'
+    "peripheral",
+    "central",
+    "urinary",
+    "foley",
+    "epidural",
+    "picc",
+    "cvc",
+    "tlc",
+    "arterial",
+    "implanted",
+    "dialysis",
+    "apheresis",
+    "port-a-cath",
+    "chemo",
 ]
 
 
@@ -140,19 +210,21 @@ def detect_device_ambiguity(query: str) -> Optional[Dict]:
     for term, config in AMBIGUOUS_DEVICE_TERMS.items():
         # Use word boundary regex to match whole words only
         # This prevents "guidelines" from matching "line" or "export" from matching "port"
-        pattern = r'\b' + re.escape(term) + r'\b'
+        pattern = r"\b" + re.escape(term) + r"\b"
         if re.search(pattern, query_lower):
             # Check for disambiguating modifiers
             has_disambiguator = any(d in query_lower for d in DISAMBIGUATING_TERMS)
 
             if not has_disambiguator:
                 # AMBIGUOUS - return clarification config
-                logger.info(f"Ambiguous device term detected: '{term}' in query: {query[:50]}...")
+                logger.info(
+                    f"Ambiguous device term detected: '{term}' in query: {query[:50]}..."
+                )
                 return {
-                    'ambiguous_term': term,
-                    'message': config['message'],
-                    'options': config['options'],
-                    'requires_clarification': True
+                    "ambiguous_term": term,
+                    "message": config["message"],
+                    "options": config["options"],
+                    "requires_clarification": True,
                 }
 
     return None  # Query is clear enough
@@ -173,8 +245,8 @@ def get_device_expansion(term: str, device_type: str) -> Optional[str]:
         return None
 
     config = AMBIGUOUS_DEVICE_TERMS[term]
-    for option in config['options']:
-        if option['type'] == device_type:
-            return option['expansion']
+    for option in config["options"]:
+        if option["type"] == device_type:
+            return option["expansion"]
 
     return None

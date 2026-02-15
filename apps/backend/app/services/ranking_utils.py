@@ -10,7 +10,7 @@ Extracted from chat_service.py as part of tech debt refactoring.
 """
 
 import logging
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     from app.services.cohere_rerank_service import RerankResult
@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def apply_mmr_diversification(
-    citations: List,
-    lambda_param: float = 0.7,
-    max_results: int = 10
+    citations: List, lambda_param: float = 0.7, max_results: int = 10
 ) -> List:
     """
     Apply Maximal Marginal Relevance (MMR) to diversify citations.
@@ -50,19 +48,19 @@ def apply_mmr_diversification(
         if not selected:
             # First pick: highest relevance
             selected.append(remaining.pop(0))
-            if hasattr(selected[0], 'filepath') and selected[0].filepath:
+            if hasattr(selected[0], "filepath") and selected[0].filepath:
                 seen_policies.add(selected[0].filepath)
             continue
 
-        best_score = -float('inf')
+        best_score = -float("inf")
         best_idx = 0
 
         for i, candidate in enumerate(remaining):
             # Get relevance score
-            relevance = getattr(candidate, 'reranker_score', None) or 0.0
+            relevance = getattr(candidate, "reranker_score", None) or 0.0
 
             # Calculate similarity penalty (1.0 if same policy, 0.0 if different)
-            candidate_policy = getattr(candidate, 'filepath', '') or ''
+            candidate_policy = getattr(candidate, "filepath", "") or ""
             similarity = 1.0 if candidate_policy in seen_policies else 0.0
 
             # MMR score
@@ -75,7 +73,7 @@ def apply_mmr_diversification(
         best_candidate = remaining.pop(best_idx)
         selected.append(best_candidate)
 
-        if hasattr(best_candidate, 'filepath') and best_candidate.filepath:
+        if hasattr(best_candidate, "filepath") and best_candidate.filepath:
             seen_policies.add(best_candidate.filepath)
 
     return selected
@@ -94,7 +92,7 @@ SURGE_KEYWORDS = [
 ]
 
 
-def is_surge_capacity_policy(result: 'RerankResult') -> bool:
+def is_surge_capacity_policy(result: "RerankResult") -> bool:
     """
     Detect if a policy is a surge level or capacity-based policy.
 
@@ -120,9 +118,8 @@ def is_surge_capacity_policy(result: 'RerankResult') -> bool:
 
 
 def apply_surge_capacity_penalty(
-    results: List['RerankResult'],
-    penalty: float = 0.6
-) -> List['RerankResult']:
+    results: List["RerankResult"], penalty: float = 0.6
+) -> List["RerankResult"]:
     """
     Apply score penalty to surge level/capacity-based policies.
 
@@ -160,7 +157,7 @@ def apply_surge_capacity_penalty(
                 applies_to=result.applies_to,
                 page_number=result.page_number,  # Preserve page number for PDF navigation
                 cohere_score=adjusted_score,
-                original_index=result.original_index
+                original_index=result.original_index,
             )
             adjusted_results.append(adjusted_result)
             penalized_count += 1
@@ -179,10 +176,8 @@ def apply_surge_capacity_penalty(
 
 
 def apply_mmr_to_rerank_results(
-    results: List['RerankResult'],
-    lambda_param: float = 0.7,
-    max_results: int = 10
-) -> List['RerankResult']:
+    results: List["RerankResult"], lambda_param: float = 0.7, max_results: int = 10
+) -> List["RerankResult"]:
     """
     Apply MMR diversification specifically to RerankResult objects.
 
@@ -213,7 +208,7 @@ def apply_mmr_to_rerank_results(
                 seen_policies.add(best.source_file)
             continue
 
-        best_score = -float('inf')
+        best_score = -float("inf")
         best_idx = 0
 
         for i, candidate in enumerate(remaining):

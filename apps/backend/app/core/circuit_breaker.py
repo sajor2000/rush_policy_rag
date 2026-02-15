@@ -14,7 +14,7 @@ Usage:
 """
 
 import logging
-from typing import Optional
+
 import pybreaker
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,12 @@ logger = logging.getLogger(__name__)
 class LoggingCircuitBreakerListener(pybreaker.CircuitBreakerListener):
     """Log circuit breaker state transitions for observability."""
 
-    def state_change(self, cb: pybreaker.CircuitBreaker, old_state: pybreaker.CircuitBreakerState, new_state: pybreaker.CircuitBreakerState):
+    def state_change(
+        self,
+        cb: pybreaker.CircuitBreaker,
+        old_state: pybreaker.CircuitBreakerState,
+        new_state: pybreaker.CircuitBreakerState,
+    ):
         logger.warning(
             f"Circuit breaker '{cb.name}' state changed: {old_state.name} -> {new_state.name}"
         )
@@ -58,7 +63,7 @@ azure_search_breaker = pybreaker.CircuitBreaker(
     fail_max=5,
     reset_timeout=30,
     listeners=[_listener],
-    exclude=[ValueError, KeyError]  # Don't count validation errors
+    exclude=[ValueError, KeyError],  # Don't count validation errors
 )
 
 
@@ -71,7 +76,7 @@ azure_openai_breaker = pybreaker.CircuitBreaker(
     fail_max=3,
     reset_timeout=60,
     listeners=[_listener],
-    exclude=[ValueError, KeyError]
+    exclude=[ValueError, KeyError],
 )
 
 

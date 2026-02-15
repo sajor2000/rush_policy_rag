@@ -7,8 +7,8 @@ This module provides:
 - DocumentHasher: SHA256 content hashing
 """
 
-from .models import DocumentRecord, AuditEntry, Manifest, DocumentStatus, SyncResult
 from .hasher import DocumentHasher
+from .models import AuditEntry, DocumentRecord, DocumentStatus, Manifest, SyncResult
 from .registry import ManifestManager
 
 __all__ = [

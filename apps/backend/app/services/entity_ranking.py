@@ -12,7 +12,7 @@ Extracted from chat_service.py as part of tech debt refactoring.
 
 import logging
 import re
-from typing import Dict, List, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Set
 
 if TYPE_CHECKING:
     from app.services.cohere_rerank_service import RerankResult
@@ -26,15 +26,36 @@ logger = logging.getLogger(__name__)
 # Uses word boundary regex to prevent false positives like "rch" in "search"
 # ============================================================================
 ENTITY_PATTERNS: Dict[str, List[str]] = {
-    'RUMC': [r'\brumc\b', r'\brush university medical center\b', r'\brush medical center\b', r'\brush hospital\b'],
-    'RUMG': [r'\brumg\b', r'\brush university medical group\b'],
-    'RMG': [r'\brmg\b', r'\brush medical group\b'],
-    'ROPH': [r'\broph\b', r'\brush oak park\b', r'\boak park hospital\b', r'\boak park campus\b'],
-    'RCMC': [r'\brcmc\b', r'\brush copley\b', r'\bcopley medical center\b', r'\bcopley hospital\b'],
-    'RCH': [r'\brch\b', r'\brush children\b', r'\bpediatric hospital\b', r'\bchildrens hospital\b', r"\brush children's\b"],
-    'ROPPG': [r'\broppg\b', r'\boak park physicians\b'],
-    'RCMG': [r'\brcmg\b', r'\bcopley medical group\b'],
-    'RU': [r'\brush university\b'],  # Check last to avoid false positives from 'rush'
+    "RUMC": [
+        r"\brumc\b",
+        r"\brush university medical center\b",
+        r"\brush medical center\b",
+        r"\brush hospital\b",
+    ],
+    "RUMG": [r"\brumg\b", r"\brush university medical group\b"],
+    "RMG": [r"\brmg\b", r"\brush medical group\b"],
+    "ROPH": [
+        r"\broph\b",
+        r"\brush oak park\b",
+        r"\boak park hospital\b",
+        r"\boak park campus\b",
+    ],
+    "RCMC": [
+        r"\brcmc\b",
+        r"\brush copley\b",
+        r"\bcopley medical center\b",
+        r"\bcopley hospital\b",
+    ],
+    "RCH": [
+        r"\brch\b",
+        r"\brush children\b",
+        r"\bpediatric hospital\b",
+        r"\bchildrens hospital\b",
+        r"\brush children's\b",
+    ],
+    "ROPPG": [r"\broppg\b", r"\boak park physicians\b"],
+    "RCMG": [r"\brcmg\b", r"\bcopley medical group\b"],
+    "RU": [r"\brush university\b"],  # Check last to avoid false positives from 'rush'
 }
 
 
@@ -43,13 +64,13 @@ ENTITY_PATTERNS: Dict[str, List[str]] = {
 # CONSERVATIVE: Only generic location phrases that don't specify a RUSH entity
 # ============================================================================
 LOCATION_CONTEXT_PATTERNS: List[str] = [
-    r'\s*\bin\s+(?:a\s+)?patient\s+room(?:s)?\b',           # "in a patient room"
-    r'\s*\bat\s+the\s+bedside\b',                           # "at the bedside"
-    r'\s*\bduring\s+(?:a\s+)?(?:procedure|visit)\b',        # "during a procedure"
-    r'\s*\bon\s+the\s+(?:floor|unit|ward)\b',               # "on the floor/unit"
-    r'\s*\bin\s+(?:the\s+)?(?:clinical|hospital)\s+setting\b',  # "in the clinical setting"
-    r'\s*\bwhen\s+caring\s+for\s+(?:a\s+)?patient\b',       # "when caring for a patient"
-    r'\s*\bwhile\s+(?:treating|seeing)\s+(?:a\s+)?patient\b', # "while treating a patient"
+    r"\s*\bin\s+(?:a\s+)?patient\s+room(?:s)?\b",  # "in a patient room"
+    r"\s*\bat\s+the\s+bedside\b",  # "at the bedside"
+    r"\s*\bduring\s+(?:a\s+)?(?:procedure|visit)\b",  # "during a procedure"
+    r"\s*\bon\s+the\s+(?:floor|unit|ward)\b",  # "on the floor/unit"
+    r"\s*\bin\s+(?:the\s+)?(?:clinical|hospital)\s+setting\b",  # "in the clinical setting"
+    r"\s*\bwhen\s+caring\s+for\s+(?:a\s+)?patient\b",  # "when caring for a patient"
+    r"\s*\bwhile\s+(?:treating|seeing)\s+(?:a\s+)?patient\b",  # "while treating a patient"
 ]
 
 
@@ -60,21 +81,49 @@ LOCATION_CONTEXT_PATTERNS: List[str] = [
 
 # Regex patterns that indicate pediatric patient population (with word boundaries)
 PEDIATRIC_KEYWORD_PATTERNS: List[str] = [
-    r'\bpediatric\b', r'\bpeds\b', r'\bpediatrics\b', r'\bpaediatric\b',
-    r'\bchild\b', r'\bchildren\b', r'\bkids\b', r'\bkid\b',
-    r'\binfant\b', r'\binfants\b', r'\bbaby\b', r'\bbabies\b', r'\bnewborn\b', r'\bnewborns\b',
-    r'\bneonatal\b', r'\bneonate\b', r'\bneonates\b',
-    r'\bnicu\b', r'\bpicu\b',
-    r'\btoddler\b', r'\btoddlers\b',
-    r'\badolescent\b', r'\badolescents\b', r'\bteen\b', r'\bteenager\b', r'\bteens\b',
-    r'\brch\b',  # Rush Children's Hospital code (word boundary prevents "search" match)
-    r'\brush children\b', r"\brush children's\b",
+    r"\bpediatric\b",
+    r"\bpeds\b",
+    r"\bpediatrics\b",
+    r"\bpaediatric\b",
+    r"\bchild\b",
+    r"\bchildren\b",
+    r"\bkids\b",
+    r"\bkid\b",
+    r"\binfant\b",
+    r"\binfants\b",
+    r"\bbaby\b",
+    r"\bbabies\b",
+    r"\bnewborn\b",
+    r"\bnewborns\b",
+    r"\bneonatal\b",
+    r"\bneonate\b",
+    r"\bneonates\b",
+    r"\bnicu\b",
+    r"\bpicu\b",
+    r"\btoddler\b",
+    r"\btoddlers\b",
+    r"\badolescent\b",
+    r"\badolescents\b",
+    r"\bteen\b",
+    r"\bteenager\b",
+    r"\bteens\b",
+    r"\brch\b",  # Rush Children's Hospital code (word boundary prevents "search" match)
+    r"\brush children\b",
+    r"\brush children's\b",
 ]
 
 # Regex patterns in title/filename that indicate pediatric policy
 PEDIATRIC_POLICY_TITLE_PATTERNS: List[str] = [
-    r'\bpediatric', r'\bpeds-', r'\bnicu\b', r'\bpicu\b', r'\bneonatal\b',
-    r'\binfant', r'\bchild', r'\bnewborn', r'\badolescent', r'\bteen\b',
+    r"\bpediatric",
+    r"\bpeds-",
+    r"\bnicu\b",
+    r"\bpicu\b",
+    r"\bneonatal\b",
+    r"\binfant",
+    r"\bchild",
+    r"\bnewborn",
+    r"\badolescent",
+    r"\bteen\b",
 ]
 
 
@@ -110,10 +159,8 @@ def extract_entity_mentions(query: str) -> Set[str]:
 
 
 def apply_location_boost(
-    results: List['RerankResult'],
-    query_entities: Set[str],
-    boost: float = 1.3
-) -> List['RerankResult']:
+    results: List["RerankResult"], query_entities: Set[str], boost: float = 1.3
+) -> List["RerankResult"]:
     """
     Apply score boost to policies matching entity codes in query.
 
@@ -139,7 +186,9 @@ def apply_location_boost(
 
     for result in results:
         # Parse applies_to string (e.g., "RUMC, RUMG, ROPH")
-        policy_entities = {e.strip().upper() for e in (result.applies_to or "").split(",") if e.strip()}
+        policy_entities = {
+            e.strip().upper() for e in (result.applies_to or "").split(",") if e.strip()
+        }
 
         # Check if any query entity matches policy entities
         if query_entities & policy_entities:  # Set intersection
@@ -153,7 +202,7 @@ def apply_location_boost(
                 applies_to=result.applies_to,
                 page_number=result.page_number,  # Preserve page number for PDF navigation
                 cohere_score=adjusted_score,
-                original_index=result.original_index
+                original_index=result.original_index,
             )
             adjusted_results.append(adjusted_result)
             boosted_count += 1
@@ -193,10 +242,12 @@ def detect_pediatric_context(query: str) -> bool:
         return False
 
     query_lower = query.lower()
-    return any(re.search(pattern, query_lower) for pattern in PEDIATRIC_KEYWORD_PATTERNS)
+    return any(
+        re.search(pattern, query_lower) for pattern in PEDIATRIC_KEYWORD_PATTERNS
+    )
 
 
-def is_pediatric_policy(result: 'RerankResult') -> bool:
+def is_pediatric_policy(result: "RerankResult") -> bool:
     """
     Detect if a policy is pediatric-specific by title/filename patterns.
 
@@ -220,13 +271,13 @@ def is_pediatric_policy(result: 'RerankResult') -> bool:
 
 
 def apply_population_ranking(
-    results: List['RerankResult'],
+    results: List["RerankResult"],
     is_pediatric_query: bool,
     pediatric_boost: float = None,
     adult_default_boost: float = None,
     adult_penalty_in_peds: float = None,
-    peds_penalty_in_adult: float = None
-) -> List['RerankResult']:
+    peds_penalty_in_adult: float = None,
+) -> List["RerankResult"]:
     """
     Apply score adjustments based on patient population context.
 
@@ -298,7 +349,7 @@ def apply_population_ranking(
             applies_to=result.applies_to,
             page_number=result.page_number,  # Preserve page number for PDF navigation
             cohere_score=adjusted_score,
-            original_index=result.original_index
+            original_index=result.original_index,
         )
         adjusted_results.append(adjusted_result)
 

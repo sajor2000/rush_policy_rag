@@ -155,3 +155,6 @@ apps/backend/.deepeval/
 david.md
 .factory/
 .playwright-mcp/
+
+# Workflow artifacts (ephemeral task tracking)
+todos/

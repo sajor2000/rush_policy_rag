@@ -1,8 +1,8 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
 import jwt
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
@@ -21,7 +21,14 @@ def _generate_rsa_keypair():
     return private_pem, public_jwk
 
 
-def _encode_token(private_pem, issuer, audience, kid="test-kid", azp="client-id", exp_delta=timedelta(minutes=5)):
+def _encode_token(
+    private_pem,
+    issuer,
+    audience,
+    kid="test-kid",
+    azp="client-id",
+    exp_delta=timedelta(minutes=5),
+):
     now = datetime.now(timezone.utc)
     payload = {
         "iss": issuer,
@@ -67,7 +74,13 @@ def test_validator_rejects_unapproved_client():
     )
     validator._cache["jwks"] = {"keys": [public_jwk]}  # type: ignore[attr-defined]
 
-    token = _encode_token(private_pem, validator.issuer, "api://aud", kid="kid-client", azp="blocked-client")
+    token = _encode_token(
+        private_pem,
+        validator.issuer,
+        "api://aud",
+        kid="kid-client",
+        azp="blocked-client",
+    )
 
     with pytest.raises(TokenValidationError) as exc:
         validator.validate(token)

@@ -2,7 +2,7 @@ import asyncio
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.chat_service import ChatService
-from app.services.on_your_data_service import OnYourDataResult, OnYourDataReference
+from app.services.on_your_data_service import OnYourDataReference, OnYourDataResult
 
 
 class DummySearchIndex:
@@ -60,7 +60,9 @@ def test_chat_service_uses_on_your_data_when_available():
         on_your_data_service=on_your_data,
     )
 
-    response = asyncio.run(service.process_chat(ChatRequest(message="How do we clean central lines?")))
+    response = asyncio.run(
+        service.process_chat(ChatRequest(message="How do we clean central lines?"))
+    )
 
     assert response.found is True
     assert response.summary.startswith("Use aseptic technique")
@@ -98,7 +100,9 @@ def test_policy_number_query_forces_targeted_oyd_bypass(monkeypatch):
     monkeypatch.setattr(service, "_chat_with_on_your_data", fake_oyd)
     monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
 
-    response = asyncio.run(service.process_chat(ChatRequest(message="Can you summarize HR-C 05.00?")))
+    response = asyncio.run(
+        service.process_chat(ChatRequest(message="Can you summarize HR-C 05.00?"))
+    )
 
     assert response.response == "oyd"
     assert calls
@@ -136,7 +140,9 @@ def test_malformed_hr_code_still_forces_targeted_oyd_bypass(monkeypatch):
     monkeypatch.setattr(service, "_chat_with_on_your_data", fake_oyd)
     monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
 
-    response = asyncio.run(service.process_chat(ChatRequest(message="What is HR-C 0.600?")))
+    response = asyncio.run(
+        service.process_chat(ChatRequest(message="What is HR-C 0.600?"))
+    )
 
     assert response.response == "oyd"
     assert calls
@@ -169,7 +175,9 @@ def test_malformed_hr_code_with_out_of_scope_keyword_prefers_oyd(monkeypatch):
     monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
 
     response = asyncio.run(
-        service.process_chat(ChatRequest(message="What is HR-C 0.600 pension contributions?"))
+        service.process_chat(
+            ChatRequest(message="What is HR-C 0.600 pension contributions?")
+        )
     )
 
     assert response.found is True
@@ -207,7 +215,9 @@ def test_non_hr_query_uses_cohere_path_when_configured(monkeypatch):
     monkeypatch.setattr(service, "_chat_with_on_your_data", fake_oyd)
     monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
 
-    response = asyncio.run(service.process_chat(ChatRequest(message="How do we clean central lines?")))
+    response = asyncio.run(
+        service.process_chat(ChatRequest(message="How do we clean central lines?"))
+    )
 
     assert response.response == "cohere"
     assert calls
@@ -240,7 +250,9 @@ def test_policy_query_with_out_of_scope_keyword_prefers_oyd(monkeypatch):
     monkeypatch.setattr(service, "_chat_with_cohere_rerank", fake_cohere)
 
     response = asyncio.run(
-        service.process_chat(ChatRequest(message="Can you summarize HR-C 05.00 pension contributions?"))
+        service.process_chat(
+            ChatRequest(message="Can you summarize HR-C 05.00 pension contributions?")
+        )
     )
 
     assert response.found is True
@@ -286,6 +298,7 @@ def test_stream_policy_query_with_out_of_scope_keyword_prefers_oyd(monkeypatch):
 # Device Ambiguity Detection Tests
 # ============================================================================
 
+
 def test_ambiguous_device_detection_iv():
     """Test that ambiguous 'IV' queries trigger clarification."""
     search_index = DummySearchIndex()
@@ -297,16 +310,16 @@ def test_ambiguous_device_detection_iv():
         "IV dwell time",
         "when should an IV be changed",
         "IV care procedure",
-        "IV insertion requirements"
+        "IV insertion requirements",
     ]
 
     for query in ambiguous_queries:
         result = service.detect_device_ambiguity(query)
         assert result is not None, f"Failed to detect ambiguity in: {query}"
-        assert 'options' in result, f"Missing options in result for: {query}"
-        assert len(result['options']) >= 3, f"Insufficient options for: {query}"
-        assert result['ambiguous_term'] == 'iv', f"Wrong term detected for: {query}"
-        assert 'message' in result
+        assert "options" in result, f"Missing options in result for: {query}"
+        assert len(result["options"]) >= 3, f"Insufficient options for: {query}"
+        assert result["ambiguous_term"] == "iv", f"Wrong term detected for: {query}"
+        assert "message" in result
 
 
 def test_clear_device_queries_no_clarification():
@@ -321,7 +334,7 @@ def test_clear_device_queries_no_clarification():
         "central line dressing change",
         "urinary catheter removal",
         "Foley catheter care",
-        "epidural catheter placement"
+        "epidural catheter placement",
     ]
 
     for query in clear_queries:
@@ -338,14 +351,14 @@ def test_ambiguous_catheter_detection():
         "catheter care procedures",
         "how to remove a catheter",
         "catheter insertion technique",
-        "catheter dressing change"
+        "catheter dressing change",
     ]
 
     for query in ambiguous_queries:
         result = service.detect_device_ambiguity(query)
         assert result is not None, f"Failed to detect ambiguity in: {query}"
-        assert result['ambiguous_term'] == 'catheter'
-        assert len(result['options']) >= 3
+        assert result["ambiguous_term"] == "catheter"
+        assert len(result["options"]) >= 3
 
 
 def test_ambiguous_line_detection():
@@ -356,13 +369,13 @@ def test_ambiguous_line_detection():
     ambiguous_queries = [
         "line dressing change frequency",
         "how long can a line stay in place",
-        "line care protocol"
+        "line care protocol",
     ]
 
     for query in ambiguous_queries:
         result = service.detect_device_ambiguity(query)
         assert result is not None, f"Failed to detect ambiguity in: {query}"
-        assert result['ambiguous_term'] == 'line'
+        assert result["ambiguous_term"] == "line"
 
 
 def test_ambiguous_port_detection():
@@ -373,13 +386,13 @@ def test_ambiguous_port_detection():
     ambiguous_queries = [
         "port flushing protocol",
         "how to access a port",
-        "port care instructions"
+        "port care instructions",
     ]
 
     for query in ambiguous_queries:
         result = service.detect_device_ambiguity(query)
         assert result is not None, f"Failed to detect ambiguity in: {query}"
-        assert result['ambiguous_term'] == 'port'
+        assert result["ambiguous_term"] == "port"
 
 
 def test_non_device_queries_no_clarification():
@@ -392,7 +405,7 @@ def test_non_device_queries_no_clarification():
         "patient fall prevention",
         "medication administration",
         "code blue procedure",
-        "What is SBAR?"
+        "What is SBAR?",
     ]
 
     for query in non_device_queries:
@@ -408,27 +421,35 @@ def test_clarification_options_structure():
     result = service.detect_device_ambiguity("how long can an IV stay in place")
 
     assert result is not None
-    assert 'message' in result
-    assert 'options' in result
-    assert 'ambiguous_term' in result
-    assert 'requires_clarification' in result
+    assert "message" in result
+    assert "options" in result
+    assert "ambiguous_term" in result
+    assert "requires_clarification" in result
 
     # Check option structure
-    for option in result['options']:
-        assert 'label' in option, "Option missing 'label'"
-        assert 'expansion' in option, "Option missing 'expansion'"
-        assert 'type' in option, "Option missing 'type'"
-        assert len(option['label']) > 0, "Option label is empty"
-        assert len(option['expansion']) > 0, "Option expansion is empty"
+    for option in result["options"]:
+        assert "label" in option, "Option missing 'label'"
+        assert "expansion" in option, "Option missing 'expansion'"
+        assert "type" in option, "Option missing 'type'"
+        assert len(option["label"]) > 0, "Option label is empty"
+        assert len(option["expansion"]) > 0, "Option expansion is empty"
 
 
 # ============================================================================
 # Score Windowing Tests
 # ============================================================================
 
+
 class MockRerankResult:
     """Mock RerankResult for testing."""
-    def __init__(self, score: float, content: str, reference_number: str, title: str = "Test Policy"):
+
+    def __init__(
+        self,
+        score: float,
+        content: str,
+        reference_number: str,
+        title: str = "Test Policy",
+    ):
         self.cohere_score = score
         self.content = content
         self.reference_number = reference_number
@@ -449,25 +470,41 @@ def test_score_windowing_filters_noise():
     # Top 2 are about peripheral IV (score ~0.85)
     # Bottom 2 are about PICC/epidural (score ~0.40) - NOISE
     mock_reranked = [
-        MockRerankResult(score=0.85, content="Peripheral IV dwell time: 72-96h", reference_number="123"),
-        MockRerankResult(score=0.82, content="PIV insertion procedure", reference_number="124"),
-        MockRerankResult(score=0.45, content="PICC line dwell time: weeks", reference_number="456"),  # NOISE
-        MockRerankResult(score=0.38, content="Epidural catheter care", reference_number="789"),      # NOISE
+        MockRerankResult(
+            score=0.85,
+            content="Peripheral IV dwell time: 72-96h",
+            reference_number="123",
+        ),
+        MockRerankResult(
+            score=0.82, content="PIV insertion procedure", reference_number="124"
+        ),
+        MockRerankResult(
+            score=0.45, content="PICC line dwell time: weeks", reference_number="456"
+        ),  # NOISE
+        MockRerankResult(
+            score=0.38, content="Epidural catheter care", reference_number="789"
+        ),  # NOISE
     ]
 
     filtered = service.filter_by_score_window(
         mock_reranked,
         query="how long can an IV stay in place",
-        window_threshold=0.6  # Keep score >= 0.51 (0.85 * 0.6)
+        window_threshold=0.6,  # Keep score >= 0.51 (0.85 * 0.6)
     )
 
     # Should keep top 2 (0.85, 0.82) and filter out bottom 2 (0.45, 0.38)
     assert len(filtered) == 2, f"Expected 2 results, got {len(filtered)}"
-    assert all(r.cohere_score >= 0.51 for r in filtered), "Filtered results below threshold"
+    assert all(
+        r.cohere_score >= 0.51 for r in filtered
+    ), "Filtered results below threshold"
     assert "123" in [r.reference_number for r in filtered], "Top result missing"
     assert "124" in [r.reference_number for r in filtered], "Second result missing"
-    assert "456" not in [r.reference_number for r in filtered], "PICC noise not filtered"
-    assert "789" not in [r.reference_number for r in filtered], "Epidural noise not filtered"
+    assert "456" not in [
+        r.reference_number for r in filtered
+    ], "PICC noise not filtered"
+    assert "789" not in [
+        r.reference_number for r in filtered
+    ], "Epidural noise not filtered"
 
 
 def test_score_windowing_skips_low_confidence():
@@ -477,19 +514,25 @@ def test_score_windowing_skips_low_confidence():
 
     # Low confidence results (top score < 0.3)
     mock_reranked = [
-        MockRerankResult(score=0.25, content="Low confidence result 1", reference_number="A"),
-        MockRerankResult(score=0.22, content="Low confidence result 2", reference_number="B"),
-        MockRerankResult(score=0.18, content="Low confidence result 3", reference_number="C"),
+        MockRerankResult(
+            score=0.25, content="Low confidence result 1", reference_number="A"
+        ),
+        MockRerankResult(
+            score=0.22, content="Low confidence result 2", reference_number="B"
+        ),
+        MockRerankResult(
+            score=0.18, content="Low confidence result 3", reference_number="C"
+        ),
     ]
 
     filtered = service.filter_by_score_window(
-        mock_reranked,
-        query="vague query",
-        window_threshold=0.6
+        mock_reranked, query="vague query", window_threshold=0.6
     )
 
     # Should NOT filter when top score < 0.3
-    assert len(filtered) == len(mock_reranked), "Should not filter low-confidence results"
+    assert len(filtered) == len(
+        mock_reranked
+    ), "Should not filter low-confidence results"
 
 
 def test_score_windowing_prevents_over_filtering():
@@ -500,18 +543,24 @@ def test_score_windowing_prevents_over_filtering():
     # Scenario: only 1 result would pass threshold
     mock_reranked = [
         MockRerankResult(score=0.90, content="Top result", reference_number="A"),
-        MockRerankResult(score=0.50, content="Second result", reference_number="B"),  # Would be filtered
-        MockRerankResult(score=0.45, content="Third result", reference_number="C"),   # Would be filtered
+        MockRerankResult(
+            score=0.50, content="Second result", reference_number="B"
+        ),  # Would be filtered
+        MockRerankResult(
+            score=0.45, content="Third result", reference_number="C"
+        ),  # Would be filtered
     ]
 
     filtered = service.filter_by_score_window(
         mock_reranked,
         query="specific query",
-        window_threshold=0.6  # Would filter down to just 1 result (0.90)
+        window_threshold=0.6,  # Would filter down to just 1 result (0.90)
     )
 
     # Should keep at least 2 results to prevent over-filtering
-    assert len(filtered) >= 2, f"Over-filtered to {len(filtered)} results, should keep at least 2"
+    assert (
+        len(filtered) >= 2
+    ), f"Over-filtered to {len(filtered)} results, should keep at least 2"
 
 
 def test_score_windowing_skips_few_results():
@@ -526,9 +575,7 @@ def test_score_windowing_skips_few_results():
     ]
 
     filtered = service.filter_by_score_window(
-        mock_reranked,
-        query="query",
-        window_threshold=0.6
+        mock_reranked, query="query", window_threshold=0.6
     )
 
     # Should NOT filter when <= 2 results
@@ -551,11 +598,13 @@ def test_score_windowing_keeps_tight_cluster():
     filtered = service.filter_by_score_window(
         mock_reranked,
         query="query",
-        window_threshold=0.6  # 0.88 * 0.6 = 0.528, all results pass
+        window_threshold=0.6,  # 0.88 * 0.6 = 0.528, all results pass
     )
 
     # All results should be kept (all above 0.528)
-    assert len(filtered) == 4, f"Should keep all 4 tightly-clustered results, got {len(filtered)}"
+    assert (
+        len(filtered) == 4
+    ), f"Should keep all 4 tightly-clustered results, got {len(filtered)}"
 
 
 def test_score_windowing_with_different_thresholds():
@@ -572,32 +621,33 @@ def test_score_windowing_with_different_thresholds():
 
     # Strict threshold (0.8) - should keep 2 results
     filtered_strict = service.filter_by_score_window(
-        mock_reranked,
-        query="query",
-        window_threshold=0.8  # Keep >= 0.8 (1.0 * 0.8)
+        mock_reranked, query="query", window_threshold=0.8  # Keep >= 0.8 (1.0 * 0.8)
     )
-    assert len(filtered_strict) == 2, f"Strict threshold should keep 2, got {len(filtered_strict)}"
+    assert (
+        len(filtered_strict) == 2
+    ), f"Strict threshold should keep 2, got {len(filtered_strict)}"
 
     # Moderate threshold (0.6) - should keep 3 results
     filtered_moderate = service.filter_by_score_window(
-        mock_reranked,
-        query="query",
-        window_threshold=0.6  # Keep >= 0.6 (1.0 * 0.6)
+        mock_reranked, query="query", window_threshold=0.6  # Keep >= 0.6 (1.0 * 0.6)
     )
-    assert len(filtered_moderate) == 3, f"Moderate threshold should keep 3, got {len(filtered_moderate)}"
+    assert (
+        len(filtered_moderate) == 3
+    ), f"Moderate threshold should keep 3, got {len(filtered_moderate)}"
 
     # Lenient threshold (0.4) - should keep all 4 results
     filtered_lenient = service.filter_by_score_window(
-        mock_reranked,
-        query="query",
-        window_threshold=0.4  # Keep >= 0.4 (1.0 * 0.4)
+        mock_reranked, query="query", window_threshold=0.4  # Keep >= 0.4 (1.0 * 0.4)
     )
-    assert len(filtered_lenient) == 4, f"Lenient threshold should keep 4, got {len(filtered_lenient)}"
+    assert (
+        len(filtered_lenient) == 4
+    ), f"Lenient threshold should keep 4, got {len(filtered_lenient)}"
 
 
 # ============================================================================
 # Lost-in-Middle Reordering Tests
 # ============================================================================
+
 
 def test_reorder_for_attention_basic():
     """Test that reorder_for_attention places top docs at start/end positions."""
@@ -622,7 +672,9 @@ def test_reorder_for_attention_basic():
     assert len(reordered) == 5, "Should preserve all documents"
     assert reordered[0].reference_number == "1", "Best doc should be at START (pos 0)"
     assert reordered[-1].reference_number == "2", "2nd best doc should be at END"
-    assert reordered[1].reference_number == "3", "3rd best doc should be near start (pos 1)"
+    assert (
+        reordered[1].reference_number == "3"
+    ), "3rd best doc should be near start (pos 1)"
 
 
 def test_reorder_for_attention_small_list():
@@ -658,7 +710,7 @@ def test_reorder_for_attention_even_count():
 
     # 6 docs
     mock_reranked = [
-        MockRerankResult(score=0.9, content=f"Doc {i+1}", reference_number=str(i+1))
+        MockRerankResult(score=0.9, content=f"Doc {i+1}", reference_number=str(i + 1))
         for i in range(6)
     ]
 
@@ -680,7 +732,9 @@ def test_reorder_for_attention_preserves_all_docs():
     service = ChatService(search_index=search_index)
 
     mock_reranked = [
-        MockRerankResult(score=0.9 - i*0.1, content=f"Doc {i+1}", reference_number=str(i+1))
+        MockRerankResult(
+            score=0.9 - i * 0.1, content=f"Doc {i+1}", reference_number=str(i + 1)
+        )
         for i in range(10)
     ]
 

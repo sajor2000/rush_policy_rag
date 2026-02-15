@@ -12,13 +12,13 @@ which entities (RUMC, RUMG, RMG, etc.) the policy applies to.
 Extracted from chunker.py as part of tech debt refactoring.
 """
 
-import re
 import logging
+import re
 from typing import List
 
 from preprocessing.rush_metadata import (
-    RUSH_ENTITIES,
     CHECKED_CHARS,
+    RUSH_ENTITIES,
     UNCHECKED_CHARS,
 )
 
@@ -47,8 +47,10 @@ def extract_applies_to_from_raw_pdf(pdf_path: str) -> List[str]:
     try:
         import fitz  # PyMuPDF
     except ImportError:
-        logger.warning("PyMuPDF not available for raw checkbox extraction. "
-                      "Install with: pip install pymupdf")
+        logger.warning(
+            "PyMuPDF not available for raw checkbox extraction. "
+            "Install with: pip install pymupdf"
+        )
         return checked_entities
 
     try:
@@ -63,9 +65,9 @@ def extract_applies_to_from_raw_pdf(pdf_path: str) -> List[str]:
 
         # Find the Applies To line
         applies_match = re.search(
-            r'Applies\s*To[:\s]*(.*?)(?:\n|Printed|Reference|Purpose|$)',
+            r"Applies\s*To[:\s]*(.*?)(?:\n|Printed|Reference|Purpose|$)",
             raw_text,
-            re.IGNORECASE | re.DOTALL
+            re.IGNORECASE | re.DOTALL,
         )
 
         if not applies_match:
@@ -79,7 +81,7 @@ def extract_applies_to_from_raw_pdf(pdf_path: str) -> List[str]:
         # Check each entity for checked status
         for entity in RUSH_ENTITIES:
             # Pattern: Entity name followed by checked checkbox character
-            pattern = rf'\b{entity}\s*[☒✓✔■Xx]'
+            pattern = rf"\b{entity}\s*[☒✓✔■Xx]"
             if re.search(pattern, applies_line, re.IGNORECASE):
                 if entity not in checked_entities:
                     checked_entities.append(entity)
@@ -115,21 +117,23 @@ def extract_applies_to_from_checkboxes(doc) -> List[str]:
     try:
         for item in doc.iterate_items():
             obj = item[0]
-            label = str(obj.label) if hasattr(obj, 'label') else ''
+            label = str(obj.label) if hasattr(obj, "label") else ""
 
             # Only process selected checkboxes
-            if label == 'checkbox_selected':
-                text = obj.text if hasattr(obj, 'text') else ''
+            if label == "checkbox_selected":
+                text = obj.text if hasattr(obj, "text") else ""
 
                 # Check if text contains any RUSH entity using word boundary matching
                 # This prevents 'RU' from matching inside 'RUMC'
                 for entity in RUSH_ENTITIES:
                     # Use regex word boundary to match whole entity only
-                    pattern = rf'\b{entity}\b'
+                    pattern = rf"\b{entity}\b"
                     if re.search(pattern, text.upper()):
                         if entity not in checked_entities:
                             checked_entities.append(entity)
-                            logger.debug(f"Found checked entity via Docling checkbox: {entity}")
+                            logger.debug(
+                                f"Found checked entity via Docling checkbox: {entity}"
+                            )
 
     except Exception as e:
         logger.warning(f"Docling checkbox extraction failed: {e}")
@@ -163,9 +167,9 @@ def extract_applies_to_from_text(text: str) -> List[str]:
 
     # Find the Applies To section
     applies_match = re.search(
-        r'Applies\s*To[:\s]*(.*?)(?:\n\n|$|Review\s+Due|Date\s+Approved)',
+        r"Applies\s*To[:\s]*(.*?)(?:\n\n|$|Review\s+Due|Date\s+Approved)",
         text,
-        re.IGNORECASE | re.DOTALL
+        re.IGNORECASE | re.DOTALL,
     )
 
     search_text = applies_match.group(1) if applies_match else text[:3000]
@@ -175,25 +179,29 @@ def extract_applies_to_from_text(text: str) -> List[str]:
     for entity in RUSH_ENTITIES:
         # Primary pattern (RUSH format): Entity followed DIRECTLY by checked mark
         # This is the standard RUSH policy format: "RUMC ☒ RUMG ☐"
-        pattern_entity_then_check = rf'\b{entity}\s*{CHECKED_CHARS}'
+        pattern_entity_then_check = rf"\b{entity}\s*{CHECKED_CHARS}"
 
         # Alternative pattern: Checked mark followed by entity (for different PDF formats)
         # Only match if the check mark is at start of line or after whitespace/punctuation
         # AND the entity is followed by unchecked mark or whitespace (to avoid "☒ RUMG" matching)
-        pattern_check_then_entity = rf'(?:^|[:\s]){CHECKED_CHARS}\s*{entity}\b(?=\s*(?:{UNCHECKED_CHARS}|$|\s))'
+        pattern_check_then_entity = (
+            rf"(?:^|[:\s]){CHECKED_CHARS}\s*{entity}\b(?=\s*(?:{UNCHECKED_CHARS}|$|\s))"
+        )
 
         # Bracketed selection [X] ENTITY or ENTITY [X]
-        pattern_bracketed = rf'\[X\]\s*{entity}\b|\b{entity}\s*\[X\]'
+        pattern_bracketed = rf"\[X\]\s*{entity}\b|\b{entity}\s*\[X\]"
 
         # Markdown checkbox format - [x] ENTITY
-        pattern_markdown = rf'\[x\]\s*{entity}\b'
+        pattern_markdown = rf"\[x\]\s*{entity}\b"
 
         # Try primary pattern first (most common in RUSH PDFs)
         if re.search(pattern_entity_then_check, search_text, re.IGNORECASE):
             if entity not in checked_entities:
                 checked_entities.append(entity)
         # Then try alternative patterns
-        elif re.search(pattern_check_then_entity, search_text, re.IGNORECASE | re.MULTILINE):
+        elif re.search(
+            pattern_check_then_entity, search_text, re.IGNORECASE | re.MULTILINE
+        ):
             if entity not in checked_entities:
                 checked_entities.append(entity)
         elif re.search(pattern_bracketed, search_text, re.IGNORECASE):

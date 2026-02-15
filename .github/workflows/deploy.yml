@@ -19,6 +19,8 @@ on:
           - 'false'
           - 'true'
 
+permissions: {}  # Deny all by default; grant per job
+
 concurrency:
   group: deploy-nonprod
   cancel-in-progress: false  # Never cancel in-progress deploys
@@ -36,6 +38,9 @@ jobs:
   check-ci:
     name: Verify CI Gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       sha_short: ${{ steps.resolve.outputs.sha_short }}
@@ -69,6 +74,30 @@ jobs:
           echo "::error::CI workflow did not succeed (result: ${{ github.event.workflow_run.conclusion }}). Deployment blocked."
           exit 1
 
+      - name: Verify branch is main (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::error::Manual deployment only allowed from main branch, got: ${{ github.ref_name }}"
+            exit 1
+          fi
+
+      - name: Verify CI passed (manual dispatch)
+        if: github.event_name == 'workflow_dispatch' && inputs.skip_ci_check != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA="${{ github.sha }}"
+          echo "Checking CI status for commit $SHA..."
+          # Query the CI workflow's conclusion for this commit
+          STATUS=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=1" \
+            --jq '.workflow_runs[0].conclusion // "not_found"')
+          if [ "$STATUS" != "success" ]; then
+            echo "::error::CI workflow has not passed for this commit (status: $STATUS). Use skip_ci_check=true for emergencies only."
+            exit 1
+          fi
+          echo "CI passed for commit $SHA"
+
       - name: Check manual dispatch CI skip
         if: >-
           github.event_name == 'workflow_dispatch' &&
@@ -82,6 +111,8 @@ jobs:
   build-backend:
     name: Build Backend Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: check-ci
     outputs:
       image: ${{ env.CONTAINER_REGISTRY }}/rush-policy-backend:${{ needs.check-ci.outputs.sha_short }}
@@ -120,6 +151,8 @@ jobs:
   build-frontend:
     name: Build Frontend Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: check-ci
     outputs:
       image: ${{ env.CONTAINER_REGISTRY }}/rush-policy-frontend:${{ needs.check-ci.outputs.sha_short }}
@@ -160,6 +193,8 @@ jobs:
   deploy-nonprod:
     name: Deploy to NonProd
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [check-ci, build-backend, build-frontend]
     environment: nonprod
 
@@ -187,7 +222,7 @@ jobs:
         run: |
           echo "Waiting for backend to stabilize..."
           sleep 30
-          HEALTH_URL="https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io/health"
+          HEALTH_URL="${{ secrets.BACKEND_URL }}/health"
           for i in 1 2 3 4 5; do
             echo "Health check attempt $i/5..."
             if curl -sf --max-time 10 "$HEALTH_URL"; then
@@ -203,7 +238,7 @@ jobs:
 
       - name: Verify frontend reachable
         run: |
-          FRONTEND_URL="https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io"
+          FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
           if curl -sf --max-time 10 "$FRONTEND_URL" > /dev/null; then
             echo "Frontend is reachable."
           else
@@ -220,63 +255,3 @@ jobs:
           echo "| **Commit** | \`${{ needs.check-ci.outputs.sha_short }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Backend Image** | \`${{ needs.build-backend.outputs.image }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Frontend Image** | \`${{ needs.build-frontend.outputs.image }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Backend URL** | https://rush-policy-backend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Frontend URL** | https://rush-policy-frontend.salmonmushroom-220eb8b3.eastus.azurecontainerapps.io |" >> "$GITHUB_STEP_SUMMARY"
-
-  # ─────────────────────────────────────────────────────────
-  # Deploy: Production environment (FUTURE — uncomment when ready)
-  # ─────────────────────────────────────────────────────────
-  # deploy-production:
-  #   name: Deploy to Production
-  #   runs-on: ubuntu-latest
-  #   needs: [check-ci, build-backend, build-frontend, deploy-nonprod]
-  #   environment: production  # Requires manual approval via GitHub Environment
-  #
-  #   steps:
-  #     - name: Azure Login
-  #       uses: azure/login@v2
-  #       with:
-  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
-  #
-  #     - name: Deploy Backend Container App
-  #       uses: azure/container-apps-deploy-action@v1
-  #       with:
-  #         resourceGroup: ${{ env.RESOURCE_GROUP }}
-  #         containerAppName: ${{ env.BACKEND_APP }}
-  #         imageToDeploy: ${{ needs.build-backend.outputs.image }}
-  #
-  #     - name: Deploy Frontend Container App
-  #       uses: azure/container-apps-deploy-action@v1
-  #       with:
-  #         resourceGroup: ${{ env.RESOURCE_GROUP }}
-  #         containerAppName: ${{ env.FRONTEND_APP }}
-  #         imageToDeploy: ${{ needs.build-frontend.outputs.image }}
-  #
-  #     - name: Verify backend health
-  #       run: |
-  #         echo "Waiting for backend to stabilize..."
-  #         sleep 30
-  #         HEALTH_URL="${{ secrets.BACKEND_URL }}/health"
-  #         for i in 1 2 3 4 5; do
-  #           echo "Health check attempt $i/5..."
-  #           if curl -sf --max-time 10 "$HEALTH_URL"; then
-  #             echo ""
-  #             echo "Backend is healthy."
-  #             exit 0
-  #           fi
-  #           echo "Attempt $i failed, waiting 30s..."
-  #           sleep 30
-  #         done
-  #         echo "::error::Backend health check failed after 5 attempts."
-  #         exit 1
-  #
-  #     - name: Deployment summary
-  #       run: |
-  #         echo "## Production Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "| **Environment** | Production |" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "| **Commit** | \`${{ needs.check-ci.outputs.sha_short }}\` |" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "| **Backend Image** | \`${{ needs.build-backend.outputs.image }}\` |" >> "$GITHUB_STEP_SUMMARY"
-  #         echo "| **Frontend Image** | \`${{ needs.build-frontend.outputs.image }}\` |" >> "$GITHUB_STEP_SUMMARY"

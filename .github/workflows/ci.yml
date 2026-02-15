@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions: {}  # Deny all by default; grant per job
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -14,6 +16,8 @@ jobs:
   backend-lint:
     name: Backend Lint & Type Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/backend
@@ -32,20 +36,22 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install black isort flake8 mypy
+          pip install "black==25.1.0" isort flake8 mypy
 
       - name: Check formatting with Black
         run: black --check --diff .
 
       - name: Check import sorting with isort
-        run: isort --check-only --diff .
+        run: isort --check-only --diff --profile black .
 
       - name: Lint with flake8
-        run: flake8 . --max-line-length=100 --extend-ignore=E203,W503
+        run: flake8 .
 
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/backend
@@ -75,6 +81,8 @@ jobs:
           SEARCH_API_KEY: test-key
           AOAI_ENDPOINT: https://test.openai.azure.com
           AOAI_API_KEY: test-key
+          # Disable AAD auth for CI (no Azure AD in GitHub runners)
+          REQUIRE_AAD_AUTH: "false"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -86,6 +94,8 @@ jobs:
   hr-stabilization-regressions:
     name: HR Stabilization Regression Gates
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/backend
@@ -122,10 +132,13 @@ jobs:
           SEARCH_API_KEY: test-key
           AOAI_ENDPOINT: https://test.openai.azure.com
           AOAI_API_KEY: test-key
+          REQUIRE_AAD_AUTH: "false"
 
   frontend-lint:
     name: Frontend Lint & Type Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/frontend
@@ -152,6 +165,8 @@ jobs:
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: frontend-lint
     defaults:
       run:
@@ -178,6 +193,8 @@ jobs:
   dependency-audit:
     name: Dependency Security Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -199,7 +216,11 @@ jobs:
       - name: pip-audit (Python dependency vulnerabilities)
         run: |
           pip install pip-audit
-          pip-audit -r apps/backend/requirements.txt
+          # Audit prod deps only; eval deps (requirements-eval.txt) have complex
+          # transitive trees audited separately in RAG Evaluation workflow.
+          # TEMPORARY: diskcache CVE has no published fixed version yet.
+          # Tracking: https://github.com/RushAI-jcr/policychat_rush/issues/4
+          pip-audit -r apps/backend/requirements.txt --ignore-vuln CVE-2025-69872
 
       - name: npm audit (Node.js dependency vulnerabilities)
         working-directory: apps/frontend
@@ -209,12 +230,12 @@ jobs:
         run: |
           pip install bandit
           bandit -r apps/backend/app/ -ll -ii --skip B101
-        continue-on-error: true
 
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
 
     steps:

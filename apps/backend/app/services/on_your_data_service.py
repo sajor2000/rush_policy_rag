@@ -7,20 +7,20 @@ Uses the Azure OpenAI Chat Completions API with data_sources parameter.
 Key advantage: Proper semantic_configuration parameter support for L2 reranking.
 """
 
-import os
 import logging
-from typing import Optional, List
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Optional
 
 import httpx
-from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from openai import APIConnectionError, APITimeoutError, AzureOpenAI, RateLimitError
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log
 )
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,7 @@ RETRY_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError)
 @dataclass
 class OnYourDataReference:
     """A reference/citation from Azure OpenAI On Your Data response."""
+
     content: str
     title: str
     filepath: str = ""
@@ -48,6 +49,7 @@ class OnYourDataReference:
 @dataclass
 class OnYourDataResult:
     """Result from Azure OpenAI On Your Data chat."""
+
     answer: str
     citations: List[OnYourDataReference]
     intent: str = ""
@@ -79,8 +81,12 @@ class OnYourDataService:
         self.search_endpoint = os.environ.get("SEARCH_ENDPOINT")
         self.search_key = os.environ.get("SEARCH_API_KEY")
         self.index_name = os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active")
-        self.semantic_config = os.environ.get("SEARCH_SEMANTIC_CONFIG", "default-semantic")
-        self.embedding_deployment = os.environ.get("AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
+        self.semantic_config = os.environ.get(
+            "SEARCH_SEMANTIC_CONFIG", "default-semantic"
+        )
+        self.embedding_deployment = os.environ.get(
+            "AOAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large"
+        )
 
         # Initialize Azure OpenAI client with connection pooling and optimized timeouts
         # Connection pooling reduces cold-start latency on subsequent requests
@@ -92,32 +98,40 @@ class OnYourDataService:
                 limits=httpx.Limits(
                     max_keepalive_connections=5,
                     max_connections=10,
-                    keepalive_expiry=30.0  # Keep connections alive for 30s
-                )
+                    keepalive_expiry=30.0,  # Keep connections alive for 30s
+                ),
             )
             self.client = AzureOpenAI(
                 azure_endpoint=self.endpoint,
                 api_key=self.api_key,
                 api_version=self.api_version,
                 http_client=http_client,
-                timeout=60.0  # Increased from 45s to handle cold starts
+                timeout=60.0,  # Increased from 45s to handle cold starts
             )
             self._http_client = http_client  # Keep reference for cleanup
-            logger.info(f"Initialized AzureOpenAI client with connection pooling: {self.endpoint}")
-            logger.info(f"Search index: {self.index_name}, semantic config: {self.semantic_config}")
+            logger.info(
+                f"Initialized AzureOpenAI client with connection pooling: {self.endpoint}"
+            )
+            logger.info(
+                f"Search index: {self.index_name}, semantic config: {self.semantic_config}"
+            )
         else:
             self.client = None
             self._http_client = None
-            logger.warning("Azure OpenAI credentials not configured (AOAI_ENDPOINT, AOAI_API_KEY)")
+            logger.warning(
+                "Azure OpenAI credentials not configured (AOAI_ENDPOINT, AOAI_API_KEY)"
+            )
 
         # Load system prompt
         self.system_prompt = self._load_system_prompt()
 
     def _load_system_prompt(self) -> str:
         """Load the RISEN system prompt from file."""
-        prompt_path = Path(__file__).resolve().parent.parent.parent / "policytech_prompt.txt"
+        prompt_path = (
+            Path(__file__).resolve().parent.parent.parent / "policytech_prompt.txt"
+        )
         if prompt_path.exists():
-            with open(prompt_path, 'r') as f:
+            with open(prompt_path, "r") as f:
                 return f.read()
 
         # Fallback minimal prompt
@@ -130,16 +144,16 @@ If the information is not in the provided documents, say so."""
     def is_configured(self) -> bool:
         """Check if service is properly configured."""
         return (
-            self.client is not None and
-            self.search_endpoint is not None and
-            self.search_key is not None
+            self.client is not None
+            and self.search_endpoint is not None
+            and self.search_key is not None
         )
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(RETRY_EXCEPTIONS),
-        before_sleep=before_sleep_log(logger, logging.WARNING)
+        before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     async def chat(
         self,
@@ -149,7 +163,7 @@ If the information is not in the provided documents, say so."""
         top_n_documents: int = 50,
         strictness: int = 3,
         temperature: float = 0.1,
-        max_tokens: int = 1000
+        max_tokens: int = 1000,
     ) -> OnYourDataResult:
         """
         Query with full vectorSemanticHybrid search.
@@ -187,17 +201,18 @@ If the information is not in the provided documents, say so."""
         parameters = {
             "endpoint": self.search_endpoint,
             "index_name": self.index_name,
-            "authentication": {
-                "type": "api_key",
-                "key": self.search_key
-            },
+            "authentication": {"type": "api_key", "key": self.search_key},
             # ✅ FULL SEMANTIC HYBRID SEARCH - the key fix!
             # Set DISABLE_SEMANTIC_SEARCH=true to fall back to vector+BM25 hybrid (no semantic reranking)
-            "query_type": "vector_simple_hybrid" if os.getenv("DISABLE_SEMANTIC_SEARCH", "").lower() == "true" else "vector_semantic_hybrid",
+            "query_type": (
+                "vector_simple_hybrid"
+                if os.getenv("DISABLE_SEMANTIC_SEARCH", "").lower() == "true"
+                else "vector_semantic_hybrid"
+            ),
             # Embedding configuration for vector search
             "embedding_dependency": {
                 "type": "deployment_name",
-                "deployment_name": self.embedding_deployment
+                "deployment_name": self.embedding_deployment,
             },
             # Field mappings for our rush-policies index
             # Note: url_field omitted (Azure API expects string, not None)
@@ -205,12 +220,12 @@ If the information is not in the provided documents, say so."""
                 "content_fields": ["content"],
                 "title_field": "title",
                 "filepath_field": "source_file",
-                "vector_fields": ["content_vector"]
+                "vector_fields": ["content_vector"],
             },
             # Retrieval parameters
             "top_n_documents": top_n_documents,
             "strictness": strictness,
-            "in_scope": True  # Only use retrieved documents
+            "in_scope": True,  # Only use retrieved documents
         }
 
         # Conditionally add semantic_configuration (only when semantic search is enabled)
@@ -222,10 +237,7 @@ If the information is not in the provided documents, say so."""
         if filter_expr:
             parameters["filter"] = filter_expr
 
-        data_sources = [{
-            "type": "azure_search",
-            "parameters": parameters
-        }]
+        data_sources = [{"type": "azure_search", "parameters": parameters}]
 
         query_type = parameters["query_type"]
         logger.info(
@@ -240,11 +252,11 @@ If the information is not in the provided documents, say so."""
                 model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": query}
+                    {"role": "user", "content": query},
                 ],
                 extra_body={"data_sources": data_sources},
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
             )
 
             # Extract the response
@@ -256,48 +268,56 @@ If the information is not in the provided documents, say so."""
             intent = ""
 
             # Azure OpenAI "On Your Data" returns context in message.context
-            if hasattr(message, 'context') and message.context:
+            if hasattr(message, "context") and message.context:
                 context_data = message.context
 
                 # Extract intent if available
-                intent = context_data.get('intent', '') if isinstance(context_data, dict) else ''
+                intent = (
+                    context_data.get("intent", "")
+                    if isinstance(context_data, dict)
+                    else ""
+                )
 
                 # Extract citations
                 raw_citations = []
                 if isinstance(context_data, dict):
-                    raw_citations = context_data.get('citations', [])
-                elif hasattr(context_data, 'citations'):
+                    raw_citations = context_data.get("citations", [])
+                elif hasattr(context_data, "citations"):
                     raw_citations = context_data.citations or []
 
                 for cit in raw_citations:
                     if isinstance(cit, dict):
-                        citations.append(OnYourDataReference(
-                            content=cit.get('content', ''),
-                            title=cit.get('title', ''),
-                            filepath=cit.get('filepath', ''),
-                            url=cit.get('url', ''),
-                            chunk_id=cit.get('chunk_id', ''),
-                            reference_number=cit.get('reference_number', ''),
-                            policy_number=cit.get('policy_number', ''),
-                            section=cit.get('section', ''),
-                            applies_to=cit.get('applies_to', ''),
-                            page_number=cit.get('page_number'),
-                            reranker_score=cit.get('reranker_score')
-                        ))
-                    elif hasattr(cit, 'content'):
-                        citations.append(OnYourDataReference(
-                            content=getattr(cit, 'content', ''),
-                            title=getattr(cit, 'title', ''),
-                            filepath=getattr(cit, 'filepath', ''),
-                            url=getattr(cit, 'url', ''),
-                            chunk_id=getattr(cit, 'chunk_id', ''),
-                            reference_number=getattr(cit, 'reference_number', ''),
-                            policy_number=getattr(cit, 'policy_number', ''),
-                            section=getattr(cit, 'section', ''),
-                            applies_to=getattr(cit, 'applies_to', ''),
-                            page_number=getattr(cit, 'page_number', None),
-                            reranker_score=getattr(cit, 'reranker_score', None)
-                        ))
+                        citations.append(
+                            OnYourDataReference(
+                                content=cit.get("content", ""),
+                                title=cit.get("title", ""),
+                                filepath=cit.get("filepath", ""),
+                                url=cit.get("url", ""),
+                                chunk_id=cit.get("chunk_id", ""),
+                                reference_number=cit.get("reference_number", ""),
+                                policy_number=cit.get("policy_number", ""),
+                                section=cit.get("section", ""),
+                                applies_to=cit.get("applies_to", ""),
+                                page_number=cit.get("page_number"),
+                                reranker_score=cit.get("reranker_score"),
+                            )
+                        )
+                    elif hasattr(cit, "content"):
+                        citations.append(
+                            OnYourDataReference(
+                                content=getattr(cit, "content", ""),
+                                title=getattr(cit, "title", ""),
+                                filepath=getattr(cit, "filepath", ""),
+                                url=getattr(cit, "url", ""),
+                                chunk_id=getattr(cit, "chunk_id", ""),
+                                reference_number=getattr(cit, "reference_number", ""),
+                                policy_number=getattr(cit, "policy_number", ""),
+                                section=getattr(cit, "section", ""),
+                                applies_to=getattr(cit, "applies_to", ""),
+                                page_number=getattr(cit, "page_number", None),
+                                reranker_score=getattr(cit, "reranker_score", None),
+                            )
+                        )
 
             logger.info(
                 f"OnYourData response: {len(answer)} chars, "
@@ -308,7 +328,11 @@ If the information is not in the provided documents, say so."""
                 answer=answer,
                 citations=citations,
                 intent=intent,
-                raw_response=response.model_dump() if hasattr(response, 'model_dump') else str(response)
+                raw_response=(
+                    response.model_dump()
+                    if hasattr(response, "model_dump")
+                    else str(response)
+                ),
             )
 
         except RateLimitError as e:
@@ -327,36 +351,30 @@ If the information is not in the provided documents, say so."""
             logger.error(f"OnYourData chat failed (non-retryable): {e}")
             raise
 
-    async def retrieve(
-        self,
-        query: str,
-        max_results: int = 5
-    ) -> OnYourDataResult:
+    async def retrieve(self, query: str, max_results: int = 5) -> OnYourDataResult:
         """
         Compatibility method matching FoundryAgentService.retrieve() signature.
 
         This allows OnYourDataService to be used as a drop-in replacement.
         """
         return await self.chat(
-            query=query,
-            top_n_documents=50,  # Get many for reranker
-            strictness=3
+            query=query, top_n_documents=50, strictness=3  # Get many for reranker
         )
 
     async def warmup(self) -> bool:
         """
         Warm up the service by making a minimal request.
-        
+
         This primes the connection pool and reduces cold-start latency
         for subsequent requests. Should be called during app startup.
-        
+
         Returns:
             True if warmup succeeded, False otherwise
         """
         if not self.is_configured:
             logger.warning("Cannot warm up OnYourDataService - not configured")
             return False
-        
+
         try:
             logger.info("Warming up OnYourDataService...")
             # Make a minimal request to prime connections
@@ -364,7 +382,7 @@ If the information is not in the provided documents, say so."""
                 query="warmup ping",
                 top_n_documents=1,
                 strictness=5,  # Maximum strictness to minimize processing
-                max_tokens=10
+                max_tokens=10,
             )
             logger.info("OnYourDataService warmup completed successfully")
             return True

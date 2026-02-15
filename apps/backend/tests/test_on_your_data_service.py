@@ -5,12 +5,14 @@ Tests the OnYourDataService in app/services/on_your_data_service.py.
 Uses mocking to avoid actual Azure OpenAI calls.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+
 from app.services.on_your_data_service import (
-    OnYourDataService,
     OnYourDataReference,
     OnYourDataResult,
+    OnYourDataService,
 )
 
 
@@ -73,12 +75,15 @@ class TestOnYourDataResult:
 class TestOnYourDataServiceInit:
     """Tests for OnYourDataService initialization."""
 
-    @patch.dict("os.environ", {
-        "AOAI_ENDPOINT": "https://test.openai.azure.com",
-        "AOAI_API_KEY": "test-key",
-        "SEARCH_ENDPOINT": "https://test.search.windows.net",
-        "SEARCH_API_KEY": "search-key",
-    })
+    @patch.dict(
+        "os.environ",
+        {
+            "AOAI_ENDPOINT": "https://test.openai.azure.com",
+            "AOAI_API_KEY": "test-key",
+            "SEARCH_ENDPOINT": "https://test.search.windows.net",
+            "SEARCH_API_KEY": "search-key",
+        },
+    )
     def test_service_initialization(self):
         """Should initialize with environment variables."""
         service = OnYourDataService()
@@ -93,15 +98,18 @@ class TestOnYourDataServiceInit:
         assert service.endpoint is None
         assert service.client is None
 
-    @patch.dict("os.environ", {
-        "AOAI_ENDPOINT": "https://test.openai.azure.com",
-        "AOAI_API_KEY": "test-key",
-        "AOAI_CHAT_DEPLOYMENT": "gpt-4-turbo",
-        "SEARCH_ENDPOINT": "https://test.search.windows.net",
-        "SEARCH_API_KEY": "search-key",
-        "SEARCH_INDEX_NAME": "custom-index",
-        "SEARCH_SEMANTIC_CONFIG": "custom-semantic",
-    })
+    @patch.dict(
+        "os.environ",
+        {
+            "AOAI_ENDPOINT": "https://test.openai.azure.com",
+            "AOAI_API_KEY": "test-key",
+            "AOAI_CHAT_DEPLOYMENT": "gpt-4-turbo",
+            "SEARCH_ENDPOINT": "https://test.search.windows.net",
+            "SEARCH_API_KEY": "search-key",
+            "SEARCH_INDEX_NAME": "custom-index",
+            "SEARCH_SEMANTIC_CONFIG": "custom-semantic",
+        },
+    )
     def test_custom_configuration(self):
         """Should use custom configuration from environment."""
         service = OnYourDataService()
@@ -116,12 +124,15 @@ class TestOnYourDataServiceChat:
     @pytest.fixture
     def mock_service(self):
         """Create service with mocked client."""
-        with patch.dict("os.environ", {
-            "AOAI_ENDPOINT": "https://test.openai.azure.com",
-            "AOAI_API_KEY": "test-key",
-            "SEARCH_ENDPOINT": "https://test.search.windows.net",
-            "SEARCH_API_KEY": "search-key",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "AOAI_ENDPOINT": "https://test.openai.azure.com",
+                "AOAI_API_KEY": "test-key",
+                "SEARCH_ENDPOINT": "https://test.search.windows.net",
+                "SEARCH_API_KEY": "search-key",
+            },
+        ):
             service = OnYourDataService()
             service.client = Mock()
             return service
@@ -173,9 +184,8 @@ class TestOnYourDataServiceChat:
         mock_response.choices[0].message.context = {"citations": []}
         mock_service.client.chat.completions.create.return_value = mock_response
 
-        result = await mock_service.chat(
-            "What is the policy?",
-            filter_expr="applies_to_rumc eq true"
+        await mock_service.chat(
+            "What is the policy?", filter_expr="applies_to_rumc eq true"
         )
 
         # Verify filter was passed in the call
@@ -186,12 +196,15 @@ class TestOnYourDataServiceChat:
 class TestOnYourDataServiceConfiguration:
     """Tests for OnYourDataService search configuration."""
 
-    @patch.dict("os.environ", {
-        "AOAI_ENDPOINT": "https://test.openai.azure.com",
-        "AOAI_API_KEY": "test-key",
-        "SEARCH_ENDPOINT": "https://test.search.windows.net",
-        "SEARCH_API_KEY": "search-key",
-    })
+    @patch.dict(
+        "os.environ",
+        {
+            "AOAI_ENDPOINT": "https://test.openai.azure.com",
+            "AOAI_API_KEY": "test-key",
+            "SEARCH_ENDPOINT": "https://test.search.windows.net",
+            "SEARCH_API_KEY": "search-key",
+        },
+    )
     def test_builds_data_sources_config(self):
         """Should build proper data_sources configuration."""
         service = OnYourDataService()
@@ -201,13 +214,16 @@ class TestOnYourDataServiceConfiguration:
         assert service.index_name == "rush-policies-active"  # default alias
         assert service.semantic_config == "default-semantic"  # default
 
-    @patch.dict("os.environ", {
-        "AOAI_ENDPOINT": "https://test.openai.azure.com",
-        "AOAI_API_KEY": "test-key",
-        "SEARCH_ENDPOINT": "https://test.search.windows.net",
-        "SEARCH_API_KEY": "search-key",
-        "AOAI_EMBEDDING_DEPLOYMENT": "text-embedding-3-large",
-    })
+    @patch.dict(
+        "os.environ",
+        {
+            "AOAI_ENDPOINT": "https://test.openai.azure.com",
+            "AOAI_API_KEY": "test-key",
+            "SEARCH_ENDPOINT": "https://test.search.windows.net",
+            "SEARCH_API_KEY": "search-key",
+            "AOAI_EMBEDDING_DEPLOYMENT": "text-embedding-3-large",
+        },
+    )
     def test_embedding_deployment_configuration(self):
         """Should use configured embedding deployment."""
         service = OnYourDataService()
@@ -220,12 +236,15 @@ class TestOnYourDataServiceErrorHandling:
     @pytest.fixture
     def mock_service(self):
         """Create service with mocked client."""
-        with patch.dict("os.environ", {
-            "AOAI_ENDPOINT": "https://test.openai.azure.com",
-            "AOAI_API_KEY": "test-key",
-            "SEARCH_ENDPOINT": "https://test.search.windows.net",
-            "SEARCH_API_KEY": "search-key",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "AOAI_ENDPOINT": "https://test.openai.azure.com",
+                "AOAI_API_KEY": "test-key",
+                "SEARCH_ENDPOINT": "https://test.search.windows.net",
+                "SEARCH_API_KEY": "search-key",
+            },
+        ):
             service = OnYourDataService()
             service.client = Mock()
             return service

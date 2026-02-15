@@ -30,11 +30,11 @@ Usage:
 from .chunker import PolicyChunker
 from .policy_chunk import PolicyChunk
 from .rush_metadata import (
-    ProcessingStatus,
-    ProcessingResult,
-    RUSHPolicyMetadata,
-    RUSH_ENTITIES,
     ENTITY_TO_FIELD,
+    RUSH_ENTITIES,
+    ProcessingResult,
+    ProcessingStatus,
+    RUSHPolicyMetadata,
 )
 
 __all__ = [

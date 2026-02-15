@@ -7,10 +7,9 @@ import logging
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-import requests
 import jwt
+import requests
 from cachetools import TTLCache
-
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,9 @@ class AzureADTokenValidator:
         self.allowed_client_ids = set(cid for cid in (allowed_client_ids or []) if cid)
         self.issuer = f"https://login.microsoftonline.com/{tenant_id}/v2.0"
         self.jwks_uri = f"{self.issuer}/discovery/v2.0/keys"
-        self._cache: TTLCache[str, Dict[str, List[dict]]] = TTLCache(maxsize=1, ttl=cache_ttl)
+        self._cache: TTLCache[str, Dict[str, List[dict]]] = TTLCache(
+            maxsize=1, ttl=cache_ttl
+        )
         self._lock = Lock()
 
     def validate(self, token: str) -> Dict[str, Any]:
@@ -68,7 +69,9 @@ class AzureADTokenValidator:
                 audience=self.audience,
                 issuer=self.issuer,
             )
-        except jwt.ExpiredSignatureError as exc:  # pragma: no cover - expiration specific
+        except (
+            jwt.ExpiredSignatureError
+        ) as exc:  # pragma: no cover - expiration specific
             raise TokenValidationError("Token has expired") from exc
         except jwt.InvalidTokenError as exc:  # pragma: no cover - generic JWT error
             raise TokenValidationError(str(exc)) from exc
@@ -105,7 +108,9 @@ class AzureADTokenValidator:
             try:
                 response = requests.get(self.jwks_uri, timeout=5)
                 response.raise_for_status()
-            except requests.RequestException as exc:  # pragma: no cover - network errors
+            except (
+                requests.RequestException
+            ) as exc:  # pragma: no cover - network errors
                 raise TokenValidationError("Failed to download JWKS") from exc
 
             payload = response.json()

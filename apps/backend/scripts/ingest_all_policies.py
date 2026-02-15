@@ -33,25 +33,25 @@ Environment Variables:
 # Corporate proxy SSL fix - must be before other imports
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 try:
-    import ssl_fix
+    pass
 except ImportError:
     pass
 
+import argparse
+import hashlib
+import json
+import logging
 import os
 import sys
-import json
-import time
-import argparse
-import logging
-import hashlib
 import tempfile
-from pathlib import Path
+import time
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple, Any
-from dataclasses import dataclass, field, asdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -64,8 +64,7 @@ load_dotenv(env_path)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -78,6 +77,7 @@ ACTIVE_CONTAINER_NAME = os.environ.get("CONTAINER_NAME", "policies-active")
 @dataclass
 class DocumentReport:
     """Report for a single document processing."""
+
     filename: str
     status: str  # "success", "failed", "skipped"
     chunks_created: int = 0
@@ -92,6 +92,7 @@ class DocumentReport:
 @dataclass
 class IngestionReport:
     """Complete ingestion run report."""
+
     start_time: str
     end_time: str
     duration_seconds: float
@@ -134,7 +135,7 @@ class PolicyIngestionPipeline:
         workers: int = 4,
         batch_size: int = 100,
         validate_only: bool = False,
-        backend: str = None  # Deprecated, kept for backward compatibility
+        backend: str = None,  # Deprecated, kept for backward compatibility
     ):
         self.workers = workers
         self.batch_size = batch_size
@@ -142,12 +143,14 @@ class PolicyIngestionPipeline:
 
         # Initialize Docling-based chunker
         from preprocessing.chunker import PolicyChunker
+
         self.chunker = PolicyChunker()
-        logger.info(f"Initialized chunker with Docling backend")
+        logger.info("Initialized chunker with Docling backend")
 
         # Initialize Azure clients
         if STORAGE_CONNECTION_STRING:
             from azure.storage.blob import BlobServiceClient
+
             self.blob_service = BlobServiceClient.from_connection_string(
                 STORAGE_CONNECTION_STRING
             )
@@ -159,11 +162,14 @@ class PolicyIngestionPipeline:
             )
         else:
             self.blob_service = None
-            logger.warning("STORAGE_CONNECTION_STRING not set - blob operations disabled")
+            logger.warning(
+                "STORAGE_CONNECTION_STRING not set - blob operations disabled"
+            )
 
         # Initialize search index (unless validate only)
         if not validate_only:
             from azure_policy_index import PolicySearchIndex
+
             self.search_index = PolicySearchIndex()
         else:
             self.search_index = None
@@ -179,7 +185,7 @@ class PolicyIngestionPipeline:
 
         pdfs = []
         for blob in self.source_container.list_blobs():
-            if blob.name.lower().endswith('.pdf'):
+            if blob.name.lower().endswith(".pdf"):
                 pdfs.append(blob.name)
 
         logger.info(f"Found {len(pdfs)} PDFs in source container")
@@ -207,11 +213,7 @@ class PolicyIngestionPipeline:
             logger.debug(f"Could not get blob hash for '{blob_name}': {e}")
             return None
 
-    def process_single_pdf(
-        self,
-        blob_name: str,
-        temp_dir: str
-    ) -> DocumentReport:
+    def process_single_pdf(self, blob_name: str, temp_dir: str) -> DocumentReport:
         """Process a single PDF file."""
         start_time = time.time()
         report = DocumentReport(filename=blob_name, status="pending")
@@ -222,7 +224,7 @@ class PolicyIngestionPipeline:
             report.file_size_bytes = file_size
 
             # Calculate content hash
-            with open(local_path, 'rb') as f:
+            with open(local_path, "rb") as f:
                 report.content_hash = hashlib.sha256(f.read()).hexdigest()
 
             # Process with chunker
@@ -239,17 +241,19 @@ class PolicyIngestionPipeline:
                     "date_updated": first_chunk.date_updated,
                     "document_owner": first_chunk.document_owner,
                     # Entity boolean summary (count of entities this policy applies to)
-                    "entity_booleans_set": sum([
-                        first_chunk.applies_to_rumc,
-                        first_chunk.applies_to_rumg,
-                        first_chunk.applies_to_rmg,
-                        first_chunk.applies_to_roph,
-                        first_chunk.applies_to_rcmc,
-                        first_chunk.applies_to_rch,
-                        first_chunk.applies_to_roppg,
-                        first_chunk.applies_to_rcmg,
-                        first_chunk.applies_to_ru,
-                    ]),
+                    "entity_booleans_set": sum(
+                        [
+                            first_chunk.applies_to_rumc,
+                            first_chunk.applies_to_rumg,
+                            first_chunk.applies_to_rmg,
+                            first_chunk.applies_to_roph,
+                            first_chunk.applies_to_rcmc,
+                            first_chunk.applies_to_rch,
+                            first_chunk.applies_to_roppg,
+                            first_chunk.applies_to_rcmg,
+                            first_chunk.applies_to_ru,
+                        ]
+                    ),
                     "chunk_level": first_chunk.chunk_level,
                 }
 
@@ -259,11 +263,15 @@ class PolicyIngestionPipeline:
                     self.search_index.delete_by_source_file(blob_name)
 
                     # Upload new chunks
-                    stats = self.search_index.upload_chunks(chunks, batch_size=self.batch_size)
-                    report.chunks_uploaded = stats['uploaded']
+                    stats = self.search_index.upload_chunks(
+                        chunks, batch_size=self.batch_size
+                    )
+                    report.chunks_uploaded = stats["uploaded"]
 
-                    if stats['failed'] > 0:
-                        report.error_message = f"{stats['failed']} chunks failed to upload"
+                    if stats["failed"] > 0:
+                        report.error_message = (
+                            f"{stats['failed']} chunks failed to upload"
+                        )
 
                 report.status = "success"
             else:
@@ -294,7 +302,11 @@ class PolicyIngestionPipeline:
         logger.info(f"Processing {total_files} PDFs from {folder_path}")
 
         for i, pdf_path in enumerate(pdf_files, 1):
-            print(f"\r  Processing [{i}/{total_files}] {pdf_path.name}...", end="", flush=True)
+            print(
+                f"\r  Processing [{i}/{total_files}] {pdf_path.name}...",
+                end="",
+                flush=True,
+            )
 
             report = DocumentReport(filename=pdf_path.name, status="pending")
             proc_start = time.time()
@@ -303,7 +315,7 @@ class PolicyIngestionPipeline:
                 report.file_size_bytes = pdf_path.stat().st_size
 
                 # Calculate content hash
-                with open(pdf_path, 'rb') as f:
+                with open(pdf_path, "rb") as f:
                     report.content_hash = hashlib.sha256(f.read()).hexdigest()
 
                 # Process with chunker
@@ -321,8 +333,10 @@ class PolicyIngestionPipeline:
 
                     if not self.validate_only and self.search_index:
                         self.search_index.delete_by_source_file(pdf_path.name)
-                        stats = self.search_index.upload_chunks(chunks, batch_size=self.batch_size)
-                        report.chunks_uploaded = stats['uploaded']
+                        stats = self.search_index.upload_chunks(
+                            chunks, batch_size=self.batch_size
+                        )
+                        report.chunks_uploaded = stats["uploaded"]
 
                     report.status = "success"
                 else:
@@ -367,9 +381,7 @@ class PolicyIngestionPipeline:
         )
 
     def run_full_ingestion(
-        self,
-        sample_size: Optional[int] = None,
-        force_reindex: bool = False
+        self, sample_size: Optional[int] = None, force_reindex: bool = False
     ) -> IngestionReport:
         """Run full ingestion from Azure Blob Storage."""
         start_time = datetime.now()
@@ -398,6 +410,7 @@ class PolicyIngestionPipeline:
         # Sample if requested
         if sample_size and sample_size < len(pdf_blobs):
             import random
+
             pdf_blobs = random.sample(pdf_blobs, sample_size)
             logger.info(f"Sampling {sample_size} PDFs for validation")
 
@@ -421,17 +434,14 @@ class PolicyIngestionPipeline:
                     f"\r  [{processed}/{total_files}] {blob_name[:40]:<40} "
                     f"| Rate: {rate:.1f}/s | ETA: {eta}",
                     end="",
-                    flush=True
+                    flush=True,
                 )
 
                 report = self.process_single_pdf(blob_name, temp_dir)
                 documents.append(report)
 
                 if report.status == "failed":
-                    errors.append({
-                        "file": blob_name,
-                        "error": report.error_message
-                    })
+                    errors.append({"file": blob_name, "error": report.error_message})
 
         print()  # New line after progress
 
@@ -475,13 +485,13 @@ def print_report(report: IngestionReport) -> None:
     print(f"  Duration: {report.duration_seconds:.1f} seconds")
     print(f"  Backend: {report.backend_used}")
 
-    print(f"\n  Documents:")
+    print("\n  Documents:")
     print(f"    Total: {report.total_documents}")
     print(f"    Successful: {report.successful_documents}")
     print(f"    Failed: {report.failed_documents}")
     print(f"    Skipped: {report.skipped_documents}")
 
-    print(f"\n  Chunks:")
+    print("\n  Chunks:")
     print(f"    Total created: {report.total_chunks_created}")
     print(f"    Total uploaded: {report.total_chunks_uploaded}")
     print(f"    Avg per document: {report.avg_chunks_per_doc:.1f}")
@@ -494,32 +504,51 @@ def print_report(report: IngestionReport) -> None:
             print(f"    ... and {len(report.errors) - 10} more")
 
     # Metadata extraction quality
-    docs_with_title = sum(1 for d in report.documents
-                         if d.metadata_extracted.get('title'))
-    docs_with_ref = sum(1 for d in report.documents
-                       if d.metadata_extracted.get('reference_number'))
-    docs_with_applies = sum(1 for d in report.documents
-                           if d.metadata_extracted.get('applies_to'))
+    docs_with_title = sum(
+        1 for d in report.documents if d.metadata_extracted.get("title")
+    )
+    docs_with_ref = sum(
+        1 for d in report.documents if d.metadata_extracted.get("reference_number")
+    )
+    docs_with_applies = sum(
+        1 for d in report.documents if d.metadata_extracted.get("applies_to")
+    )
 
     if report.successful_documents > 0:
-        print(f"\n  Metadata Extraction Quality:")
-        print(f"    Title extracted: {docs_with_title}/{report.successful_documents} "
-              f"({100*docs_with_title/report.successful_documents:.0f}%)")
-        print(f"    Reference # extracted: {docs_with_ref}/{report.successful_documents} "
-              f"({100*docs_with_ref/report.successful_documents:.0f}%)")
-        print(f"    Applies To extracted: {docs_with_applies}/{report.successful_documents} "
-              f"({100*docs_with_applies/report.successful_documents:.0f}%)")
+        print("\n  Metadata Extraction Quality:")
+        print(
+            f"    Title extracted: {docs_with_title}/{report.successful_documents} "
+            f"({100*docs_with_title/report.successful_documents:.0f}%)"
+        )
+        print(
+            f"    Reference # extracted: {docs_with_ref}/{report.successful_documents} "
+            f"({100*docs_with_ref/report.successful_documents:.0f}%)"
+        )
+        print(
+            f"    Applies To extracted: {docs_with_applies}/{report.successful_documents} "
+            f"({100*docs_with_applies/report.successful_documents:.0f}%)"
+        )
 
         # Entity boolean extraction quality
-        docs_with_entities = sum(1 for d in report.documents
-                                 if d.metadata_extracted.get('entity_booleans_set', 0) > 0)
-        total_entities = sum(d.metadata_extracted.get('entity_booleans_set', 0)
-                            for d in report.documents)
-        avg_entities = total_entities / report.successful_documents if report.successful_documents else 0
+        docs_with_entities = sum(
+            1
+            for d in report.documents
+            if d.metadata_extracted.get("entity_booleans_set", 0) > 0
+        )
+        total_entities = sum(
+            d.metadata_extracted.get("entity_booleans_set", 0) for d in report.documents
+        )
+        avg_entities = (
+            total_entities / report.successful_documents
+            if report.successful_documents
+            else 0
+        )
 
-        print(f"\n  Entity Boolean Extraction:")
-        print(f"    Docs with entity booleans: {docs_with_entities}/{report.successful_documents} "
-              f"({100*docs_with_entities/report.successful_documents:.0f}%)")
+        print("\n  Entity Boolean Extraction:")
+        print(
+            f"    Docs with entity booleans: {docs_with_entities}/{report.successful_documents} "
+            f"({100*docs_with_entities/report.successful_documents:.0f}%)"
+        )
         print(f"    Total entity associations: {total_entities}")
         print(f"    Avg entities per doc: {avg_entities:.1f}")
 
@@ -531,33 +560,26 @@ def main():
     parser.add_argument(
         "--validate-only",
         action="store_true",
-        help="Parse PDFs without uploading to search index"
+        help="Parse PDFs without uploading to search index",
     )
     parser.add_argument(
-        "--sample",
-        type=int,
-        help="Process random sample of N documents"
+        "--sample", type=int, help="Process random sample of N documents"
     )
     parser.add_argument(
         "--force-reindex",
         action="store_true",
-        help="Delete existing chunks before uploading"
+        help="Delete existing chunks before uploading",
     )
     parser.add_argument(
-        "--workers",
-        type=int,
-        default=4,
-        help="Number of parallel workers (default: 4)"
+        "--workers", type=int, default=4, help="Number of parallel workers (default: 4)"
     )
     parser.add_argument(
         "--local-folder",
         type=str,
-        help="Process local folder instead of Azure Blob Storage"
+        help="Process local folder instead of Azure Blob Storage",
     )
     parser.add_argument(
-        "--output-report",
-        type=str,
-        help="Save detailed report to JSON file"
+        "--output-report", type=str, help="Save detailed report to JSON file"
     )
 
     args = parser.parse_args()
@@ -569,11 +591,10 @@ def main():
 
     # Initialize pipeline (uses Docling)
     pipeline = PolicyIngestionPipeline(
-        workers=args.workers,
-        validate_only=args.validate_only
+        workers=args.workers, validate_only=args.validate_only
     )
 
-    print(f"\n  Backend: Docling (TableFormer ACCURATE)")
+    print("\n  Backend: Docling (TableFormer ACCURATE)")
     print(f"  Validate only: {args.validate_only}")
     print(f"  Sample size: {args.sample or 'all'}")
 
@@ -582,10 +603,9 @@ def main():
         print(f"\n  Processing local folder: {args.local_folder}")
         report = pipeline.process_local_folder(args.local_folder)
     else:
-        print(f"\n  Processing from Azure Blob Storage")
+        print("\n  Processing from Azure Blob Storage")
         report = pipeline.run_full_ingestion(
-            sample_size=args.sample,
-            force_reindex=args.force_reindex
+            sample_size=args.sample, force_reindex=args.force_reindex
         )
 
     # Print report
@@ -593,7 +613,7 @@ def main():
 
     # Save detailed report if requested
     if args.output_report:
-        with open(args.output_report, 'w') as f:
+        with open(args.output_report, "w") as f:
             json.dump(report.to_dict(), f, indent=2)
         print(f"\n  Detailed report saved to: {args.output_report}")
 

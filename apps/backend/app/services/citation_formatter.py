@@ -38,11 +38,15 @@ class CitationFormatter:
             return CitationFormattingResult(summary="", response="", references=[])
 
         if not found or not evidence:
-            return CitationFormattingResult(summary=clean_answer, response=clean_answer, references=[])
+            return CitationFormattingResult(
+                summary=clean_answer, response=clean_answer, references=[]
+            )
 
         references, total_refs = self._collect_references(evidence)
         if not references:
-            return CitationFormattingResult(summary=clean_answer, response=clean_answer, references=[])
+            return CitationFormattingResult(
+                summary=clean_answer, response=clean_answer, references=[]
+            )
 
         limited = references[:max_refs] if max_refs > 0 else references
         reference_lines = self._build_reference_lines(limited)
@@ -61,7 +65,9 @@ class CitationFormatter:
             references=reference_lines,
         )
 
-    def _collect_references(self, evidence: List[EvidenceItem]) -> tuple[List[dict], int]:
+    def _collect_references(
+        self, evidence: List[EvidenceItem]
+    ) -> tuple[List[dict], int]:
         """Deduplicate evidence by reference number while preserving order."""
 
         unique_refs: List[dict] = []
@@ -112,7 +118,9 @@ class CitationFormatter:
         if item.citation:
             import re
 
-            match = re.search(r"Ref\s*[#:]*\s*([A-Za-z0-9.\-]+)", item.citation, re.IGNORECASE)
+            match = re.search(
+                r"Ref\s*[#:]*\s*([A-Za-z0-9.\-]+)", item.citation, re.IGNORECASE
+            )
             if match:
                 return match.group(1).strip()
 

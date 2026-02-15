@@ -6,6 +6,7 @@ page_number, category, subcategory, etc. to match the /api/chat endpoint.
 """
 
 import pytest
+
 from app.services.search_result import SearchResult, search_result_to_item
 
 
@@ -15,7 +16,7 @@ def test_search_result_to_item_includes_page_number():
         content="Central line placement requires sterile technique.",
         title="Central Line Placement",
         page_number=5,
-        reference_number="528"
+        reference_number="528",
     )
     item = search_result_to_item(result)
 
@@ -45,7 +46,7 @@ def test_search_result_to_item_includes_enhanced_metadata():
         category="Clinical",
         subcategory="Patient Safety",
         regulatory_citations="Joint Commission Standard PC.01.02.03",
-        related_policies="529, 530"
+        related_policies="529, 530",
     )
     item = search_result_to_item(result)
 
@@ -62,7 +63,7 @@ def test_search_result_to_item_includes_hierarchical_fields():
         title="Test Policy",
         chunk_level="section",
         parent_chunk_id="policy-528-doc",
-        chunk_index=3
+        chunk_index=3,
     )
     item = search_result_to_item(result)
 
@@ -80,7 +81,7 @@ def test_search_result_to_item_includes_entity_booleans():
         applies_to_rumg=True,
         applies_to_rmg=False,
         applies_to_roph=False,
-        applies_to_rcmc=True
+        applies_to_rcmc=True,
     )
     item = search_result_to_item(result)
 
@@ -94,10 +95,7 @@ def test_search_result_to_item_includes_entity_booleans():
 def test_search_result_to_item_includes_all_scoring_fields():
     """Verify both search score and reranker score are preserved."""
     result = SearchResult(
-        content="Test content",
-        title="Test Policy",
-        score=0.85,
-        reranker_score=0.92
+        content="Test content", title="Test Policy", score=0.85, reranker_score=0.92
     )
     item = search_result_to_item(result)
 
@@ -113,7 +111,7 @@ def test_search_result_to_item_includes_source_tracking():
         source_file="catheter_policy_528.pdf",
         document_owner="Clinical Services",
         date_updated="01/15/2024",
-        date_approved="01/10/2024"
+        date_approved="01/10/2024",
     )
     item = search_result_to_item(result)
 
@@ -131,7 +129,7 @@ def test_search_result_to_item_handles_none_values():
         page_number=None,
         category=None,
         subcategory=None,
-        reranker_score=None
+        reranker_score=None,
     )
     item = search_result_to_item(result)
 
@@ -163,7 +161,7 @@ def test_search_result_to_item_complete_real_world_example():
         applies_to_rumc=True,
         applies_to_rumg=True,
         score=0.89,
-        reranker_score=0.94
+        reranker_score=0.94,
     )
     item = search_result_to_item(result)
 

@@ -18,12 +18,12 @@ Usage:
     print(diagnostic.failure_type)  # "retrieval" | "generation" | "both" | "none"
 """
 
+import logging
 import os
 import re
-import logging
-from typing import Dict, List, Optional, Literal
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -42,6 +42,7 @@ FailureType = Literal["retrieval", "generation", "both", "none"]
 @dataclass
 class ClaimClassification:
     """Classification result for a single claim."""
+
     claim: str
     source: ClaimSource
     relevant: bool
@@ -56,6 +57,7 @@ class ClaimClassification:
 @dataclass
 class RAGDiagnostic:
     """Comprehensive RAG failure diagnostic."""
+
     query: str
     response: str
     claims: List[str]
@@ -71,7 +73,11 @@ class RAGDiagnostic:
     def to_dict(self) -> Dict:
         return {
             "query": self.query,
-            "response": self.response[:200] + "..." if len(self.response) > 200 else self.response,
+            "response": (
+                self.response[:200] + "..."
+                if len(self.response) > 200
+                else self.response
+            ),
             "claim_count": len(self.claims),
             "failure_type": self.failure_type,
             "retriever_score": round(self.retriever_score, 3),
@@ -81,16 +87,30 @@ class RAGDiagnostic:
             "context_utilization": round(self.context_utilization, 3),
             "recommendations": self.recommendations,
             "claim_breakdown": {
-                "from_context": sum(1 for c in self.classifications if c.source == "context"),
-                "parametric": sum(1 for c in self.classifications if c.source == "parametric"),
-                "hallucination": sum(1 for c in self.classifications if c.source == "hallucination"),
+                "from_context": sum(
+                    1 for c in self.classifications if c.source == "context"
+                ),
+                "parametric": sum(
+                    1 for c in self.classifications if c.source == "parametric"
+                ),
+                "hallucination": sum(
+                    1 for c in self.classifications if c.source == "hallucination"
+                ),
             },
             "position_breakdown": {
-                "top": sum(1 for c in self.classifications if c.context_position == "top"),
-                "middle": sum(1 for c in self.classifications if c.context_position == "middle"),
-                "bottom": sum(1 for c in self.classifications if c.context_position == "bottom"),
-                "not_found": sum(1 for c in self.classifications if c.context_position == "not_found"),
-            }
+                "top": sum(
+                    1 for c in self.classifications if c.context_position == "top"
+                ),
+                "middle": sum(
+                    1 for c in self.classifications if c.context_position == "middle"
+                ),
+                "bottom": sum(
+                    1 for c in self.classifications if c.context_position == "bottom"
+                ),
+                "not_found": sum(
+                    1 for c in self.classifications if c.context_position == "not_found"
+                ),
+            },
         }
 
 
@@ -115,8 +135,7 @@ class RAGDiagnostics:
         self.azure_api_key = azure_api_key or os.getenv("AOAI_API_KEY")
         # Use gpt-4.1-mini for diagnostics (faster, cheaper for claim analysis)
         self.deployment_name = deployment_name or os.getenv(
-            "AOAI_EVAL_DEPLOYMENT",
-            os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini")
+            "AOAI_EVAL_DEPLOYMENT", os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini")
         )
 
         self._client = None
@@ -133,7 +152,7 @@ class RAGDiagnostics:
             self._client = AzureOpenAI(
                 azure_endpoint=self.azure_endpoint,
                 api_key=self.azure_api_key,
-                api_version="2024-08-01-preview"  # Consistent with metrics.py and conftest.py
+                api_version="2024-08-01-preview",  # Consistent with metrics.py and conftest.py
             )
             self._initialized = True
             logger.info("RAG Diagnostics initialized with Azure OpenAI")
@@ -175,14 +194,18 @@ If the response contains no factual claims, return: []"""
             completion = self._client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "You are a claim extraction assistant. Extract atomic factual claims from text. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a claim extraction assistant. Extract atomic factual claims from text. Return only valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0,
                 max_tokens=1000,
             )
 
             import json
+
             content = completion.choices[0].message.content.strip()
 
             # Handle potential markdown code blocks
@@ -195,13 +218,15 @@ If the response contains no factual claims, return: []"""
             return claims if isinstance(claims, list) else []
 
         except Exception as e:
-            logger.warning(f"LLM claim decomposition failed: {e}, falling back to rule-based")
+            logger.warning(
+                f"LLM claim decomposition failed: {e}, falling back to rule-based"
+            )
             return self._rule_based_decomposition(response)
 
     def _rule_based_decomposition(self, response: str) -> List[str]:
         """Fallback rule-based claim extraction."""
         # Split on sentence boundaries
-        sentences = re.split(r'(?<=[.!?])\s+', response)
+        sentences = re.split(r"(?<=[.!?])\s+", response)
 
         claims = []
         for sent in sentences:
@@ -240,7 +265,9 @@ If the response contains no factual claims, return: []"""
         context_with_positions = []
         for i, chunk in enumerate(context):
             position = self._get_position_label(i, len(context))
-            context_with_positions.append(f"[{position.upper()} - Chunk {i+1}]\n{chunk}")
+            context_with_positions.append(
+                f"[{position.upper()} - Chunk {i+1}]\n{chunk}"
+            )
 
         context_text = "\n\n".join(context_with_positions)
 
@@ -272,14 +299,18 @@ Respond in JSON format ONLY:
             completion = self._client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "You are a claim verification assistant. Classify claims accurately. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a claim verification assistant. Classify claims accurately. Return only valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0,
                 max_tokens=500,
             )
 
             import json
+
             content = completion.choices[0].message.content.strip()
 
             # Handle markdown code blocks
@@ -304,9 +335,7 @@ Respond in JSON format ONLY:
             return self._heuristic_classification(claim, context)
 
     def _heuristic_classification(
-        self,
-        claim: str,
-        context: List[str]
+        self, claim: str, context: List[str]
     ) -> ClaimClassification:
         """Fallback heuristic-based claim classification."""
         claim_lower = claim.lower()
@@ -331,11 +360,15 @@ Respond in JSON format ONLY:
 
         # Not found in context - could be parametric or hallucination
         # Conservative: mark as hallucination if it's specific
-        has_specific_detail = any([
-            re.search(r'\d+', claim),  # Contains numbers
-            re.search(r'policy|procedure|protocol', claim.lower()),  # Policy reference
-            re.search(r'must|shall|required', claim.lower()),  # Obligations
-        ])
+        has_specific_detail = any(
+            [
+                re.search(r"\d+", claim),  # Contains numbers
+                re.search(
+                    r"policy|procedure|protocol", claim.lower()
+                ),  # Policy reference
+                re.search(r"must|shall|required", claim.lower()),  # Obligations
+            ]
+        )
 
         return ClaimClassification(
             claim=claim,
@@ -404,8 +437,7 @@ Respond in JSON format ONLY:
 
         # Classify each claim
         classifications = [
-            self.classify_claim(claim, context, query)
-            for claim in claims
+            self.classify_claim(claim, context, query) for claim in claims
         ]
 
         # Calculate metrics
@@ -416,7 +448,8 @@ Respond in JSON format ONLY:
 
         # Lost in the middle: claims from middle positions
         lost_in_middle = sum(
-            1 for c in classifications
+            1
+            for c in classifications
             if c.source == "context" and c.context_position == "middle"
         )
 
@@ -425,7 +458,9 @@ Respond in JSON format ONLY:
         context_utilization = from_context / total_claims if total_claims > 0 else 0.0
 
         # Retriever score: How much of the response comes from retrieved context
-        retriever_score = (from_context + parametric) / total_claims if total_claims > 0 else 0.0
+        retriever_score = (
+            (from_context + parametric) / total_claims if total_claims > 0 else 0.0
+        )
 
         # Generator score: How well the generator avoids hallucinations
         generator_score = 1.0 - hallucination_rate
@@ -487,25 +522,31 @@ Respond in JSON format ONLY:
         recommendations = []
 
         if failure_type == "retrieval":
-            recommendations.extend([
-                "Improve search query preprocessing (expand synonyms, fix typos)",
-                "Review Azure AI Search semantic configuration",
-                "Consider increasing top_k to retrieve more candidates",
-            ])
+            recommendations.extend(
+                [
+                    "Improve search query preprocessing (expand synonyms, fix typos)",
+                    "Review Azure AI Search semantic configuration",
+                    "Consider increasing top_k to retrieve more candidates",
+                ]
+            )
 
         if failure_type == "generation":
-            recommendations.extend([
-                "Add explicit grounding instructions to system prompt",
-                "Increase temperature penalty for unsupported claims",
-                "Consider Cohere rerank score threshold adjustment",
-            ])
+            recommendations.extend(
+                [
+                    "Add explicit grounding instructions to system prompt",
+                    "Increase temperature penalty for unsupported claims",
+                    "Consider Cohere rerank score threshold adjustment",
+                ]
+            )
 
         if failure_type == "both":
-            recommendations.extend([
-                "Review end-to-end RAG pipeline",
-                "Validate index quality and chunk overlap",
-                "Audit system prompt for grounding requirements",
-            ])
+            recommendations.extend(
+                [
+                    "Review end-to-end RAG pipeline",
+                    "Validate index quality and chunk overlap",
+                    "Audit system prompt for grounding requirements",
+                ]
+            )
 
         if hallucination_rate > 0.2:
             recommendations.append(
@@ -523,7 +564,9 @@ Respond in JSON format ONLY:
             )
 
         if not recommendations:
-            recommendations.append("No significant issues detected - RAG pipeline performing well")
+            recommendations.append(
+                "No significant issues detected - RAG pipeline performing well"
+            )
 
         return recommendations
 
@@ -583,7 +626,7 @@ if __name__ == "__main__":
             "Policy RU-123: Code Blue Protocol. When a patient experiences cardiac arrest, staff must immediately call Code Blue.",
             "The Code Blue response team includes: attending physician, charge nurse, respiratory therapist, and pharmacy representative.",
             "Response time target: The Code Blue team should arrive at the patient's location within 4 minutes of activation.",
-        ]
+        ],
     )
 
     print(json.dumps(diagnostic.to_dict(), indent=2))

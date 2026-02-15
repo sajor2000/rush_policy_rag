@@ -8,15 +8,24 @@ Validates that query expansion improves RAG accuracy by:
 4. Applying pattern-based expansions
 """
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add backend to path
 backend_path = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_path))
 
-from app.services.synonym_service import SynonymService, get_synonym_service
+from app.services.synonym_service import get_synonym_service
+
+# Skip all tests when semantic-search-synonyms.json is not available.
+# The file is gitignored (66KB data file) so it won't exist in CI.
+_SYNONYMS_FILE = backend_path.parent.parent / "semantic-search-synonyms.json"
+pytestmark = pytest.mark.skipif(
+    not _SYNONYMS_FILE.exists(),
+    reason="semantic-search-synonyms.json not available (gitignored data file)",
+)
 
 
 class TestSynonymService:
@@ -53,20 +62,23 @@ class TestSynonymService:
         # Test catheter misspelling
         result = service.expand_query("cathater insertion procedure")
         assert len(result.misspellings_corrected) > 0
-        corrected_words = [c['corrected'] for c in result.misspellings_corrected]
-        assert 'catheter' in corrected_words
+        corrected_words = [c["corrected"] for c in result.misspellings_corrected]
+        assert "catheter" in corrected_words
 
         # Test medication misspelling
         result = service.expand_query("medciation administration")
         if result.misspellings_corrected:
-            corrected_words = [c['corrected'] for c in result.misspellings_corrected]
-            assert 'medication' in corrected_words
+            corrected_words = [c["corrected"] for c in result.misspellings_corrected]
+            assert "medication" in corrected_words
 
     def test_rush_specific_terms(self, service):
         """Test that Rush-specific terms are recognized."""
         # Test RUMC
         result = service.expand_query("RUMC parking policy")
-        assert "Rush University Medical Center" in result.expanded_query or "RUMC" in result.expanded_query
+        assert (
+            "Rush University Medical Center" in result.expanded_query
+            or "RUMC" in result.expanded_query
+        )
 
         # Test RUMG
         result = service.expand_query("RUMG scheduling")
@@ -77,16 +89,19 @@ class TestSynonymService:
         # Test code blue
         result = service.expand_query("code blue procedure")
         # Should expand to include cardiac arrest or similar
-        assert "cardiac" in result.expanded_query.lower() or "code blue" in result.expanded_query.lower()
+        assert (
+            "cardiac" in result.expanded_query.lower()
+            or "code blue" in result.expanded_query.lower()
+        )
 
     def test_pattern_expansion(self, service):
         """Test pattern-based query expansion."""
         # Test "How do I..." pattern
         result = service.expand_query("How do I request time off?")
         # Should add procedure/policy keywords
-        has_expansion = any(
+        any(  # noqa: B015
             word in result.expanded_query.lower()
-            for word in ['procedure', 'policy', 'protocol', 'guideline']
+            for word in ["procedure", "policy", "protocol", "guideline"]
         )
         # Pattern expansion is optional, so this might not trigger
         print(f"Pattern expansion result: {result.expanded_query}")
@@ -108,7 +123,10 @@ class TestSynonymService:
 
         # Both should be expanded
         assert len(result.abbreviations_expanded) >= 1
-        assert "emergency" in result.expanded_query.lower() or "intensive" in result.expanded_query.lower()
+        assert (
+            "emergency" in result.expanded_query.lower()
+            or "intensive" in result.expanded_query.lower()
+        )
 
     def test_get_synonyms_for_term(self, service):
         """Test getting synonyms for a specific term."""
@@ -154,10 +172,13 @@ class TestSynonymService:
         expanded_lower = result.expanded_query.lower()
 
         # Should add neonatal/pediatric pain terms
-        has_neonatal_terms = any(term in expanded_lower for term in [
-            'flacc', 'n-pass', 'neonatal', 'infant', 'newborn'
-        ])
-        assert has_neonatal_terms, f"Expected neonatal pain terms, got: {result.expanded_query}"
+        has_neonatal_terms = any(
+            term in expanded_lower
+            for term in ["flacc", "n-pass", "neonatal", "infant", "newborn"]
+        )
+        assert (
+            has_neonatal_terms
+        ), f"Expected neonatal pain terms, got: {result.expanded_query}"
         print(f"NICU+pain expansion: {result.expanded_query}")
 
     def test_compound_term_expansion_pediatric_pain(self, service):
@@ -166,29 +187,37 @@ class TestSynonymService:
         expanded_lower = result.expanded_query.lower()
 
         # Should add pediatric pain terms
-        has_peds_terms = any(term in expanded_lower for term in [
-            'flacc', 'wong-baker', 'picu', 'child'
-        ])
-        assert has_peds_terms, f"Expected pediatric pain terms, got: {result.expanded_query}"
+        has_peds_terms = any(
+            term in expanded_lower for term in ["flacc", "wong-baker", "picu", "child"]
+        )
+        assert (
+            has_peds_terms
+        ), f"Expected pediatric pain terms, got: {result.expanded_query}"
         print(f"Pediatric+pain expansion: {result.expanded_query}")
 
     def test_pediatric_pain_synonyms_in_json(self, service):
         """Test that pediatric pain assessment synonyms are loaded from JSON."""
         # Check if patient_care_terms contains neonatal pain assessment
-        patient_care = service.synonym_groups.get('patient_care_terms', {})
-        mappings = patient_care.get('mappings', {})
+        patient_care = service.synonym_groups.get("patient_care_terms", {})
+        mappings = patient_care.get("mappings", {})
 
         # Verify neonatal pain assessment entry exists
-        assert 'neonatal pain assessment' in mappings, "Missing neonatal pain assessment synonyms"
-        neonatal_synonyms = mappings['neonatal pain assessment']
-        assert 'FLACC' in neonatal_synonyms, "Missing FLACC in neonatal pain synonyms"
-        assert 'N-PASS' in neonatal_synonyms, "Missing N-PASS in neonatal pain synonyms"
+        assert (
+            "neonatal pain assessment" in mappings
+        ), "Missing neonatal pain assessment synonyms"
+        neonatal_synonyms = mappings["neonatal pain assessment"]
+        assert "FLACC" in neonatal_synonyms, "Missing FLACC in neonatal pain synonyms"
+        assert "N-PASS" in neonatal_synonyms, "Missing N-PASS in neonatal pain synonyms"
         print(f"Neonatal pain synonyms: {neonatal_synonyms}")
 
         # Verify pediatric pain assessment entry exists
-        assert 'pediatric pain assessment' in mappings, "Missing pediatric pain assessment synonyms"
-        peds_synonyms = mappings['pediatric pain assessment']
-        assert 'Wong-Baker' in peds_synonyms, "Missing Wong-Baker in pediatric pain synonyms"
+        assert (
+            "pediatric pain assessment" in mappings
+        ), "Missing pediatric pain assessment synonyms"
+        peds_synonyms = mappings["pediatric pain assessment"]
+        assert (
+            "Wong-Baker" in peds_synonyms
+        ), "Missing Wong-Baker in pediatric pain synonyms"
         print(f"Pediatric pain synonyms: {peds_synonyms}")
 
     def test_nicu_query_consistency(self, service):
@@ -200,7 +229,7 @@ class TestSynonymService:
         queries = [
             "Show me the neonatal pain policy for RUMC nursing",
             "What is the pain assessment policy for RUMC's NICU",
-            "RUMC Neonatal ICU Pain assessment policy overview"
+            "RUMC Neonatal ICU Pain assessment policy overview",
         ]
 
         results = []
@@ -215,10 +244,13 @@ class TestSynonymService:
         for i, result in enumerate(results):
             expanded_lower = result.expanded_query.lower()
             # Should contain neonatal/NICU/infant terms after expansion
-            has_nicu_context = any(term in expanded_lower for term in [
-                'nicu', 'neonatal', 'infant', 'newborn', 'flacc', 'n-pass'
-            ])
-            assert has_nicu_context, f"Query {i+1} missing NICU context: {result.expanded_query}"
+            has_nicu_context = any(
+                term in expanded_lower
+                for term in ["nicu", "neonatal", "infant", "newborn", "flacc", "n-pass"]
+            )
+            assert (
+                has_nicu_context
+            ), f"Query {i+1} missing NICU context: {result.expanded_query}"
 
     def test_contains_term_uses_word_boundaries_for_short_terms(self, service):
         """Regression: short term 'pe' must not match inside larger words."""

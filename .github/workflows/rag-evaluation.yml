@@ -21,6 +21,8 @@ on:
           - weekly
           - monthly-regression
 
+permissions: {}  # Deny all by default; grant per job
+
 env:
   PYTHON_VERSION: '3.11'
   AOAI_EVAL_DEPLOYMENT: gpt-4.1-mini
@@ -55,7 +57,7 @@ jobs:
         run: |
           cd apps/backend
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-eval.txt
 
       - name: Create reports directory
         run: mkdir -p apps/backend/reports
@@ -128,7 +130,7 @@ jobs:
         run: |
           cd apps/backend
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-eval.txt
 
       - name: Create directories
         run: |
@@ -268,7 +270,7 @@ jobs:
         run: |
           cd apps/backend
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-eval.txt
 
       - name: Run critical tests only
         run: |
@@ -303,7 +305,7 @@ jobs:
         run: |
           cd apps/backend
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-eval.txt
 
       - name: Create reports directory
         run: mkdir -p reports/ragas

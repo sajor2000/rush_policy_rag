@@ -8,15 +8,17 @@ enabling questions like:
 - "where does it discuss training requirements in the HIPAA policy"
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from app.models.schemas import InstanceSearchRequest, InstanceSearchResponse
-from app.dependencies import get_search_index
-from app.services.instance_search_service import InstanceSearchService
-from app.core.rate_limit import limiter
-from app.core.security import validate_query
-from azure_policy_index import PolicySearchIndex
 import asyncio
 import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from app.core.rate_limit import limiter
+from app.core.security import validate_query
+from app.dependencies import get_search_index
+from app.models.schemas import InstanceSearchRequest, InstanceSearchResponse
+from app.services.instance_search_service import InstanceSearchService
+from azure_policy_index import PolicySearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ router = APIRouter()
 async def search_instances(
     request: Request,
     body: InstanceSearchRequest,
-    search_index: PolicySearchIndex = Depends(get_search_index)
+    search_index: PolicySearchIndex = Depends(get_search_index),
 ):
     """
     Find all instances of a term or relevant sections within a specific policy document.
@@ -64,9 +66,7 @@ async def search_instances(
 
     # Use smart search that auto-detects exact vs semantic mode
     result = await asyncio.to_thread(
-        service.search_within_policy,
-        policy_ref=body.policy_ref,
-        query=validated_term
+        service.search_within_policy, policy_ref=body.policy_ref, query=validated_term
     )
 
     logger.info(
@@ -82,7 +82,7 @@ async def search_instances(
 async def search_within_policy(
     request: Request,
     body: InstanceSearchRequest,
-    search_index: PolicySearchIndex = Depends(get_search_index)
+    search_index: PolicySearchIndex = Depends(get_search_index),
 ):
     """
     Alternative endpoint name - same as search-instances.

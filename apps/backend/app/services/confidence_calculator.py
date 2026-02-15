@@ -16,12 +16,12 @@ Extracted from chat_service.py as part of tech debt refactoring.
 """
 
 import logging
-from typing import List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 if TYPE_CHECKING:
-    from app.services.cohere_rerank_service import RerankResult
     from app.models.schemas import EvidenceItem
     from app.services.citation_verifier import VerificationResult
+    from app.services.cohere_rerank_service import RerankResult
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,9 @@ logger = logging.getLogger(__name__)
 # Score Window Filtering
 # ============================================================================
 
+
 def filter_by_score_window(
-    reranked: List["RerankResult"],
-    query: str,
-    window_threshold: float = 0.6
+    reranked: List["RerankResult"], query: str, window_threshold: float = 0.6
 ) -> List["RerankResult"]:
     """
     Filter reranked results to keep only docs within a relative score window.
@@ -91,9 +90,9 @@ def filter_by_score_window(
 # Confidence Calculation
 # ============================================================================
 
+
 def calculate_response_confidence(
-    reranked: List["RerankResult"],
-    has_evidence: bool = True
+    reranked: List["RerankResult"], has_evidence: bool = True
 ) -> Tuple[float, str]:
     """
     Calculate confidence score for healthcare response routing.
@@ -166,7 +165,7 @@ def confidence_level_from_score(score: float) -> str:
 def boost_confidence_with_grounding(
     confidence_score: float,
     evidence_items: List["EvidenceItem"],
-    verification: Optional["VerificationResult"] = None
+    verification: Optional["VerificationResult"] = None,
 ) -> float:
     """
     Boost confidence using grounding signals per Cohere/AWS guidance.
@@ -207,9 +206,7 @@ def boost_confidence_with_grounding(
 
 
 def should_return_not_found(
-    confidence_score: float,
-    confidence_level: str,
-    has_evidence: bool
+    confidence_score: float, confidence_level: str, has_evidence: bool
 ) -> bool:
     """
     Determine if response should be "not found" based on confidence.

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "monthly_hr_release_gate.py"
 )
@@ -229,7 +228,9 @@ def test_resolve_previous_manifest_ignores_failed_and_incompatible_runs(tmp_path
 
     failed_run = month_dir / "run_20260310_010101_nonprod_monthly_bad"
     failed_run.mkdir()
-    (failed_run / "manifest_current.json").write_text('{"entries":[]}', encoding="utf-8")
+    (failed_run / "manifest_current.json").write_text(
+        '{"entries":[]}', encoding="utf-8"
+    )
     (failed_run / "summary.json").write_text(
         json.dumps(
             {

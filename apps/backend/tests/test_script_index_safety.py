@@ -1,10 +1,11 @@
+import re
+from pathlib import Path
+
 from app.core.index_safety import (
     DEFAULT_ACTIVE_ALIAS,
     ensure_safe_index_target,
     resolve_index_name,
 )
-from pathlib import Path
-import re
 
 
 def test_resolve_index_name_prefers_cli_value(monkeypatch):
@@ -66,7 +67,9 @@ def test_active_scripts_expose_index_override_and_direct_override_flags():
     for script_path in script_paths:
         text = script_path.read_text(encoding="utf-8")
         assert "--index-name" in text, f"Missing --index-name in {script_path}"
-        assert "--allow-direct-index" in text, f"Missing --allow-direct-index in {script_path}"
+        assert (
+            "--allow-direct-index" in text
+        ), f"Missing --allow-direct-index in {script_path}"
 
 
 def test_active_scripts_do_not_hardcode_direct_rush_policies_index():

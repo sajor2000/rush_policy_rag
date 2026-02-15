@@ -12,7 +12,7 @@ Extracted from chunker.py as part of tech debt refactoring.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from preprocessing.policy_chunk import PolicyChunk
@@ -23,23 +23,23 @@ if TYPE_CHECKING:
 # ============================================================================
 
 # All RUSH entity codes that may appear in checkboxes
-RUSH_ENTITIES = ['RUMC', 'RUMG', 'RMG', 'ROPH', 'RCMC', 'RCH', 'ROPPG', 'RCMG', 'RU']
+RUSH_ENTITIES = ["RUMC", "RUMG", "RMG", "ROPH", "RCMC", "RCH", "ROPPG", "RCMG", "RU"]
 
 # Unicode characters for checked/unchecked states
-CHECKED_CHARS = r'[\u2612\u2611\u2713\u2714\u25A0\u2718Xx☒☑✓✔■]'
-UNCHECKED_CHARS = r'[\u2610\u25A1\u25CB☐]'
+CHECKED_CHARS = r"[\u2612\u2611\u2713\u2714\u25A0\u2718Xx☒☑✓✔■]"
+UNCHECKED_CHARS = r"[\u2610\u25A1\u25CB☐]"
 
 # Entity code to field name mapping
 ENTITY_TO_FIELD = {
-    'RUMC': 'applies_to_rumc',
-    'RUMG': 'applies_to_rumg',
-    'RMG': 'applies_to_rmg',
-    'ROPH': 'applies_to_roph',
-    'RCMC': 'applies_to_rcmc',
-    'RCH': 'applies_to_rch',
-    'ROPPG': 'applies_to_roppg',
-    'RCMG': 'applies_to_rcmg',
-    'RU': 'applies_to_ru',
+    "RUMC": "applies_to_rumc",
+    "RUMG": "applies_to_rumg",
+    "RMG": "applies_to_rmg",
+    "ROPH": "applies_to_roph",
+    "RCMC": "applies_to_rcmc",
+    "RCH": "applies_to_rch",
+    "ROPPG": "applies_to_roppg",
+    "RCMG": "applies_to_rcmg",
+    "RU": "applies_to_ru",
 }
 
 
@@ -47,8 +47,10 @@ ENTITY_TO_FIELD = {
 # Processing Status Enum
 # ============================================================================
 
+
 class ProcessingStatus(str, Enum):
     """Status codes for PDF processing results."""
+
     SUCCESS = "success"
     EMPTY_DOCUMENT = "empty_document"
     FILE_NOT_FOUND = "file_not_found"
@@ -59,6 +61,7 @@ class ProcessingStatus(str, Enum):
 # ============================================================================
 # Processing Result
 # ============================================================================
+
 
 @dataclass
 class ProcessingResult:
@@ -78,6 +81,7 @@ class ProcessingResult:
         >>> else:
         ...     documents = [chunk.to_azure_document() for chunk in result.chunks]
     """
+
     chunks: List["PolicyChunk"]
     status: ProcessingStatus
     error_message: Optional[str] = None
@@ -94,7 +98,7 @@ class ProcessingResult:
         return self.status in (
             ProcessingStatus.FILE_NOT_FOUND,
             ProcessingStatus.DOCLING_UNAVAILABLE,
-            ProcessingStatus.PROCESSING_ERROR
+            ProcessingStatus.PROCESSING_ERROR,
         )
 
     @property
@@ -106,6 +110,7 @@ class ProcessingResult:
 # ============================================================================
 # RUSH Policy Metadata
 # ============================================================================
+
 
 @dataclass
 class RUSHPolicyMetadata:
@@ -126,6 +131,7 @@ class RUSHPolicyMetadata:
         applies_to: List of entity codes (e.g., ["RUMC", "RUMG"])
         applies_to_*: Boolean flags for each entity
     """
+
     title: str = ""
     policy_number: str = ""
     reference_number: str = ""

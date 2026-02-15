@@ -1,24 +1,32 @@
-import os
-import secrets
 import asyncio
+import logging
+import secrets
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Security, Query
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.security import APIKeyHeader
+
 from app.core.config import settings
 from app.dependencies import get_search_index
-from app.services.chat_audit_service import get_chat_audit_service
+from app.models.audit_schemas import AuditQueryResponse
 from app.services.cache_service import get_cache_service, invalidate_caches
-from app.models.audit_schemas import AuditQueryResponse, AuditStatsResponse
+from app.services.chat_audit_service import get_chat_audit_service
 from azure_policy_index import PolicySearchIndex
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 api_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=False)
 
 # Allowed base directories for folder uploads (prevents path traversal)
 ALLOWED_BASE_PATHS = [
-    Path(settings.BASE_DIR).resolve() if hasattr(settings, 'BASE_DIR') else Path.cwd().resolve(),
+    (
+        Path(settings.BASE_DIR).resolve()
+        if hasattr(settings, "BASE_DIR")
+        else Path.cwd().resolve()
+    ),
     Path("/app/data").resolve(),
     Path.home() / "data",
 ]
@@ -43,39 +51,34 @@ def validate_folder_path(folder_path: str) -> Path:
         except ValueError:
             continue  # Try next allowed base
 
-    raise HTTPException(
-        status_code=400,
-        detail="Path outside allowed directories"
-    )
+    raise HTTPException(status_code=400, detail="Path outside allowed directories")
 
 
 async def verify_admin_key(api_key: str = Security(api_key_header)) -> str:
     """Verify admin API key for protected endpoints."""
     if not settings.ADMIN_API_KEY:
         raise HTTPException(
-            status_code=500,
-            detail="ADMIN_API_KEY not configured on server"
+            status_code=500, detail="ADMIN_API_KEY not configured on server"
         )
     # Use constant-time comparison to prevent timing attacks
     if not api_key or not secrets.compare_digest(api_key, settings.ADMIN_API_KEY):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid or missing admin API key"
-        )
+        raise HTTPException(status_code=403, detail="Invalid or missing admin API key")
     return api_key
+
 
 @router.get("/index-stats")
 async def index_stats(
     _: str = Depends(verify_admin_key),
-    search_index: PolicySearchIndex = Depends(get_search_index)
+    search_index: PolicySearchIndex = Depends(get_search_index),
 ):
     """Get search index statistics."""
     return search_index.get_stats()
 
+
 @router.post("/create-index")
 async def create_index(
     _: str = Depends(verify_admin_key),
-    search_index: PolicySearchIndex = Depends(get_search_index)
+    search_index: PolicySearchIndex = Depends(get_search_index),
 ):
     """Create or update the search index schema."""
     try:
@@ -85,20 +88,25 @@ async def create_index(
         logger.error(f"Index creation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to create search index")
 
+
 @router.post("/upload-folder")
 async def upload_folder(
     folder_path: str = Query(..., description="Path to folder with PDFs"),
     _: str = Depends(verify_admin_key),
-    search_index: PolicySearchIndex = Depends(get_search_index)
+    search_index: PolicySearchIndex = Depends(get_search_index),
 ):
     """Process and upload all PDFs in a folder."""
     # Validate path is within allowed directories (prevents path traversal)
     abs_path = validate_folder_path(folder_path)
 
     if not abs_path.exists():
-        raise HTTPException(status_code=400, detail=f"Path does not exist: {folder_path}")
+        raise HTTPException(
+            status_code=400, detail=f"Path does not exist: {folder_path}"
+        )
     if not abs_path.is_dir():
-        raise HTTPException(status_code=400, detail=f"Path is not a directory: {folder_path}")
+        raise HTTPException(
+            status_code=400, detail=f"Path is not a directory: {folder_path}"
+        )
 
     # Import here to avoid circular imports or load heavy deps only when needed
     from preprocessing.chunker import PolicyChunker
@@ -108,25 +116,24 @@ async def upload_folder(
         # Wrap CPU-intensive sync operation in thread (can take 85-113s for 50 docs)
         result = await asyncio.to_thread(chunker.process_folder, abs_path)
 
-        if result['errors']:
+        if result["errors"]:
             return {
                 "status": "partial",
-                "stats": result['stats'],
-                "errors": result['errors']
+                "stats": result["stats"],
+                "errors": result["errors"],
             }
 
         # Wrap synchronous upload in thread to avoid blocking event loop
         upload_result = await asyncio.to_thread(
-            search_index.upload_chunks,
-            result['chunks']
+            search_index.upload_chunks, result["chunks"]
         )
 
         return {
             "status": "success",
-            "documents_processed": result['stats']['total_docs'],
-            "chunks_created": result['stats']['total_chunks'],
-            "chunks_uploaded": upload_result['uploaded'],
-            "chunks_failed": upload_result['failed']
+            "documents_processed": result["stats"]["total_docs"],
+            "chunks_created": result["stats"]["total_chunks"],
+            "chunks_uploaded": upload_result["uploaded"],
+            "chunks_failed": upload_result["failed"],
         }
     except Exception as e:
         logger.error(f"Folder processing failed: {e}")
@@ -136,6 +143,7 @@ async def upload_folder(
 # ============================================================================
 # Chat Audit Endpoints - RAG Quality Monitoring
 # ============================================================================
+
 
 @router.get("/audit/dates")
 async def list_audit_dates(
@@ -147,8 +155,7 @@ async def list_audit_dates(
 
     if not audit_service.is_enabled:
         raise HTTPException(
-            status_code=503,
-            detail="Chat audit service is not enabled or configured"
+            status_code=503, detail="Chat audit service is not enabled or configured"
         )
 
     dates = await audit_service.list_available_dates(limit=limit)
@@ -161,8 +168,12 @@ async def get_audit_records(
     limit: int = Query(default=100, ge=1, le=1000, description="Max records to return"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     found: Optional[bool] = Query(default=None, description="Filter by found status"),
-    confidence: Optional[str] = Query(default=None, description="Filter by confidence level"),
-    needs_human_review: Optional[bool] = Query(default=None, description="Filter by review flag"),
+    confidence: Optional[str] = Query(
+        default=None, description="Filter by confidence level"
+    ),
+    needs_human_review: Optional[bool] = Query(
+        default=None, description="Filter by review flag"
+    ),
     _: str = Depends(verify_admin_key),
 ):
     """
@@ -174,18 +185,18 @@ async def get_audit_records(
 
     if not audit_service.is_enabled:
         raise HTTPException(
-            status_code=503,
-            detail="Chat audit service is not enabled or configured"
+            status_code=503, detail="Chat audit service is not enabled or configured"
         )
 
     # Validate date format
     try:
         from datetime import datetime
+
         datetime.strptime(audit_date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-23)"
+            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-23)",
         )
 
     records, total_count = await audit_service.get_records_for_date(
@@ -218,18 +229,18 @@ async def get_audit_stats(
 
     if not audit_service.is_enabled:
         raise HTTPException(
-            status_code=503,
-            detail="Chat audit service is not enabled or configured"
+            status_code=503, detail="Chat audit service is not enabled or configured"
         )
 
     # Validate date format
     try:
         from datetime import datetime
+
         datetime.strptime(audit_date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-23)"
+            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-23)",
         )
 
     stats = await audit_service.get_stats_for_date(audit_date)
@@ -246,8 +257,7 @@ async def get_today_audit(
 
     if not audit_service.is_enabled:
         raise HTTPException(
-            status_code=503,
-            detail="Chat audit service is not enabled or configured"
+            status_code=503, detail="Chat audit service is not enabled or configured"
         )
 
     today = date.today().strftime("%Y-%m-%d")
@@ -263,6 +273,7 @@ async def get_today_audit(
 # ============================================================================
 # Cache Management Endpoints - Response Time Optimization
 # ============================================================================
+
 
 @router.get("/cache/stats")
 async def cache_stats(
@@ -284,7 +295,7 @@ async def cache_stats(
 async def invalidate_cache(
     layer: Optional[str] = Query(
         default=None,
-        description="Cache layer to invalidate: 'all', 'response', 'search', or 'expansion'. Default: all."
+        description="Cache layer to invalidate: 'all', 'response', 'search', or 'expansion'. Default: all.",
     ),
     _: str = Depends(verify_admin_key),
 ):
@@ -306,21 +317,21 @@ async def invalidate_cache(
         return {
             "status": "success",
             "message": "All caches invalidated",
-            "invalidated": counts
+            "invalidated": counts,
         }
     elif layer == "response":
         count = cache_service.invalidate_responses()
         return {
             "status": "success",
             "message": "Response cache invalidated",
-            "invalidated": {"response": count}
+            "invalidated": {"response": count},
         }
     elif layer == "search":
         count = cache_service.invalidate_search()
         return {
             "status": "success",
             "message": "Search cache invalidated",
-            "invalidated": {"search": count}
+            "invalidated": {"search": count},
         }
     elif layer == "expansion":
         # Expansion cache doesn't have a dedicated invalidation method
@@ -329,12 +340,12 @@ async def invalidate_cache(
         return {
             "status": "success",
             "message": "All caches invalidated (expansion requires full clear)",
-            "invalidated": counts
+            "invalidated": counts,
         }
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid layer: {layer}. Use 'all', 'response', 'search', or 'expansion'."
+            detail=f"Invalid layer: {layer}. Use 'all', 'response', 'search', or 'expansion'.",
         )
 
 
@@ -354,5 +365,5 @@ async def toggle_cache(
     return {
         "status": "success",
         "cache_enabled": enabled,
-        "message": f"Cache {'enabled' if enabled else 'disabled'}"
+        "message": f"Cache {'enabled' if enabled else 'disabled'}",
     }

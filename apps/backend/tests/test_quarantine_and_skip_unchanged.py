@@ -10,12 +10,8 @@ Exercises both fixes with 100+ synthetic documents covering:
 
 import hashlib
 import importlib.util
-import json
 import random
-import re
-import string
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
@@ -74,16 +70,16 @@ _FILENAMES_NO_ID = [
 ]  # 15 files with no extractable ID
 
 _FILENAMES_EDGE_CASES = [
-    "Fire Safety Plan (99).pdf",          # 2-digit ID (min)
-    "HIPAA Compliance Guide (123456).pdf", # 6-digit ID (max)
-    "Lab Procedure (1234567).pdf",         # 7 digits - should NOT match (too long)
-    "Budget Report (5).pdf",              # 1-digit - should NOT match (too short)
-    "HR-A 01.00 Policy (2523).pdf",       # Has BOTH XX-X and parenthesized ID
-    "Some Policy v2 (draft).pdf",         # Non-numeric in parens - no match
-    "Another Policy.pdf",                 # No parens at all
-    "Policy With Spaces ( 3456 ).pdf",    # Spaces around number - no match (regex is strict)
-    "Research Protocol (42) Appendix.pdf", # ID mid-filename
-    "Clinical Trial (00123).pdf",         # Leading zeros, 5 digits
+    "Fire Safety Plan (99).pdf",  # 2-digit ID (min)
+    "HIPAA Compliance Guide (123456).pdf",  # 6-digit ID (max)
+    "Lab Procedure (1234567).pdf",  # 7 digits - should NOT match (too long)
+    "Budget Report (5).pdf",  # 1-digit - should NOT match (too short)
+    "HR-A 01.00 Policy (2523).pdf",  # Has BOTH XX-X and parenthesized ID
+    "Some Policy v2 (draft).pdf",  # Non-numeric in parens - no match
+    "Another Policy.pdf",  # No parens at all
+    "Policy With Spaces ( 3456 ).pdf",  # Spaces around number - no match (regex is strict)
+    "Research Protocol (42) Appendix.pdf",  # ID mid-filename
+    "Clinical Trial (00123).pdf",  # Leading zeros, 5 digits
 ]  # 10 edge-case files
 
 ALL_FILENAMES = (
@@ -149,9 +145,9 @@ class TestExtractDocumentIdFromFilename:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        with patch("policy_sync.BlobServiceClient"), \
-             patch("policy_sync.PolicySearchIndex"), \
-             patch("policy_sync.PolicyChunker"):
+        with patch("policy_sync.BlobServiceClient"), patch(
+            "policy_sync.PolicySearchIndex"
+        ), patch("policy_sync.PolicyChunker"):
             self.sync = _load_sync_manager_class().__new__(_load_sync_manager_class())
             # Manually set up just the methods we need (skip __init__)
 
@@ -172,12 +168,14 @@ class TestExtractDocumentIdFromFilename:
         for i in range(1, 41):
             expected_id = str(1000 + i)
             fname = _FILENAMES_WITH_POLICYTECH_ID[i - 1]
-            assert results[fname] == expected_id, f"{fname} → {results[fname]} != {expected_id}"
+            assert (
+                results[fname] == expected_id
+            ), f"{fname} → {results[fname]} != {expected_id}"
 
     def test_xx_x_format_files_return_empty(self):
         """Files with XX-X policy numbers should NOT extract a doc ID (they have policy_number)."""
         for fname in _HR_FILENAMES_WITH_XX_X:
-            doc_id = self.sync._extract_document_id_from_filename(fname)
+            self.sync._extract_document_id_from_filename(fname)
             # XX-X files may or may not have parens; the important thing is
             # _autofill only uses doc_id when both policy_number and reference_number are empty
             # So extraction is fine, the guard is in _autofill_chunk_metadata
@@ -191,16 +189,16 @@ class TestExtractDocumentIdFromFilename:
     def test_edge_cases(self):
         """Verify edge cases match expected behavior."""
         cases = {
-            "Fire Safety Plan (99).pdf": "99",              # 2-digit: matches
-            "HIPAA Compliance Guide (123456).pdf": "123456", # 6-digit: matches
-            "Lab Procedure (1234567).pdf": "",               # 7-digit: too long
-            "Budget Report (5).pdf": "",                     # 1-digit: too short
-            "HR-A 01.00 Policy (2523).pdf": "2523",         # Has both: ID extracted
-            "Some Policy v2 (draft).pdf": "",                # Non-numeric: no match
-            "Another Policy.pdf": "",                        # No parens
-            "Policy With Spaces ( 3456 ).pdf": "",           # Spaces: no match
-            "Research Protocol (42) Appendix.pdf": "42",     # Mid-filename: matches
-            "Clinical Trial (00123).pdf": "00123",           # Leading zeros: matches
+            "Fire Safety Plan (99).pdf": "99",  # 2-digit: matches
+            "HIPAA Compliance Guide (123456).pdf": "123456",  # 6-digit: matches
+            "Lab Procedure (1234567).pdf": "",  # 7-digit: too long
+            "Budget Report (5).pdf": "",  # 1-digit: too short
+            "HR-A 01.00 Policy (2523).pdf": "2523",  # Has both: ID extracted
+            "Some Policy v2 (draft).pdf": "",  # Non-numeric: no match
+            "Another Policy.pdf": "",  # No parens
+            "Policy With Spaces ( 3456 ).pdf": "",  # Spaces: no match
+            "Research Protocol (42) Appendix.pdf": "42",  # Mid-filename: matches
+            "Clinical Trial (00123).pdf": "00123",  # Leading zeros: matches
         }
         for fname, expected in cases.items():
             result = self.sync._extract_document_id_from_filename(fname)
@@ -228,9 +226,9 @@ class TestAutofillChunkMetadata:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        with patch("policy_sync.BlobServiceClient"), \
-             patch("policy_sync.PolicySearchIndex"), \
-             patch("policy_sync.PolicyChunker"):
+        with patch("policy_sync.BlobServiceClient"), patch(
+            "policy_sync.PolicySearchIndex"
+        ), patch("policy_sync.PolicyChunker"):
             self.sync = _load_sync_manager_class().__new__(_load_sync_manager_class())
 
     def test_policytech_id_files_get_reference_number(self):
@@ -245,9 +243,9 @@ class TestAutofillChunkMetadata:
                     pass_count += 1
                     break
 
-        assert pass_count == 40, (
-            f"Expected 40/40 files to get reference_number, got {pass_count}/40"
-        )
+        assert (
+            pass_count == 40
+        ), f"Expected 40/40 files to get reference_number, got {pass_count}/40"
 
     def test_xx_x_files_get_policy_number_not_reference_number(self):
         """XX-X format files should get policy_number filled, reference_number stays empty."""
@@ -259,9 +257,9 @@ class TestAutofillChunkMetadata:
                 # Should have policy_number (from XX-X extraction)
                 assert chunk.policy_number, f"No policy_number for '{fname}'"
                 # reference_number should be empty (guard: not set when policy_number exists)
-                assert not chunk.reference_number, (
-                    f"Unexpected reference_number '{chunk.reference_number}' for '{fname}'"
-                )
+                assert (
+                    not chunk.reference_number
+                ), f"Unexpected reference_number '{chunk.reference_number}' for '{fname}'"
 
     def test_dual_id_file_prefers_policy_number(self):
         """File with both XX-X and parenthesized ID should use policy_number."""
@@ -270,9 +268,9 @@ class TestAutofillChunkMetadata:
         self.sync._autofill_chunk_metadata(chunks, fname)
 
         for chunk in chunks:
-            assert chunk.policy_number == "HR-A 01.00", (
-                f"Expected 'HR-A 01.00', got '{chunk.policy_number}'"
-            )
+            assert (
+                chunk.policy_number == "HR-A 01.00"
+            ), f"Expected 'HR-A 01.00', got '{chunk.policy_number}'"
             # reference_number should NOT be set because policy_number is present
             assert not chunk.reference_number, (
                 f"reference_number should be empty when policy_number is set, "
@@ -358,11 +356,18 @@ class TestAutofillInQuarantineMode:
         # Read the actual source and verify the gate check
         source = (BACKEND_ROOT / "policy_sync.py").read_text(encoding="utf-8")
         # Check that the condition includes quarantine
-        assert 'in ("autofill", "quarantine")' in source, (
-            "Expected autofill to be called in quarantine mode"
-        )
+        assert (
+            'in ("autofill", "quarantine")' in source
+        ), "Expected autofill to be called in quarantine mode"
         # Verify the old single-mode check is gone
-        assert 'metadata_gate_mode == "autofill"' not in source.split("_autofill_chunk_metadata")[0].split("metadata_gate_mode")[-1] if "_autofill_chunk_metadata" in source else True
+        assert (
+            'metadata_gate_mode == "autofill"'
+            not in source.split("_autofill_chunk_metadata")[0].split(
+                "metadata_gate_mode"
+            )[-1]
+            if "_autofill_chunk_metadata" in source
+            else True
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -375,13 +380,15 @@ class TestChunkerDocIdFallback:
 
     def test_chunker_source_has_fallback(self):
         """Verify the fallback regex is in chunker.py source."""
-        source = (BACKEND_ROOT / "preprocessing" / "chunker.py").read_text(encoding="utf-8")
-        assert r"\((\d{2,6})\)" in source, (
-            "Expected parenthesized doc ID regex in chunker.py"
+        source = (BACKEND_ROOT / "preprocessing" / "chunker.py").read_text(
+            encoding="utf-8"
         )
-        assert "metadata.reference_number" in source, (
-            "Expected reference_number assignment in chunker.py fallback"
-        )
+        assert (
+            r"\((\d{2,6})\)" in source
+        ), "Expected parenthesized doc ID regex in chunker.py"
+        assert (
+            "metadata.reference_number" in source
+        ), "Expected reference_number assignment in chunker.py fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +465,9 @@ class TestBuildDeltaForRunModeWithTargetFallback:
             target_container_manifest=target,
         )
         assert delta["run_mode"] == "baseline"
-        assert delta["counts"]["new"] == 0, f"Expected 0 new, got {delta['counts']['new']}"
+        assert (
+            delta["counts"]["new"] == 0
+        ), f"Expected 0 new, got {delta['counts']['new']}"
         assert delta["counts"]["unchanged"] == 100
         assert delta["counts"]["changed"] == 0
         assert delta.get("previous_source") == "target_container_metadata"
@@ -485,7 +494,9 @@ class TestBuildDeltaForRunModeWithTargetFallback:
             previous_manifest=None,
             target_container_manifest=target,
         )
-        assert delta["counts"]["new"] == 20, f"Expected 20 new, got {delta['counts']['new']}"
+        assert (
+            delta["counts"]["new"] == 20
+        ), f"Expected 20 new, got {delta['counts']['new']}"
         assert delta["counts"]["unchanged"] == 80
         assert delta["counts"]["changed"] == 0
 
@@ -496,10 +507,9 @@ class TestBuildDeltaForRunModeWithTargetFallback:
 
         current_entries = _make_manifest_entries(ALL_FILENAMES)
         # Target has different hashes for last 10 files
-        target_entries = (
-            _make_manifest_entries(unchanged_files)
-            + _make_manifest_entries(changed_files, hash_prefix="OLD_")
-        )
+        target_entries = _make_manifest_entries(
+            unchanged_files
+        ) + _make_manifest_entries(changed_files, hash_prefix="OLD_")
 
         current = {"entries": current_entries, "count": 100}
         target = {
@@ -656,10 +666,9 @@ class TestBuildDeltaAtLargerScale:
         unchanged_files = files[change_count:]
 
         current_entries = _make_manifest_entries(files)
-        target_entries = (
-            _make_manifest_entries(changed_files, hash_prefix="OLD_VERSION_")
-            + _make_manifest_entries(unchanged_files)
-        )
+        target_entries = _make_manifest_entries(
+            changed_files, hash_prefix="OLD_VERSION_"
+        ) + _make_manifest_entries(unchanged_files)
 
         current = {"entries": current_entries, "count": corpus_size}
         target = {
@@ -877,9 +886,9 @@ class TestEndToEndQuarantineReduction:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        with patch("policy_sync.BlobServiceClient"), \
-             patch("policy_sync.PolicySearchIndex"), \
-             patch("policy_sync.PolicyChunker"):
+        with patch("policy_sync.BlobServiceClient"), patch(
+            "policy_sync.PolicySearchIndex"
+        ), patch("policy_sync.PolicyChunker"):
             self.sync = _load_sync_manager_class().__new__(_load_sync_manager_class())
 
     def test_quarantine_rate_below_25_percent(self):
@@ -915,9 +924,9 @@ class TestEndToEndQuarantineReduction:
 
         # The 15 no-ID files should be the primary quarantine group
         no_id_quarantined = [f for f in quarantined if f in _FILENAMES_NO_ID]
-        assert len(no_id_quarantined) >= 10, (
-            f"Expected most no-ID files quarantined, got {len(no_id_quarantined)}/15"
-        )
+        assert (
+            len(no_id_quarantined) >= 10
+        ), f"Expected most no-ID files quarantined, got {len(no_id_quarantined)}/15"
 
     def test_xx_x_files_never_quarantined(self):
         """All 35 XX-X format files should pass validation after autofill."""

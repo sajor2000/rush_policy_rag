@@ -18,15 +18,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.services.query_enhancer import (
-    normalize_query_punctuation,
-    normalize_location_context,
     detect_policy_number,
+    normalize_location_context,
+    normalize_query_punctuation,
 )
-
 
 # ============================================================================
 # Bug 3: Punctuation normalization
 # ============================================================================
+
 
 class TestNormalizeQueryPunctuation:
     """Tests for punctuation normalization (BUG-003 fix).
@@ -38,41 +38,67 @@ class TestNormalizeQueryPunctuation:
     """
 
     def test_trailing_comma(self):
-        assert normalize_query_punctuation("Shift Differentials,") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation("Shift Differentials,") == "Shift Differentials"
+        )
 
     def test_trailing_comma_with_space(self):
         """Regression: trailing space after comma must still be stripped."""
-        assert normalize_query_punctuation("Shift Differentials, ") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation("Shift Differentials, ")
+            == "Shift Differentials"
+        )
 
     def test_leading_comma(self):
-        assert normalize_query_punctuation(",Shift Differentials") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation(",Shift Differentials") == "Shift Differentials"
+        )
 
     def test_trailing_semicolon(self):
-        assert normalize_query_punctuation("Shift Differentials;") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation("Shift Differentials;") == "Shift Differentials"
+        )
 
     def test_trailing_period(self):
-        assert normalize_query_punctuation("Shift Differentials.") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation("Shift Differentials.") == "Shift Differentials"
+        )
 
     def test_trailing_colon(self):
-        assert normalize_query_punctuation("Shift Differentials:") == "Shift Differentials"
+        assert (
+            normalize_query_punctuation("Shift Differentials:") == "Shift Differentials"
+        )
 
     def test_mid_query_comma_replaced_with_space(self):
         """BUG-003: Mid-query commas are replaced with spaces for better BM25 matching."""
-        assert normalize_query_punctuation("Shift Differentials, Premium Pay") == "Shift Differentials Premium Pay"
+        assert (
+            normalize_query_punctuation("Shift Differentials, Premium Pay")
+            == "Shift Differentials Premium Pay"
+        )
 
     def test_mid_query_semicolon_replaced_with_space(self):
         """BUG-003: Semicolons in titles like 'Recording; Editing' become spaces."""
-        assert normalize_query_punctuation("Time and Attendance Recording; Editing and Approval") == "Time and Attendance Recording Editing and Approval"
+        assert (
+            normalize_query_punctuation(
+                "Time and Attendance Recording; Editing and Approval"
+            )
+            == "Time and Attendance Recording Editing and Approval"
+        )
 
     def test_question_mark_preserved(self):
         """Question marks indicate query intent and must be kept."""
-        assert normalize_query_punctuation("What is hand hygiene?") == "What is hand hygiene?"
+        assert (
+            normalize_query_punctuation("What is hand hygiene?")
+            == "What is hand hygiene?"
+        )
 
     def test_possessive_removed(self):
         assert normalize_query_punctuation("RUMC's NICU policy") == "RUMC NICU policy"
 
     def test_smart_quotes_normalized(self):
-        assert normalize_query_punctuation("\u201csmart quotes\u201d") == '"smart quotes"'
+        assert (
+            normalize_query_punctuation("\u201csmart quotes\u201d") == '"smart quotes"'
+        )
 
     def test_empty_string(self):
         assert normalize_query_punctuation("") == ""
@@ -88,7 +114,9 @@ class TestNormalizeQueryPunctuation:
 
     def test_policy_number_decimal_preserved(self):
         """Periods in policy numbers (05.00) must NOT be stripped."""
-        assert normalize_query_punctuation("What is HR-C 05.00?") == "What is HR-C 05.00?"
+        assert (
+            normalize_query_punctuation("What is HR-C 05.00?") == "What is HR-C 05.00?"
+        )
 
     def test_hyphen_preserved(self):
         """Hyphens in policy numbers (HR-C) must NOT be stripped."""
@@ -100,7 +128,10 @@ class TestNormalizeQueryPunctuation:
 
     def test_colon_replaced(self):
         """Colons are replaced with spaces."""
-        assert normalize_query_punctuation("Section 6.03: Supervisor Entry") == "Section 6.03 Supervisor Entry"
+        assert (
+            normalize_query_punctuation("Section 6.03: Supervisor Entry")
+            == "Section 6.03 Supervisor Entry"
+        )
 
 
 class TestNormalizeLocationContext:
@@ -119,6 +150,7 @@ class TestNormalizeLocationContext:
 # ============================================================================
 # Bug 2: Policy number detection
 # ============================================================================
+
 
 class TestDetectPolicyNumber:
     """Tests for RUSH policy number detection and normalization."""
@@ -163,7 +195,9 @@ class TestDetectPolicyNumber:
         assert result[0] == "HR-C 05.00"
 
     def test_malformed_hr_code_normalized(self):
-        result = detect_policy_number("What is HR-C 0.600 Time and Attendance Recording?")
+        result = detect_policy_number(
+            "What is HR-C 0.600 Time and Attendance Recording?"
+        )
         assert result is not None
         assert result[0] == "HR-C 06.00"
 
@@ -211,4 +245,5 @@ class TestDetectPolicyNumber:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

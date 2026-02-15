@@ -26,11 +26,11 @@ Performance:
 """
 
 import logging
-from typing import List, Dict, Optional, Set
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set
 
-from app.services.cohere_rerank_service import RerankResult
 from app.core.security import escape_odata_string
+from app.services.cohere_rerank_service import RerankResult
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ class ExpandedContext:
     Contains the original chunk plus any sibling content
     for complete procedural context.
     """
+
     # Original hit information
     original: RerankResult
 
@@ -79,7 +80,7 @@ class ContextExpander:
         search_index,
         include_parent: bool = True,
         include_siblings: bool = True,
-        max_siblings: int = 1
+        max_siblings: int = 1,
     ):
         """
         Initialize context expander.
@@ -114,17 +115,15 @@ class ContextExpander:
                 return False
 
             index = index_client.get_index(index_name)
-            for field in index.fields:
-                if field.name == "chunk_index":
-                    return bool(getattr(field, "filterable", False))
+            for idx_field in index.fields:
+                if idx_field.name == "chunk_index":
+                    return bool(getattr(idx_field, "filterable", False))
         except Exception as e:
             logger.warning(f"Unable to inspect chunk_index filter capability: {e}")
         return False
 
     async def expand_context(
-        self,
-        reranked: List[RerankResult],
-        top_n: int = 3
+        self, reranked: List[RerankResult], top_n: int = 3
     ) -> List[ExpandedContext]:
         """
         Expand context for top N reranked results.
@@ -141,19 +140,19 @@ class ContextExpander:
         Returns:
             List of ExpandedContext with merged content
         """
+        import asyncio
+
         if not reranked:
             return []
 
         # Only expand top N results to control context size
         to_expand = reranked[:top_n]
 
-        # Build expanded contexts
-        expanded_results = []
+        # Build expanded contexts in parallel (fixes N+1 sequential query pattern)
         seen_content: Set[str] = set()  # Deduplicate content
-
-        for rr in to_expand:
-            expanded = await self._expand_single_result(rr, seen_content)
-            expanded_results.append(expanded)
+        expanded_results = await asyncio.gather(
+            *(self._expand_single_result(rr, seen_content) for rr in to_expand)
+        )
 
         # Log expansion statistics
         total_original = sum(len(e.original.content) for e in expanded_results)
@@ -171,9 +170,7 @@ class ContextExpander:
         return expanded_results
 
     async def _expand_single_result(
-        self,
-        rr: RerankResult,
-        seen_content: Set[str]
+        self, rr: RerankResult, seen_content: Set[str]
     ) -> ExpandedContext:
         """
         Expand a single reranked result with sibling context.
@@ -196,9 +193,15 @@ class ContextExpander:
         current_chunk_index = None
         if self.include_siblings and self.max_siblings > 0:
             # Step 1: Find current chunk's index by searching for matching content
-            current_chunk_index = await self._find_chunk_index(rr.source_file, rr.content)
+            current_chunk_index = await self._find_chunk_index(
+                rr.source_file, rr.content
+            )
 
-        if current_chunk_index is not None and self.include_siblings and self.max_siblings > 0:
+        if (
+            current_chunk_index is not None
+            and self.include_siblings
+            and self.max_siblings > 0
+        ):
             # Step 2: Fetch previous sibling(s)
             for offset in range(self.max_siblings, 0, -1):
                 prev_index = current_chunk_index - offset
@@ -207,10 +210,16 @@ class ContextExpander:
                         rr.source_file, prev_index, rr.title
                     )
                     if prev_chunk:
-                        sib_hash = hash(prev_chunk["content"][:100]) if prev_chunk.get("content") else 0
+                        sib_hash = (
+                            hash(prev_chunk["content"][:100])
+                            if prev_chunk.get("content")
+                            else 0
+                        )
                         if sib_hash not in seen_content:
                             context_parts.append(prev_chunk["content"])
-                            context_chain.append(f"sibling_before[idx={prev_index}]:{prev_chunk.get('section', 'N/A')}")
+                            context_chain.append(
+                                f"sibling_before[idx={prev_index}]:{prev_chunk.get('section', 'N/A')}"
+                            )
                             seen_content.add(sib_hash)
                             siblings_included += 1
 
@@ -218,7 +227,11 @@ class ContextExpander:
         context_parts.append(rr.content)
         context_chain.append(f"original[idx={current_chunk_index}]:{rr.section}")
 
-        if current_chunk_index is not None and self.include_siblings and self.max_siblings > 0:
+        if (
+            current_chunk_index is not None
+            and self.include_siblings
+            and self.max_siblings > 0
+        ):
             # Step 4: Fetch next sibling(s)
             for offset in range(1, self.max_siblings + 1):
                 next_index = current_chunk_index + offset
@@ -226,10 +239,16 @@ class ContextExpander:
                     rr.source_file, next_index, rr.title
                 )
                 if next_chunk:
-                    sib_hash = hash(next_chunk["content"][:100]) if next_chunk.get("content") else 0
+                    sib_hash = (
+                        hash(next_chunk["content"][:100])
+                        if next_chunk.get("content")
+                        else 0
+                    )
                     if sib_hash not in seen_content:
                         context_parts.append(next_chunk["content"])
-                        context_chain.append(f"sibling_after[idx={next_index}]:{next_chunk.get('section', 'N/A')}")
+                        context_chain.append(
+                            f"sibling_after[idx={next_index}]:{next_chunk.get('section', 'N/A')}"
+                        )
                         seen_content.add(sib_hash)
                         siblings_included += 1
 
@@ -244,14 +263,10 @@ class ContextExpander:
             expanded_content=expanded_content,
             context_chain=context_chain,
             parent_included=False,
-            siblings_included=siblings_included
+            siblings_included=siblings_included,
         )
 
-    async def _find_chunk_index(
-        self,
-        source_file: str,
-        content: str
-    ) -> Optional[int]:
+    async def _find_chunk_index(self, source_file: str, content: str) -> Optional[int]:
         """
         Find the chunk_index for a chunk by matching content.
 
@@ -266,6 +281,8 @@ class ContextExpander:
             return None
 
         try:
+            import asyncio
+
             # Search for chunks from this document
             safe_source = escape_odata_string(source_file)
             filter_expr = f"source_file eq '{safe_source}'"
@@ -273,11 +290,13 @@ class ContextExpander:
             # Use a content prefix for matching (first 200 chars to avoid edge cases)
             content_prefix = content[:200].strip()
 
-            results = self.search_index.search_client.search(
+            # Wrap sync Azure Search call in thread to avoid blocking event loop
+            results = await asyncio.to_thread(
+                self.search_index.search_client.search,
                 search_text=content_prefix,
                 filter=filter_expr,
                 select=["chunk_index", "content"],
-                top=10  # Get a few candidates
+                top=10,  # Get a few candidates
             )
 
             for result in results:
@@ -286,7 +305,9 @@ class ContextExpander:
                 if result_content and result_content[:200].strip() == content_prefix:
                     chunk_index = result.get("chunk_index")
                     if chunk_index is not None:
-                        logger.debug(f"Found chunk_index={chunk_index} for {source_file}")
+                        logger.debug(
+                            f"Found chunk_index={chunk_index} for {source_file}"
+                        )
                         return chunk_index
 
             logger.debug(f"Could not find chunk_index for {source_file}")
@@ -297,10 +318,7 @@ class ContextExpander:
             return None
 
     async def _fetch_chunk_by_index(
-        self,
-        source_file: str,
-        chunk_index: int,
-        expected_title: str
+        self, source_file: str, chunk_index: int, expected_title: str
     ) -> Optional[Dict]:
         """
         Fetch a specific chunk by source_file and chunk_index.
@@ -317,14 +335,20 @@ class ContextExpander:
             return None
 
         try:
-            safe_source = escape_odata_string(source_file)
-            filter_expr = f"source_file eq '{safe_source}' and chunk_index eq {int(chunk_index)}"
+            import asyncio
 
-            results = self.search_index.search_client.search(
+            safe_source = escape_odata_string(source_file)
+            filter_expr = (
+                f"source_file eq '{safe_source}' and chunk_index eq {int(chunk_index)}"
+            )
+
+            # Wrap sync Azure Search call in thread to avoid blocking event loop
+            results = await asyncio.to_thread(
+                self.search_index.search_client.search,
                 search_text="*",
                 filter=filter_expr,
                 select=["content", "section", "title", "chunk_index"],
-                top=1
+                top=1,
             )
 
             for result in results:
@@ -333,19 +357,20 @@ class ContextExpander:
                     return {
                         "content": result.get("content", ""),
                         "section": result.get("section", ""),
-                        "chunk_index": result.get("chunk_index", 0)
+                        "chunk_index": result.get("chunk_index", 0),
                     }
 
             return None
 
         except Exception as e:
-            logger.warning(f"Failed to fetch chunk at index {chunk_index} for {source_file}: {e}")
+            logger.warning(
+                f"Failed to fetch chunk at index {chunk_index} for {source_file}: {e}"
+            )
             return None
 
 
 def build_expanded_rag_context(
-    expanded_contexts: List[ExpandedContext],
-    max_chunks: int = 5
+    expanded_contexts: List[ExpandedContext], max_chunks: int = 5
 ) -> str:
     """
     Build RAG context string from expanded contexts.
@@ -377,7 +402,8 @@ def build_expanded_rag_context(
                 expansions.append(f"{ctx.siblings_included} siblings")
             expansion_note = f" [Expanded: {', '.join(expansions)}]"
 
-        context_parts.append(f"""
+        context_parts.append(
+            f"""
 ═══════════════════════════════════════════════════════════════
  POLICY CHUNK {i} (Relevance: {rr.cohere_score:.2f}){expansion_note}
 ═══════════════════════════════════════════════════════════════
@@ -390,6 +416,7 @@ def build_expanded_rag_context(
 └────────────────────────────────────────────────────────────┘
 
 {ctx.content_for_rag}
-""")
+"""
+        )
 
     return "\n".join(context_parts)

@@ -18,11 +18,11 @@ Usage:
     )
 """
 
-import os
 import logging
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict, field
+import os
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -35,7 +35,9 @@ load_dotenv(env_path)
 # ============================================================================
 # Increase timeout for DeepEval metrics to avoid timeouts during LLM evaluation
 # Default is 60 seconds, but Azure OpenAI can take longer for complex evaluations
-os.environ.setdefault("DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "240")  # 4 minutes per attempt
+os.environ.setdefault(
+    "DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "240"
+)  # 4 minutes per attempt
 os.environ.setdefault("DEEPEVAL_TIMEOUT_SECONDS", "600")  # 10 minutes total
 os.environ.setdefault("DEEPEVAL_MAX_RETRIES", "3")  # Retry up to 3 times
 
@@ -45,6 +47,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DeepEvalResult:
     """Result from DeepEval evaluation."""
+
     query: str
     response: str
     faithfulness: float
@@ -86,11 +89,11 @@ class DeepEvalMetrics:
 
     # Weights for overall score
     WEIGHTS = {
-        "faithfulness": 0.30,           # Most important - no hallucinations
-        "policy_citation": 0.25,        # Citations required for compliance
-        "answer_relevancy": 0.20,       # Must address the question
-        "context_precision": 0.15,      # Retrieval quality
-        "procedural_completeness": 0.10 # Complete procedures
+        "faithfulness": 0.30,  # Most important - no hallucinations
+        "policy_citation": 0.25,  # Citations required for compliance
+        "answer_relevancy": 0.20,  # Must address the question
+        "context_precision": 0.15,  # Retrieval quality
+        "procedural_completeness": 0.10,  # Complete procedures
     }
 
     def __init__(
@@ -112,8 +115,7 @@ class DeepEvalMetrics:
         # Use gpt-4.1-mini for evaluation (faster, cheaper, avoids token limits)
         # Falls back to AOAI_CHAT_DEPLOYMENT if AOAI_EVAL_DEPLOYMENT not set
         self.deployment_name = deployment_name or os.getenv(
-            "AOAI_EVAL_DEPLOYMENT",
-            os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini")
+            "AOAI_EVAL_DEPLOYMENT", os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4.1-mini")
         )
 
         self._metrics_initialized = False
@@ -127,11 +129,17 @@ class DeepEvalMetrics:
 
         try:
             from deepeval.metrics import (
-                FaithfulnessMetric,
-                AnswerRelevancyMetric,
-                ContextualRelevancyMetric,  # Works without expected_output
                 ContextualPrecisionMetric,  # Requires expected_output
-                ContextualRecallMetric,     # Requires expected_output
+            )
+            from deepeval.metrics import (
+                ContextualRecallMetric,  # Requires expected_output
+            )
+            from deepeval.metrics import (
+                ContextualRelevancyMetric,  # Works without expected_output
+            )
+            from deepeval.metrics import (
+                AnswerRelevancyMetric,
+                FaithfulnessMetric,
                 GEval,
             )
             from deepeval.models import AzureOpenAIModel
@@ -152,20 +160,20 @@ class DeepEvalMetrics:
             self._faithfulness = FaithfulnessMetric(
                 threshold=self.FAITHFULNESS_THRESHOLD,
                 model=self._azure_model,
-                include_reason=True
+                include_reason=True,
             )
 
             self._answer_relevancy = AnswerRelevancyMetric(
                 threshold=self.ANSWER_RELEVANCY_THRESHOLD,
                 model=self._azure_model,
-                include_reason=True
+                include_reason=True,
             )
 
             # ContextualRelevancyMetric works without expected_output
             self._context_relevancy = ContextualRelevancyMetric(
                 threshold=self.CONTEXT_PRECISION_THRESHOLD,
                 model=self._azure_model,
-                include_reason=True
+                include_reason=True,
             )
 
             # ContextualPrecisionMetric and ContextualRecallMetric require expected_output
@@ -173,12 +181,12 @@ class DeepEvalMetrics:
             self._context_precision_with_expected = ContextualPrecisionMetric(
                 threshold=self.CONTEXT_PRECISION_THRESHOLD,
                 model=self._azure_model,
-                include_reason=True
+                include_reason=True,
             )
             self._context_recall = ContextualRecallMetric(
                 threshold=0.70,  # Context recall threshold
                 model=self._azure_model,
-                include_reason=True
+                include_reason=True,
             )
 
             # Custom metric: Policy Citation Accuracy
@@ -204,7 +212,7 @@ class DeepEvalMetrics:
                     LLMTestCaseParams.RETRIEVAL_CONTEXT,
                 ],
                 model=self._azure_model,
-                threshold=self.POLICY_CITATION_THRESHOLD
+                threshold=self.POLICY_CITATION_THRESHOLD,
             )
 
             # Custom metric: Procedural Completeness
@@ -228,7 +236,7 @@ class DeepEvalMetrics:
                     LLMTestCaseParams.RETRIEVAL_CONTEXT,
                 ],
                 model=self._azure_model,
-                threshold=self.PROCEDURAL_COMPLETENESS_THRESHOLD
+                threshold=self.PROCEDURAL_COMPLETENESS_THRESHOLD,
             )
 
             # Core metrics (work without expected_output)
@@ -274,7 +282,7 @@ class DeepEvalMetrics:
         for chunk in context:
             # Truncate individual chunk
             if len(chunk) > self.MAX_CONTEXT_CHARS:
-                chunk = chunk[:self.MAX_CONTEXT_CHARS] + "..."
+                chunk = chunk[: self.MAX_CONTEXT_CHARS] + "..."
 
             # Check total limit
             if total_chars + len(chunk) > self.MAX_TOTAL_CONTEXT_CHARS:
@@ -346,12 +354,20 @@ class DeepEvalMetrics:
                 metric_details[name] = {
                     "score": scores[name],
                     "threshold": metric.threshold,
-                    "passed": metric.is_successful() if hasattr(metric, 'is_successful') else scores[name] >= metric.threshold,
-                    "reason": metric.reason if hasattr(metric, 'reason') else None
+                    "passed": (
+                        metric.is_successful()
+                        if hasattr(metric, "is_successful")
+                        else scores[name] >= metric.threshold
+                    ),
+                    "reason": metric.reason if hasattr(metric, "reason") else None,
                 }
 
                 if scores[name] < metric.threshold:
-                    reason = metric.reason if hasattr(metric, 'reason') and metric.reason else f"{name} below threshold"
+                    reason = (
+                        metric.reason
+                        if hasattr(metric, "reason") and metric.reason
+                        else f"{name} below threshold"
+                    )
                     failure_reasons.append(f"{name}: {reason}")
 
             except Exception as e:
@@ -362,14 +378,18 @@ class DeepEvalMetrics:
                 if "length limit was reached" in error_msg:
                     # Model hit token limit - this can happen with complex faithfulness evaluation
                     # Log as warning but don't treat as complete failure
-                    logger.warning(f"Metric {name} hit token limit - evaluation inconclusive")
+                    logger.warning(
+                        f"Metric {name} hit token limit - evaluation inconclusive"
+                    )
                     scores[name] = 0.5  # Inconclusive score
                     metric_details[name] = {
                         "score": 0.5,
                         "error": "token_limit_reached",
-                        "note": "Evaluation inconclusive due to model token limit. Manual review recommended."
+                        "note": "Evaluation inconclusive due to model token limit. Manual review recommended.",
                     }
-                    failure_reasons.append(f"{name}: evaluation inconclusive (token limit)")
+                    failure_reasons.append(
+                        f"{name}: evaluation inconclusive (token limit)"
+                    )
                 else:
                     scores[name] = 0.0
                     metric_details[name] = {"error": error_msg}
@@ -377,15 +397,19 @@ class DeepEvalMetrics:
 
         # Calculate weighted overall score
         overall_score = sum(
-            self.WEIGHTS.get(name, 0) * score
-            for name, score in scores.items()
+            self.WEIGHTS.get(name, 0) * score for name, score in scores.items()
         )
 
         # Determine pass/fail based on all thresholds
         passed = all(
             scores.get(name, 0) >= getattr(self, f"{name.upper()}_THRESHOLD", 0.7)
-            for name in ["faithfulness", "answer_relevancy", "context_precision",
-                        "policy_citation", "procedural_completeness"]
+            for name in [
+                "faithfulness",
+                "answer_relevancy",
+                "context_precision",
+                "policy_citation",
+                "procedural_completeness",
+            ]
         )
 
         return DeepEvalResult(
@@ -400,7 +424,11 @@ class DeepEvalMetrics:
             passed=passed,
             failure_reasons=failure_reasons,
             metric_details=metric_details,
-            context_recall=round(scores.get("context_recall", 0), 3) if "context_recall" in scores else None,
+            context_recall=(
+                round(scores.get("context_recall", 0), 3)
+                if "context_recall" in scores
+                else None
+            ),
         )
 
     def evaluate_batch(
@@ -442,18 +470,25 @@ class DeepEvalMetrics:
             "answer_relevancy": sum(r.answer_relevancy for r in results) / total,
             "context_precision": sum(r.context_precision for r in results) / total,
             "policy_citation": sum(r.policy_citation for r in results) / total,
-            "procedural_completeness": sum(r.procedural_completeness for r in results) / total,
+            "procedural_completeness": sum(r.procedural_completeness for r in results)
+            / total,
             "overall": sum(r.overall_score for r in results) / total,
         }
 
         # Add context_recall if available (when expected_output was provided)
-        recall_values = [r.context_recall for r in results if r.context_recall is not None]
+        recall_values = [
+            r.context_recall for r in results if r.context_recall is not None
+        ]
         if recall_values:
             avg_scores["context_recall"] = sum(recall_values) / len(recall_values)
 
         # Identify problem areas
-        low_faithfulness = [r for r in results if r.faithfulness < self.FAITHFULNESS_THRESHOLD]
-        low_citation = [r for r in results if r.policy_citation < self.POLICY_CITATION_THRESHOLD]
+        low_faithfulness = [
+            r for r in results if r.faithfulness < self.FAITHFULNESS_THRESHOLD
+        ]
+        low_citation = [
+            r for r in results if r.policy_citation < self.POLICY_CITATION_THRESHOLD
+        ]
 
         return {
             "summary": {
@@ -477,9 +512,13 @@ class DeepEvalMetrics:
             },
             "failed_cases": [r.to_dict() for r in results if not r.passed][:10],
             "hallucination_risk_cases": [
-                {"query": r.query, "faithfulness": r.faithfulness, "reasons": r.failure_reasons}
+                {
+                    "query": r.query,
+                    "faithfulness": r.faithfulness,
+                    "reasons": r.failure_reasons,
+                }
                 for r in low_faithfulness[:5]
-            ]
+            ],
         }
 
 
@@ -534,27 +573,27 @@ RUSH_POLICY_METRICS = {
     "faithfulness": {
         "threshold": DeepEvalMetrics.FAITHFULNESS_THRESHOLD,
         "weight": DeepEvalMetrics.WEIGHTS["faithfulness"],
-        "description": "Claims in response must be supported by retrieved context"
+        "description": "Claims in response must be supported by retrieved context",
     },
     "answer_relevancy": {
         "threshold": DeepEvalMetrics.ANSWER_RELEVANCY_THRESHOLD,
         "weight": DeepEvalMetrics.WEIGHTS["answer_relevancy"],
-        "description": "Response must address the user's question"
+        "description": "Response must address the user's question",
     },
     "context_precision": {
         "threshold": DeepEvalMetrics.CONTEXT_PRECISION_THRESHOLD,
         "weight": DeepEvalMetrics.WEIGHTS["context_precision"],
-        "description": "Relevant chunks should be ranked higher in retrieval (threshold calibrated for healthcare RAG with lost-in-middle mitigation)"
+        "description": "Relevant chunks should be ranked higher in retrieval (threshold calibrated for healthcare RAG with lost-in-middle mitigation)",
     },
     "policy_citation": {
         "threshold": DeepEvalMetrics.POLICY_CITATION_THRESHOLD,
         "weight": DeepEvalMetrics.WEIGHTS["policy_citation"],
-        "description": "All factual claims must cite specific policy names/numbers"
+        "description": "All factual claims must cite specific policy names/numbers",
     },
     "procedural_completeness": {
         "threshold": DeepEvalMetrics.PROCEDURAL_COMPLETENESS_THRESHOLD,
         "weight": DeepEvalMetrics.WEIGHTS["procedural_completeness"],
-        "description": "Procedures must include all required steps from source"
+        "description": "Procedures must include all required steps from source",
     },
 }
 
@@ -568,9 +607,9 @@ if __name__ == "__main__":
         response="According to RUSH Policy RU-123, Code Blue is activated when...",
         context=[
             "Policy RU-123: Code Blue Protocol. When a patient experiences cardiac arrest...",
-            "The Code Blue team consists of..."
+            "The Code Blue team consists of...",
         ],
-        expected_output="Code Blue is activated for cardiac arrest situations."
+        expected_output="Code Blue is activated for cardiac arrest situations.",
     )
 
     print(json.dumps(result.to_dict(), indent=2))

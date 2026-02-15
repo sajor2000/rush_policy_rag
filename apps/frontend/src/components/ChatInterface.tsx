@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Sparkles, Loader2, Search, HelpCircle, X, ExternalLink } from "lucide-react";
@@ -10,7 +10,6 @@ import ErrorMessage from "./ErrorMessage";
 import PDFViewer from "./PDFViewer";
 import InstanceSearchModal from "./InstanceSearchModal";
 import {
-  sendMessage,
   sendMessageStream,
   searchInstances,
   type Source,
@@ -19,6 +18,7 @@ import {
 import { POLICYTECH_URL, MAX_DEEP_SEARCH_RESULTS } from "@/lib/constants";
 
 interface Message {
+  id: string;
   role: "user" | "assistant";
   content: string;
   summary?: string;
@@ -34,6 +34,11 @@ interface Message {
   };
 }
 
+let nextMessageId = 0;
+function generateMessageId(): string {
+  return `msg-${Date.now()}-${nextMessageId++}`;
+}
+
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -43,6 +48,23 @@ export default function ChatInterface() {
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Helper: update the last assistant message to avoid duplicated updater pattern (#21)
+  const updateLastAssistant = useCallback(
+    (updater: (msg: Message) => Message) => {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === "assistant") {
+          const updated = [...prev];
+          updated[updated.length - 1] = updater(last);
+          return updated;
+        }
+        return prev;
+      });
+    },
+    []
+  );
 
   // PDF Viewer state
   const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
@@ -86,6 +108,13 @@ export default function ChatInterface() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // Abort in-flight stream on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Shared helper function to fetch and display PDF
   const fetchAndDisplayPdf = async (
@@ -167,6 +196,7 @@ export default function ChatInterface() {
     setIsLoading(true);
     setError(null);
     setMessages((prev) => [...prev, {
+      id: generateMessageId(),
       role: "user",
       content: `[Deep Search in Ref #${deepSearchPolicyRef}] ${searchTerm}`
     }]);
@@ -203,6 +233,7 @@ export default function ChatInterface() {
       } : undefined;
 
       setMessages((prev) => [...prev, {
+        id: generateMessageId(),
         role: "assistant",
         content: responseContent,
         found: result.total_instances > 0,
@@ -254,104 +285,80 @@ export default function ChatInterface() {
     }
 
     // Normal Q&A mode — streaming for real-time progress
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    const placeholderId = generateMessageId();
+    setMessages((prev) => [
+      ...prev,
+      { id: generateMessageId(), role: "user", content: userMessage },
+      { id: placeholderId, role: "assistant", content: "", found: undefined },
+    ]);
     setIsLoading(true);
     setIsStreaming(true);
     setStreamingStatus(undefined);
 
-    // Add placeholder assistant message that will be progressively filled
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", content: "", found: undefined },
-    ]);
+    // Create AbortController for cancellation on unmount (#5)
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
-    await sendMessageStream(userMessage, {
-      onStatus: (message) => {
-        setStreamingStatus(message);
-      },
-      onAnswerChunk: (content) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: last.content + content };
-          }
-          return updated;
-        });
-      },
-      onEvidence: (items) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, evidence: items };
-          }
-          return updated;
-        });
-      },
-      onSources: (items) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, sources: items };
-          }
-          return updated;
-        });
-      },
-      onMetadata: (data) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === "assistant") {
-            updated[updated.length - 1] = {
-              ...last,
-              found: data.found !== undefined ? data.found : (last.evidence?.length ?? 0) > 0,
-            };
-          }
-          return updated;
-        });
-      },
-      onClarification: (data) => {
-        // Remove the empty placeholder message
-        setMessages((prev) => prev.slice(0, -1));
-        setShowClarification({
-          ...data,
-          originalQuery: userMessage,
-        });
-        setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingStatus(undefined);
-      },
-      onDone: () => {
-        // Set summary = content for the completed message
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, summary: last.content };
-          }
-          return updated;
-        });
-        setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingStatus(undefined);
-      },
-      onError: (err) => {
-        // Remove the empty placeholder message if no content was streamed
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last.role === "assistant" && !last.content) {
-            return prev.slice(0, -1);
-          }
-          return prev;
-        });
-        setError(err.message);
-        setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingStatus(undefined);
-      },
-    });
+    // Accumulate chunks in array to avoid O(n^2) string concat (#28)
+    const chunks: string[] = [];
+
+    try {
+      await sendMessageStream(userMessage, {
+        onStatus: (message) => {
+          setStreamingStatus(message);
+        },
+        onAnswerChunk: (content) => {
+          chunks.push(content);
+          const joined = chunks.join("");
+          updateLastAssistant((msg) => ({ ...msg, content: joined }));
+        },
+        onEvidence: (items) => {
+          updateLastAssistant((msg) => ({ ...msg, evidence: items }));
+        },
+        onSources: (items) => {
+          updateLastAssistant((msg) => ({ ...msg, sources: items }));
+        },
+        onMetadata: (data) => {
+          updateLastAssistant((msg) => ({
+            ...msg,
+            found: data.found !== undefined ? data.found : (msg.evidence?.length ?? 0) > 0,
+          }));
+        },
+        onClarification: (data) => {
+          // Remove the placeholder only if it's the last message and is assistant (#14)
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && last.id === placeholderId) {
+              return prev.slice(0, -1);
+            }
+            return prev;
+          });
+          setShowClarification({
+            ...data,
+            originalQuery: userMessage,
+          });
+        },
+        onDone: () => {
+          updateLastAssistant((msg) => ({ ...msg, summary: msg.content }));
+        },
+        onError: (err) => {
+          // Remove the placeholder only if no content was streamed
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && !last.content) {
+              return prev.slice(0, -1);
+            }
+            return prev;
+          });
+          setError(err.message);
+        },
+      }, controller.signal);
+    } finally {
+      abortControllerRef.current = null;
+      setIsLoading(false);
+      setIsStreaming(false);
+      setStreamingStatus(undefined);
+    }
   };
 
   const handleRetry = () => {
@@ -373,36 +380,67 @@ export default function ChatInterface() {
     // Clear clarification prompt
     setShowClarification(null);
     setIsLoading(true);
+    setIsStreaming(true);
+    setStreamingStatus(undefined);
+
+    // Add placeholder for streaming response
+    const placeholderId = generateMessageId();
+    setMessages((prev) => [
+      ...prev,
+      { id: placeholderId, role: "assistant", content: "", found: undefined },
+    ]);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const chunks: string[] = [];
 
     try {
-      const result = await sendMessage(refinedQuery);
-
-      // Should not need clarification after refinement, but check anyway
-      if (result.confidence === "clarification_needed" && result.clarification) {
-        setShowClarification({
-          ...result.clarification,
-          originalQuery: refinedQuery
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      setMessages((prev) => [...prev, {
-        role: "assistant",
-        content: result.summary || result.response,
-        summary: result.summary || result.response,
-        evidence: result.evidence || [],
-        sources: result.sources || [],
-        rawResponse: result.raw_response,
-        found: result.found !== undefined ? result.found : (result.evidence?.length ?? 0) > 0
-      }]);
+      await sendMessageStream(refinedQuery, {
+        onStatus: (message) => setStreamingStatus(message),
+        onAnswerChunk: (content) => {
+          chunks.push(content);
+          updateLastAssistant((msg) => ({ ...msg, content: chunks.join("") }));
+        },
+        onEvidence: (items) => updateLastAssistant((msg) => ({ ...msg, evidence: items })),
+        onSources: (items) => updateLastAssistant((msg) => ({ ...msg, sources: items })),
+        onMetadata: (data) => {
+          updateLastAssistant((msg) => ({
+            ...msg,
+            found: data.found !== undefined ? data.found : (msg.evidence?.length ?? 0) > 0,
+          }));
+        },
+        onClarification: (data) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && last.id === placeholderId) {
+              return prev.slice(0, -1);
+            }
+            return prev;
+          });
+          setShowClarification({ ...data, originalQuery: refinedQuery });
+        },
+        onDone: () => updateLastAssistant((msg) => ({ ...msg, summary: msg.content })),
+        onError: (err) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && !last.content) {
+              return prev.slice(0, -1);
+            }
+            return prev;
+          });
+          setError(err.message);
+        },
+      }, controller.signal);
     } catch (err) {
       if (process.env.NODE_ENV === 'development') {
         console.error("Clarification refinement error:", err);
       }
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
+      abortControllerRef.current = null;
       setIsLoading(false);
+      setIsStreaming(false);
+      setStreamingStatus(undefined);
     }
   };
 
@@ -438,9 +476,9 @@ export default function ChatInterface() {
             aria-live="polite"
             aria-label="Chat messages"
           >
-            {messages.map((message, index) => (
+            {messages.map((message) => (
               <ChatMessage
-                key={index}
+                key={message.id}
                 role={message.role}
                 content={message.content}
                 summary={message.summary}

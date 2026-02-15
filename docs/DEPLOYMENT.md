@@ -573,6 +573,50 @@ az containerapp show \
 2. Check SEARCH_API_KEY is correct
 3. Test directly: `https://<search>.search.windows.net/indexes/rush-policies-active/docs?api-version=2023-11-01&search=*`
 
+### Frontend ACR Build Fails: "failed to download context"
+
+`az acr build` packs the build context using `.gitignore` rules, **not** `.dockerignore`. The `.next/` build cache (~116MB) is not in `.gitignore`, so it gets uploaded alongside `node_modules/` remnants, inflating the context to 200-300MB and causing ACR to fail with:
+
+```
+Run ID: xxx failed after 23s. Error: failed to download context.
+```
+
+**Fix — use a clean temp directory:**
+
+```bash
+TAG=$(git rev-parse --short HEAD)
+
+# 1. Create a clean context (excludes node_modules, .next, etc.)
+mkdir -p /tmp/frontend-build && rm -rf /tmp/frontend-build/*
+tar -czf /tmp/frontend-context.tar.gz \
+  --exclude='node_modules' --exclude='.next' --exclude='out' \
+  --exclude='.git' --exclude='__tests__' --exclude='coverage' \
+  --exclude='.env' --exclude='.env.*' --exclude='*.log' \
+  --exclude='.turbo' -C apps/frontend .
+tar -xzf /tmp/frontend-context.tar.gz -C /tmp/frontend-build
+
+# 2. Build from the clean directory (~500KB instead of 300MB)
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-frontend:$TAG \
+  --file Dockerfile /tmp/frontend-build
+
+# 3. Deploy
+az containerapp update -n rush-policy-frontend \
+  -g RU-A-NonProd-AI-Innovation-RG \
+  --image aiinnovation.azurecr.io/rush-policy-frontend:$TAG
+```
+
+**Alternative**: delete `.next/` before building (simpler but removes your local dev cache):
+
+```bash
+rm -rf apps/frontend/.next
+az acr build --registry aiinnovation --platform linux/amd64 \
+  --image rush-policy-frontend:$TAG \
+  --file apps/frontend/Dockerfile apps/frontend
+```
+
+> **Note**: The backend build also uploads a large context (~450MB from `venv/`) but usually succeeds because ACR tolerates it. If it also fails, apply the same temp directory approach for `apps/backend` excluding `venv/`, `__pycache__/`, and `.pytest_cache/`.
+
 ### Chat Returns 500 Error
 
 1. Check Azure OpenAI credentials

@@ -6,16 +6,17 @@ Provides multi-layer in-memory caching to reduce latency while maintaining accur
 - Layer 2: Response cache (TTL 24h, ~1000 entries, ~20MB)
 - Layer 3: Search results cache (TTL 6h, ~500 entries, ~25MB)
 
-Thread-safe for async FastAPI using threading.Lock.
+Thread-safe using threading.Lock (appropriate for fast in-memory dict ops;
+asyncio.Lock is unnecessary since operations are sub-millisecond CPU-bound).
 Total memory budget: ~50MB
 """
 
 import hashlib
-import threading
 import logging
-from typing import Optional, Dict, Any, Tuple, List
-from dataclasses import dataclass, field
+import threading
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from cachetools import LRUCache, TTLCache
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CacheStats:
     """Cache statistics for monitoring."""
+
     hits: int = 0
     misses: int = 0
 
@@ -42,12 +44,37 @@ class QueryNormalizer:
     """Normalize queries for cache key generation."""
 
     # Common words to ignore for similarity matching
-    STOP_WORDS = frozenset([
-        'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
-        'what', 'how', 'when', 'where', 'who', 'which', 'why',
-        'do', 'does', 'did', 'can', 'could', 'should', 'would',
-        'policy', 'policies', 'procedure', 'procedures'
-    ])
+    STOP_WORDS = frozenset(
+        [
+            "a",
+            "an",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "what",
+            "how",
+            "when",
+            "where",
+            "who",
+            "which",
+            "why",
+            "do",
+            "does",
+            "did",
+            "can",
+            "could",
+            "should",
+            "would",
+            "policy",
+            "policies",
+            "procedure",
+            "procedures",
+        ]
+    )
 
     @staticmethod
     def normalize(query: str) -> str:
@@ -66,23 +93,22 @@ class QueryNormalizer:
 
         # Basic normalization
         normalized = query.lower().strip()
-        normalized = ' '.join(normalized.split())  # Collapse whitespace
+        normalized = " ".join(normalized.split())  # Collapse whitespace
 
         # Remove possessives
         normalized = normalized.replace("'s", "").replace("'", "")
 
         # Remove punctuation except hyphens (preserve compound terms)
-        normalized = ''.join(
-            c if c.isalnum() or c in (' ', '-') else ' '
-            for c in normalized
+        normalized = "".join(
+            c if c.isalnum() or c in (" ", "-") else " " for c in normalized
         )
-        normalized = ' '.join(normalized.split())  # Collapse again
+        normalized = " ".join(normalized.split())  # Collapse again
 
         # Sort words for permutation-invariant matching
         # "verbal orders policy" == "policy verbal orders"
         words = sorted(normalized.split())
 
-        return ' '.join(words)
+        return " ".join(words)
 
     @staticmethod
     def cache_key(query: str, filter_expr: Optional[str] = None) -> str:
@@ -99,11 +125,7 @@ class QueryNormalizer:
         return hashlib.md5(key_input.encode(), usedforsecurity=False).hexdigest()
 
     @staticmethod
-    def search_cache_key(
-        query: str,
-        filter_expr: Optional[str],
-        top_k: int
-    ) -> str:
+    def search_cache_key(query: str, filter_expr: Optional[str], top_k: int) -> str:
         """Generate cache key for search results."""
         # Don't normalize search query as much - preserve original intent
         key_input = f"{query.lower().strip()}|{filter_expr or ''}|{top_k}"
@@ -119,11 +141,11 @@ class CacheService:
     """
 
     # Default cache sizes (can be overridden via config)
-    DEFAULT_EXPANSION_CACHE_SIZE = 5000   # ~500KB
-    DEFAULT_RESPONSE_CACHE_SIZE = 1000    # ~20MB
-    DEFAULT_SEARCH_CACHE_SIZE = 500       # ~25MB
-    DEFAULT_RESPONSE_TTL = 86400          # 24 hours
-    DEFAULT_SEARCH_TTL = 21600            # 6 hours
+    DEFAULT_EXPANSION_CACHE_SIZE = 5000  # ~500KB
+    DEFAULT_RESPONSE_CACHE_SIZE = 1000  # ~20MB
+    DEFAULT_SEARCH_CACHE_SIZE = 500  # ~25MB
+    DEFAULT_RESPONSE_TTL = 86400  # 24 hours
+    DEFAULT_SEARCH_TTL = 21600  # 6 hours
 
     def __init__(
         self,
@@ -132,7 +154,7 @@ class CacheService:
         search_cache_size: int = DEFAULT_SEARCH_CACHE_SIZE,
         response_ttl: int = DEFAULT_RESPONSE_TTL,
         search_ttl: int = DEFAULT_SEARCH_TTL,
-        enabled: bool = True
+        enabled: bool = True,
     ):
         self._enabled = enabled
 
@@ -143,16 +165,14 @@ class CacheService:
 
         # Layer 2: Full response cache (with TTL)
         self._response_cache: TTLCache = TTLCache(
-            maxsize=response_cache_size,
-            ttl=response_ttl
+            maxsize=response_cache_size, ttl=response_ttl
         )
         self._response_lock = threading.Lock()
         self._response_stats = CacheStats()
 
         # Layer 3: Search results cache (with TTL)
         self._search_cache: TTLCache = TTLCache(
-            maxsize=search_cache_size,
-            ttl=search_ttl
+            maxsize=search_cache_size, ttl=search_ttl
         )
         self._search_lock = threading.Lock()
         self._search_stats = CacheStats()
@@ -218,9 +238,7 @@ class CacheService:
     # =========================================================================
 
     def get_response(
-        self,
-        query: str,
-        filter_expr: Optional[str] = None
+        self, query: str, filter_expr: Optional[str] = None
     ) -> Optional[Any]:
         """
         Get cached full response.
@@ -237,16 +255,15 @@ class CacheService:
             result = self._response_cache.get(key)
             if result is not None:
                 self._response_stats.hits += 1
-                logger.info(f"Response cache HIT: {key[:16]}... (query: {query[:50]}...)")
+                logger.info(
+                    f"Response cache HIT: {key[:16]}... (query: {query[:50]}...)"
+                )
                 return result
             self._response_stats.misses += 1
             return None
 
     def set_response(
-        self,
-        query: str,
-        response: Any,
-        filter_expr: Optional[str] = None
+        self, query: str, response: Any, filter_expr: Optional[str] = None
     ) -> None:
         """Cache full response."""
         if not self._enabled:
@@ -267,18 +284,21 @@ class CacheService:
         - "Not found" responses
         - Clarification requests
         """
-        if not hasattr(response, 'found'):
+        if not hasattr(response, "found"):
             return False
 
         # Only cache if found=True and has evidence
         if not response.found:
             return False
 
-        if hasattr(response, 'evidence') and not response.evidence:
+        if hasattr(response, "evidence") and not response.evidence:
             return False
 
         # Don't cache clarification responses
-        if hasattr(response, 'confidence') and response.confidence == 'clarification_needed':
+        if (
+            hasattr(response, "confidence")
+            and response.confidence == "clarification_needed"
+        ):
             return False
 
         return True
@@ -288,10 +308,7 @@ class CacheService:
     # =========================================================================
 
     def get_search_results(
-        self,
-        expanded_query: str,
-        filter_expr: Optional[str] = None,
-        top_k: int = 100
+        self, expanded_query: str, filter_expr: Optional[str] = None, top_k: int = 100
     ) -> Optional[List[Any]]:
         """
         Get cached search results.
@@ -318,7 +335,7 @@ class CacheService:
         expanded_query: str,
         results: List[Any],
         filter_expr: Optional[str] = None,
-        top_k: int = 100
+        top_k: int = 100,
     ) -> None:
         """Cache search results."""
         if not self._enabled:
@@ -346,15 +363,15 @@ class CacheService:
         counts = {}
 
         with self._expansion_lock:
-            counts['expansion'] = len(self._expansion_cache)
+            counts["expansion"] = len(self._expansion_cache)
             self._expansion_cache.clear()
 
         with self._response_lock:
-            counts['response'] = len(self._response_cache)
+            counts["response"] = len(self._response_cache)
             self._response_cache.clear()
 
         with self._search_lock:
-            counts['search'] = len(self._search_cache)
+            counts["search"] = len(self._search_cache)
             self._search_cache.clear()
 
         self._cache_version = datetime.utcnow().isoformat()
@@ -425,7 +442,7 @@ class CacheService:
                 "hits": self._expansion_stats.hits,
                 "misses": self._expansion_stats.misses,
                 "hit_rate": f"{self._expansion_stats.hit_rate:.2%}",
-                "total_requests": self._expansion_stats.total_requests
+                "total_requests": self._expansion_stats.total_requests,
             },
             "response": {
                 "size": response_size,
@@ -434,7 +451,7 @@ class CacheService:
                 "hits": self._response_stats.hits,
                 "misses": self._response_stats.misses,
                 "hit_rate": f"{self._response_stats.hit_rate:.2%}",
-                "total_requests": self._response_stats.total_requests
+                "total_requests": self._response_stats.total_requests,
             },
             "search": {
                 "size": search_size,
@@ -443,9 +460,9 @@ class CacheService:
                 "hits": self._search_stats.hits,
                 "misses": self._search_stats.misses,
                 "hit_rate": f"{self._search_stats.hit_rate:.2%}",
-                "total_requests": self._search_stats.total_requests
+                "total_requests": self._search_stats.total_requests,
             },
-            "memory_estimate_mb": self._estimate_memory_mb()
+            "memory_estimate_mb": self._estimate_memory_mb(),
         }
 
     def _estimate_memory_mb(self) -> float:
@@ -485,7 +502,7 @@ def init_cache_service(
     search_cache_size: int = CacheService.DEFAULT_SEARCH_CACHE_SIZE,
     response_ttl: int = CacheService.DEFAULT_RESPONSE_TTL,
     search_ttl: int = CacheService.DEFAULT_SEARCH_TTL,
-    enabled: bool = True
+    enabled: bool = True,
 ) -> CacheService:
     """
     Initialize the global cache service with custom settings.
@@ -501,7 +518,7 @@ def init_cache_service(
             search_cache_size=search_cache_size,
             response_ttl=response_ttl,
             search_ttl=search_ttl,
-            enabled=enabled
+            enabled=enabled,
         )
         return _cache_service
 

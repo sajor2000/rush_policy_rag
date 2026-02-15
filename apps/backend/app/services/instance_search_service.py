@@ -16,17 +16,19 @@ This enables users to ask questions like:
 - "where does it discuss training requirements" (semantic)
 """
 
-import re
 import logging
+import re
 from typing import List, Optional
+
 from azure.search.documents import SearchClient
-from app.models.schemas import TermInstance, InstanceSearchResponse
+
+from app.models.schemas import InstanceSearchResponse, TermInstance
 from app.services.query_enhancer import detect_policy_number
 
 logger = logging.getLogger(__name__)
 
 CONTEXT_WINDOW = 100  # Characters before/after match to include
-SEMANTIC_TOP_K = 20   # Number of chunks to return for semantic search
+SEMANTIC_TOP_K = 20  # Number of chunks to return for semantic search
 
 
 class InstanceSearchService:
@@ -41,7 +43,7 @@ class InstanceSearchService:
         policy_ref: str,
         search_term: str,
         case_sensitive: bool = False,
-        semantic_search: bool = False
+        semantic_search: bool = False,
     ) -> InstanceSearchResponse:
         """
         Find instances or sections within a specific policy.
@@ -69,7 +71,7 @@ class InstanceSearchService:
                 search_term=search_term,
                 total_instances=0,
                 instances=[],
-                source_file=None
+                source_file=None,
             )
 
         # Get policy metadata from first chunk
@@ -107,13 +109,11 @@ class InstanceSearchService:
             search_term=search_term,
             total_instances=len(instances),
             instances=instances,
-            source_file=source_file
+            source_file=source_file,
         )
 
     def search_within_policy(
-        self,
-        policy_ref: str,
-        query: str
+        self, policy_ref: str, query: str
     ) -> InstanceSearchResponse:
         """
         Smart search that auto-detects whether to use exact or semantic search.
@@ -134,7 +134,18 @@ class InstanceSearchService:
         is_short_term = len(words) <= 2 and len(query) <= 30
 
         # Check if it's a question (semantic) or term lookup (exact)
-        question_words = {"what", "where", "how", "when", "why", "which", "does", "is", "are", "can"}
+        question_words = {
+            "what",
+            "where",
+            "how",
+            "when",
+            "why",
+            "which",
+            "does",
+            "is",
+            "are",
+            "can",
+        }
         starts_with_question = words[0].lower() in question_words if words else False
 
         use_semantic = not is_short_term or starts_with_question
@@ -148,7 +159,7 @@ class InstanceSearchService:
             policy_ref=policy_ref,
             search_term=query,
             case_sensitive=False,
-            semantic_search=use_semantic
+            semantic_search=use_semantic,
         )
 
     def _get_policy_chunks(self, policy_ref: str) -> List[dict]:
@@ -156,25 +167,30 @@ class InstanceSearchService:
         filter_expr = self._build_policy_scope_filter(policy_ref)
 
         # Use search with filter to get all chunks - filter is O(1) on indexed field
-        results = list(self.search_client.search(
-            search_text="*",
-            filter=filter_expr,
-            select=[
-                "id", "content", "title", "section",
-                "source_file", "reference_number", "policy_number", "chunk_index"
-            ],
-            top=1000,  # Get all chunks (most policies have <100 chunks)
-            order_by=["chunk_index asc"]
-        ))
+        results = list(
+            self.search_client.search(
+                search_text="*",
+                filter=filter_expr,
+                select=[
+                    "id",
+                    "content",
+                    "title",
+                    "section",
+                    "source_file",
+                    "reference_number",
+                    "policy_number",
+                    "chunk_index",
+                ],
+                top=1000,  # Get all chunks (most policies have <100 chunks)
+                order_by=["chunk_index asc"],
+            )
+        )
 
         logger.debug(f"Retrieved {len(results)} chunks for policy ref '{policy_ref}'")
         return results
 
     def _find_instances_in_chunk(
-        self,
-        chunk: dict,
-        search_term: str,
-        case_sensitive: bool
+        self, chunk: dict, search_term: str, case_sensitive: bool
     ) -> List[TermInstance]:
         """Find all instances of a term within a single chunk."""
         content = chunk.get("content", "")
@@ -186,7 +202,7 @@ class InstanceSearchService:
         flags = 0 if case_sensitive else re.IGNORECASE
         escaped_term = re.escape(search_term)
         # Match: employee, employees, employee's, etc.
-        pattern = rf'\b{escaped_term}(s|\'s|es|ed|ing)?\b'
+        pattern = rf"\b{escaped_term}(s|\'s|es|ed|ing)?\b"
 
         instances = []
         for match in re.finditer(pattern, content, flags):
@@ -220,16 +236,18 @@ class InstanceSearchService:
                 chunk_idx = chunk.get("chunk_index", 0)
                 page_num = max(1, (chunk_idx // 2) + 1)  # Rough estimate
 
-            instances.append(TermInstance(
-                page_number=page_num,
-                section=section_number,
-                section_title=section_title,
-                context=context,
-                position=match.start(),
-                chunk_id=chunk.get("id", ""),
-                highlight_start=highlight_start,
-                highlight_end=highlight_end
-            ))
+            instances.append(
+                TermInstance(
+                    page_number=page_num,
+                    section=section_number,
+                    section_title=section_title,
+                    context=context,
+                    position=match.start(),
+                    chunk_id=chunk.get("id", ""),
+                    highlight_start=highlight_start,
+                    highlight_end=highlight_end,
+                )
+            )
 
         return instances
 
@@ -244,18 +262,26 @@ class InstanceSearchService:
 
         # Use semantic hybrid search within the filtered policy
         # This combines keyword matching with Azure's semantic ranker
-        results = list(self.search_client.search(
-            search_text=query,
-            filter=filter_expr,
-            query_type="semantic",
-            semantic_configuration_name="default-semantic",
-            select=[
-                "id", "content", "title", "section",
-                "source_file", "reference_number", "policy_number", "chunk_index"
-            ],
-            top=SEMANTIC_TOP_K,
-            include_total_count=True
-        ))
+        results = list(
+            self.search_client.search(
+                search_text=query,
+                filter=filter_expr,
+                query_type="semantic",
+                semantic_configuration_name="default-semantic",
+                select=[
+                    "id",
+                    "content",
+                    "title",
+                    "section",
+                    "source_file",
+                    "reference_number",
+                    "policy_number",
+                    "chunk_index",
+                ],
+                top=SEMANTIC_TOP_K,
+                include_total_count=True,
+            )
+        )
 
         logger.debug(
             f"Semantic search in policy '{policy_ref}' for '{query}' "
@@ -329,7 +355,7 @@ class InstanceSearchService:
             position=0,  # Semantic matches don't have exact positions
             chunk_id=chunk.get("id", ""),
             highlight_start=highlight_start,
-            highlight_end=highlight_end
+            highlight_end=highlight_end,
         )
 
 
@@ -337,9 +363,13 @@ class InstanceSearchService:
 _instance_search_service: Optional[InstanceSearchService] = None
 
 
-def get_instance_search_service(search_client: SearchClient, embedding_function=None) -> InstanceSearchService:
+def get_instance_search_service(
+    search_client: SearchClient, embedding_function=None
+) -> InstanceSearchService:
     """Get or create the instance search service singleton."""
     global _instance_search_service
     if _instance_search_service is None:
-        _instance_search_service = InstanceSearchService(search_client, embedding_function)
+        _instance_search_service = InstanceSearchService(
+            search_client, embedding_function
+        )
     return _instance_search_service

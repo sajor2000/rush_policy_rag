@@ -24,15 +24,17 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient, ContentSettings
 
 from document_registry import (
-    ManifestManager,
     DocumentHasher,
     DocumentRecord,
     DocumentStatus,
+    ManifestManager,
     SyncResult,
 )
 
 
-def get_blob_service_client(connection_string: str | None, account_url: str | None) -> BlobServiceClient:
+def get_blob_service_client(
+    connection_string: str | None, account_url: str | None
+) -> BlobServiceClient:
     """
     Build a BlobServiceClient using either a connection string or DefaultAzureCredential.
 
@@ -44,7 +46,9 @@ def get_blob_service_client(connection_string: str | None, account_url: str | No
         return BlobServiceClient.from_connection_string(conn_str=connection_string)
 
     if not account_url:
-        raise ValueError("Either STORAGE_CONNECTION_STRING or STORAGE_ACCOUNT_URL must be provided.")
+        raise ValueError(
+            "Either STORAGE_CONNECTION_STRING or STORAGE_ACCOUNT_URL must be provided."
+        )
 
     credential = DefaultAzureCredential()
     return BlobServiceClient(account_url=account_url, credential=credential)
@@ -179,7 +183,7 @@ def upload_with_tracking(
     # Compare against manifest
     diff_result = diff_against_manifest(current_files, manifest_manager)
 
-    print(f"\nChanges detected:")
+    print("\nChanges detected:")
     print(f"  New:       {len(diff_result.added)}")
     print(f"  Updated:   {len(diff_result.updated)}")
     print(f"  Unchanged: {len(diff_result.unchanged)}")
@@ -188,15 +192,15 @@ def upload_with_tracking(
     if dry_run:
         # Just show what would happen
         if diff_result.added:
-            print(f"\n[DRY RUN] Would add:")
+            print("\n[DRY RUN] Would add:")
             for f in sorted(diff_result.added):
                 print(f"  + {f}")
         if diff_result.updated:
-            print(f"\n[DRY RUN] Would update:")
+            print("\n[DRY RUN] Would update:")
             for f in sorted(diff_result.updated):
                 print(f"  ~ {f}")
         if diff_result.deleted:
-            print(f"\n[DRY RUN] Would mark as deleted:")
+            print("\n[DRY RUN] Would mark as deleted:")
             for f in sorted(diff_result.deleted):
                 print(f"  - {f}")
         return diff_result
@@ -219,7 +223,9 @@ def upload_with_tracking(
         file_path = file_info["path"]
 
         content_type, _ = mimetypes.guess_type(file_path.name)
-        content_settings = ContentSettings(content_type=content_type or "application/octet-stream")
+        content_settings = ContentSettings(
+            content_type=content_type or "application/octet-stream"
+        )
 
         try:
             print(f"Uploading {file_path} -> {container_name}/{filename}")
@@ -231,7 +237,9 @@ def upload_with_tracking(
                     content_settings=content_settings,
                 )
                 # upload_blob returns a dict-like response, not a BlobClient
-                etag = blob_client.get("etag", "") if isinstance(blob_client, dict) else ""
+                etag = (
+                    blob_client.get("etag", "") if isinstance(blob_client, dict) else ""
+                )
 
             # Record in manifest
             record = DocumentRecord(
@@ -265,7 +273,7 @@ def upload_with_tracking(
     # Save manifest
     manifest_manager.save()
 
-    print(f"\nSync complete:")
+    print("\nSync complete:")
     print(f"  Added:   {len(final_result.added)}")
     print(f"  Updated: {len(final_result.updated)}")
     print(f"  Deleted: {len(final_result.deleted)}")
@@ -283,12 +291,12 @@ def show_status() -> None:
     print("=" * 50)
     print(f"Container:       {stats['azure_container']}")
     print(f"Last updated:    {stats['last_updated'] or 'Never'}")
-    print(f"\nDocuments:")
+    print("\nDocuments:")
     print(f"  Total tracked: {stats['total_documents']}")
     print(f"  Active:        {stats['active_documents']}")
     print(f"  Synced:        {stats['synced_documents']}")
-    print(f"\nStatus breakdown:")
-    for status, count in stats['status_breakdown'].items():
+    print("\nStatus breakdown:")
+    for status, count in stats["status_breakdown"].items():
         print(f"  {status}: {count}")
     print(f"\nAudit log entries: {stats['audit_log_entries']}")
 
@@ -322,10 +330,14 @@ def show_history(limit: int = 50, since: Optional[str] = None) -> None:
             "failed": "!",
         }.get(entry.action, "?")
 
-        print(f"[{timestamp}] {action_symbol} {entry.action.upper():8} {entry.filename}")
+        print(
+            f"[{timestamp}] {action_symbol} {entry.action.upper():8} {entry.filename}"
+        )
         print(f"             User: {entry.user}")
         if entry.old_hash and entry.new_hash:
-            print(f"             Hash: {entry.old_hash[:12]}... -> {entry.new_hash[:12]}...")
+            print(
+                f"             Hash: {entry.old_hash[:12]}... -> {entry.new_hash[:12]}..."
+            )
         elif entry.new_hash:
             print(f"             Hash: {entry.new_hash[:12]}...")
         if entry.details:
@@ -391,7 +403,8 @@ Examples:
 
     # Upload options
     parser.add_argument(
-        "--user", "-u",
+        "--user",
+        "-u",
         default=os.environ.get("USER", "system"),
         help="Username for audit trail (default: $USER or 'system')",
     )
@@ -446,4 +459,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

@@ -37,7 +37,6 @@ from app.core.security import escape_odata_string
 from azure_policy_index import PolicySearchIndex
 from preprocessing.chunker import PolicyChunker
 
-
 DEFAULT_TARGET_FILES = [
     "information-systems-general-organizational-policies-artificial-intelligence-policy.pdf",
     "supply-chain-procurement-organizational-policies-product-request-process.pdf",
@@ -45,7 +44,9 @@ DEFAULT_TARGET_FILES = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Targeted re-index for selected policy files")
+    parser = argparse.ArgumentParser(
+        description="Targeted re-index for selected policy files"
+    )
     parser.add_argument(
         "--files",
         nargs="+",
@@ -146,7 +147,9 @@ def main() -> None:
 
             if chunk_ids:
                 print(f"  Deleting {len(chunk_ids)} existing chunks...")
-                search_client.delete_documents(documents=[{"id": cid} for cid in chunk_ids])
+                search_client.delete_documents(
+                    documents=[{"id": cid} for cid in chunk_ids]
+                )
                 print(f"  Deleted {len(chunk_ids)} chunks")
             else:
                 print("  No existing chunks found")
@@ -191,4 +194,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

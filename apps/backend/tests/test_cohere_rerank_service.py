@@ -5,12 +5,14 @@ Tests the CohereRerankService in app/services/cohere_rerank_service.py.
 Uses mocking to avoid actual Cohere API calls.
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+
 from app.services.cohere_rerank_service import (
+    DEFAULT_MIN_SCORE,
     CohereRerankService,
     RerankResult,
-    DEFAULT_MIN_SCORE,
 )
 
 
@@ -128,9 +130,24 @@ class TestCohereRerankServiceRerank:
         mock_service._client.post.return_value = mock_response
 
         documents = [
-            {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
-            {"content": "Doc 2", "title": "Policy 2", "reference_number": "200", "source_file": "p2.pdf"},
-            {"content": "Doc 3", "title": "Policy 3", "reference_number": "300", "source_file": "p3.pdf"},
+            {
+                "content": "Doc 1",
+                "title": "Policy 1",
+                "reference_number": "100",
+                "source_file": "p1.pdf",
+            },
+            {
+                "content": "Doc 2",
+                "title": "Policy 2",
+                "reference_number": "200",
+                "source_file": "p2.pdf",
+            },
+            {
+                "content": "Doc 3",
+                "title": "Policy 3",
+                "reference_number": "300",
+                "source_file": "p3.pdf",
+            },
         ]
 
         results = mock_service.rerank("test query", documents)
@@ -156,9 +173,24 @@ class TestCohereRerankServiceRerank:
         mock_service._client.post.return_value = mock_response
 
         documents = [
-            {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
-            {"content": "Doc 2", "title": "Policy 2", "reference_number": "200", "source_file": "p2.pdf"},
-            {"content": "Doc 3", "title": "Policy 3", "reference_number": "300", "source_file": "p3.pdf"},
+            {
+                "content": "Doc 1",
+                "title": "Policy 1",
+                "reference_number": "100",
+                "source_file": "p1.pdf",
+            },
+            {
+                "content": "Doc 2",
+                "title": "Policy 2",
+                "reference_number": "200",
+                "source_file": "p2.pdf",
+            },
+            {
+                "content": "Doc 3",
+                "title": "Policy 3",
+                "reference_number": "300",
+                "source_file": "p3.pdf",
+            },
         ]
 
         results = mock_service.rerank("test query", documents)
@@ -188,9 +220,24 @@ class TestCohereRerankServiceRerank:
         mock_service._client.post.return_value = mock_response
 
         documents = [
-            {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
-            {"content": "Doc 2", "title": "Policy 2", "reference_number": "200", "source_file": "p2.pdf"},
-            {"content": "Doc 3", "title": "Policy 3", "reference_number": "300", "source_file": "p3.pdf"},
+            {
+                "content": "Doc 1",
+                "title": "Policy 1",
+                "reference_number": "100",
+                "source_file": "p1.pdf",
+            },
+            {
+                "content": "Doc 2",
+                "title": "Policy 2",
+                "reference_number": "200",
+                "source_file": "p2.pdf",
+            },
+            {
+                "content": "Doc 3",
+                "title": "Policy 3",
+                "reference_number": "300",
+                "source_file": "p3.pdf",
+            },
         ]
 
         results = mock_service.rerank("test query", documents)
@@ -231,7 +278,12 @@ class TestCohereRerankServiceAsync:
         mock_async_service._async_client.post.return_value = mock_response
 
         documents = [
-            {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
+            {
+                "content": "Doc 1",
+                "title": "Policy 1",
+                "reference_number": "100",
+                "source_file": "p1.pdf",
+            },
         ]
 
         results = await mock_async_service.rerank_async("test query", documents)
@@ -244,7 +296,7 @@ class TestCohereRerankServiceYAMLFormat:
 
     def test_yaml_format_preserves_field_order(self):
         """Should format documents in YAML with field order preserved."""
-        service = CohereRerankService(
+        service = CohereRerankService(  # noqa: F841
             endpoint="https://test.models.ai.azure.com",
             api_key="test-key",
         )
@@ -276,7 +328,12 @@ class TestCohereRerankServiceErrorHandling:
         mock_service._client.post.return_value = mock_response
 
         documents = [
-            {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
+            {
+                "content": "Doc 1",
+                "title": "Policy 1",
+                "reference_number": "100",
+                "source_file": "p1.pdf",
+            },
         ]
 
         # Should raise or return empty depending on implementation
@@ -294,13 +351,18 @@ class TestCohereRerankServiceErrorHandling:
         mock_service._client.post.side_effect = httpx.TimeoutException("Timeout")
 
         documents = [
-            {"content": "Doc 1", "title": "Policy 1", "reference_number": "100", "source_file": "p1.pdf"},
+            {
+                "content": "Doc 1",
+                "title": "Policy 1",
+                "reference_number": "100",
+                "source_file": "p1.pdf",
+            },
         ]
 
         # With TransportError in retry list, timeouts are now retried 3 times
         # then raise RetryError (which wraps the original TimeoutException)
         try:
-            results = mock_service.rerank("test query", documents)
+            mock_service.rerank("test query", documents)
         except (httpx.TimeoutException, RetryError):
             pass  # Expected - retries exhausted
 
@@ -321,7 +383,6 @@ class TestNegationHandling:
         """
         # This test documents the expected behavior
         # Actual negation testing requires Cohere API
-        pass
 
     def test_contradiction_scenario_description(self):
         """
@@ -332,7 +393,6 @@ class TestNegationHandling:
         - Doc stating "requires physician order" (implies NOT authorized alone)
         - Should rank appropriately based on semantic understanding
         """
-        pass
 
 
 class TestConfiguredState:

@@ -1,0 +1,32 @@
+# =============================================================================
+# RAG Evaluation Dependencies (NOT required for production runtime)
+# =============================================================================
+# Install alongside requirements.txt for evaluation, weekly audits, and
+# monthly regression testing. These packages have large transitive dependency
+# trees that conflict with each other, so they are isolated from production.
+#
+# Usage:
+#   pip install -r requirements.txt -r requirements-eval.txt
+#
+# Used by:
+#   - evaluation/evaluate_rag.py
+#   - scripts/weekly_eval.py
+#   - scripts/generate_executive_report.py
+#   - scripts/run_ragas_regression.py
+
+# Azure AI Evaluation SDK
+azure-ai-evaluation>=1.13.0,<2.0.0
+
+# PromptFlow (tracing and eval orchestration)
+promptflow>=1.16.0,<2.0.0
+promptflow-tools>=1.4.0,<2.0.0
+
+# RAGAS framework (retrieval-augmented generation assessment)
+ragas>=0.4.0,<0.5.0
+datasets>=4.0.0
+
+# LangChain OpenAI (required by RAGAS)
+langchain-openai>=0.3.0,<1.0.0
+
+# DeepEval (LLM evaluation metrics)
+deepeval>=0.21.0,<2.0.0

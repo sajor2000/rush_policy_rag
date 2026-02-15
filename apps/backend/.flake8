@@ -1,0 +1,18 @@
+[flake8]
+max-line-length = 100
+extend-ignore =
+    E203,
+    W503,
+    E501
+exclude =
+    venv,
+    .venv,
+    __pycache__
+per-file-ignores =
+    # Files that use sys.path manipulation or conditional imports before other imports
+    main.py:E402
+    azure_policy_index.py:E402
+    pdf_service.py:E402
+    policy_sync.py:E402
+    scripts/*:E402
+    tests/*:E402

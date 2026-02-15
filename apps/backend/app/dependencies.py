@@ -1,16 +1,22 @@
 import asyncio
 import logging
-from typing import Optional, AsyncGenerator, Dict, Any
 from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, Dict, Optional
+
 from fastapi import FastAPI, Header, HTTPException, status
 
-from azure_policy_index import PolicySearchIndex
-from app.services.on_your_data_service import OnYourDataService
-from app.services.cohere_rerank_service import CohereRerankService
-from app.services.chat_audit_service import init_chat_audit_service, shutdown_chat_audit_service
-from app.services.cache_service import CacheService, init_cache_service, get_cache_service
-from app.core.config import settings
 from app.core.auth import AzureADTokenValidator, TokenValidationError
+from app.core.config import settings
+from app.services.cache_service import (
+    init_cache_service,
+)
+from app.services.chat_audit_service import (
+    init_chat_audit_service,
+    shutdown_chat_audit_service,
+)
+from app.services.cohere_rerank_service import CohereRerankService
+from app.services.on_your_data_service import OnYourDataService
+from azure_policy_index import PolicySearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +25,7 @@ _search_index: Optional[PolicySearchIndex] = None
 _on_your_data_service: Optional[OnYourDataService] = None
 _cohere_rerank_service: Optional[CohereRerankService] = None
 _auth_validator: Optional[AzureADTokenValidator] = None
+_chat_service: Optional[Any] = None  # Lazy import to avoid circular dependency
 
 # Request tracking for graceful shutdown
 _active_requests: int = 0
@@ -46,24 +53,42 @@ async def get_active_request_count() -> int:
 
 
 def get_search_index() -> PolicySearchIndex:
-    global _search_index
     if _search_index is None:
         raise RuntimeError("Search index not initialized")
     return _search_index
 
 
 def get_on_your_data_service_dep() -> Optional[OnYourDataService]:
-    global _on_your_data_service
     return _on_your_data_service
 
 
 def get_cohere_rerank_service() -> Optional[CohereRerankService]:
     """Get Cohere Rerank service (cross-encoder for negation-aware search)."""
-    global _cohere_rerank_service
     return _cohere_rerank_service
 
 
-def get_current_user_claims(authorization: Optional[str] = Header(default=None)) -> Optional[Dict[str, Any]]:
+def get_chat_service() -> Any:
+    """Get or create the ChatService singleton.
+
+    Avoids per-request instantiation which re-creates OpenAI clients,
+    cache connections, and synonym service on every call.
+    """
+    global _chat_service
+
+    if _chat_service is None:
+        from app.services.chat_service import ChatService
+
+        _chat_service = ChatService(
+            search_index=get_search_index(),
+            on_your_data_service=_on_your_data_service,
+            cohere_rerank_service=_cohere_rerank_service,
+        )
+    return _chat_service
+
+
+def get_current_user_claims(
+    authorization: Optional[str] = Header(default=None),
+) -> Optional[Dict[str, Any]]:
     """Validate Authorization header when Azure AD auth is required."""
 
     if not settings.REQUIRE_AAD_AUTH:
@@ -88,12 +113,11 @@ def get_current_user_claims(authorization: Optional[str] = Header(default=None))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
-            headers={"WWW-Authenticate": "Bearer error=\"invalid_token\""},
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
         )
 
 
 def _get_auth_validator() -> Optional[AzureADTokenValidator]:
-    global _auth_validator
     return _auth_validator
 
 
@@ -150,32 +174,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Pre-initializing them during startup eliminates 300-700ms of first-query latency.
     # ===================================================================
     try:
-        logger.info("Pre-initializing lazy-loaded services for cold start optimization...")
+        logger.info(
+            "Pre-initializing lazy-loaded services for cold start optimization..."
+        )
         startup_start = time.perf_counter()
 
         # Import and initialize all singleton services
-        from app.services.synonym_service import get_synonym_service
-        from app.services.query_decomposer import get_query_decomposer
-        from app.services.citation_verifier import get_citation_verifier
-        from app.services.safety_validator import get_safety_validator
-        from app.services.corrective_rag import get_corrective_rag_service
-        from app.services.self_reflective_rag import get_self_reflective_service
         from app.services.citation_formatter import get_citation_formatter
+        from app.services.citation_verifier import get_citation_verifier
+        from app.services.corrective_rag import get_corrective_rag_service
+        from app.services.query_decomposer import get_query_decomposer
+        from app.services.safety_validator import get_safety_validator
+        from app.services.self_reflective_rag import get_self_reflective_service
+        from app.services.synonym_service import get_synonym_service
 
         # Initialize each service (calls __init__, loads files, compiles regexes, etc.)
-        get_synonym_service()          # Loads 1MB JSON + builds 4 indexes (~50-150ms)
-        get_query_decomposer()         # Regex compilation (~10-50ms)
-        get_citation_verifier()        # Pattern compilation (~10-50ms)
-        get_safety_validator()         # Rule loading (~10-50ms)
-        get_corrective_rag_service()   # Model init (~20-100ms)
+        get_synonym_service()  # Loads 1MB JSON + builds 4 indexes (~50-150ms)
+        get_query_decomposer()  # Regex compilation (~10-50ms)
+        get_citation_verifier()  # Pattern compilation (~10-50ms)
+        get_safety_validator()  # Rule loading (~10-50ms)
+        get_corrective_rag_service()  # Model init (~20-100ms)
         get_self_reflective_service()  # (~20-100ms)
-        get_citation_formatter()       # (~10-30ms)
+        get_citation_formatter()  # (~10-30ms)
 
         startup_elapsed = (time.perf_counter() - startup_start) * 1000
         logger.info(f"✅ All lazy services pre-initialized in {startup_elapsed:.1f}ms")
 
     except Exception as e:
-        logger.warning(f"⚠️ Failed to pre-initialize some helper services (non-critical): {e}")
+        logger.warning(
+            f"⚠️ Failed to pre-initialize some helper services (non-critical): {e}"
+        )
 
     # ===================================================================
     # INITIALIZE CACHE SERVICE (Response Time Optimization)
@@ -185,13 +213,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         if settings.CACHE_ENABLED:
             cache_start = time.perf_counter()
-            cache_service = init_cache_service(
+            init_cache_service(
                 expansion_cache_size=settings.CACHE_EXPANSION_SIZE,
                 response_cache_size=settings.CACHE_RESPONSE_SIZE,
                 search_cache_size=settings.CACHE_SEARCH_SIZE,
                 response_ttl=settings.CACHE_RESPONSE_TTL,
                 search_ttl=settings.CACHE_SEARCH_TTL,
-                enabled=True
+                enabled=True,
             )
             cache_elapsed = (time.perf_counter() - cache_start) * 1000
             logger.info(
@@ -213,7 +241,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 api_key=settings.COHERE_RERANK_API_KEY,
                 top_n=settings.COHERE_RERANK_TOP_N,
                 min_score=settings.COHERE_RERANK_MIN_SCORE,
-                model_name=settings.COHERE_RERANK_MODEL
+                model_name=settings.COHERE_RERANK_MODEL,
             )
             if _cohere_rerank_service.is_configured:
                 logger.info(
@@ -238,7 +266,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if settings.REQUIRE_AAD_AUTH:
             audience = settings.AZURE_AD_TOKEN_AUDIENCE or settings.AZURE_AD_CLIENT_ID
             if not (settings.AZURE_AD_TENANT_ID and audience):
-                raise RuntimeError("REQUIRE_AAD_AUTH enabled but Azure AD settings incomplete")
+                raise RuntimeError(
+                    "REQUIRE_AAD_AUTH enabled but Azure AD settings incomplete"
+                )
 
             _auth_validator = AzureADTokenValidator(
                 tenant_id=settings.AZURE_AD_TENANT_ID,
@@ -265,14 +295,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # Make minimal search request to prime connection pool
             # Using synchronous call wrapped in thread (search_index.search is sync)
             import asyncio
+
             await asyncio.to_thread(
-                _search_index.search,
-                query="system warmup",
-                top=1  # Minimal result set
+                _search_index.search, query="system warmup", top=1  # Minimal result set
             )
 
             warmup_elapsed = (time.perf_counter() - warmup_start) * 1000
-            logger.info(f"✅ Search index warmed up in {warmup_elapsed:.1f}ms - connection pool primed")
+            logger.info(
+                f"✅ Search index warmed up in {warmup_elapsed:.1f}ms - connection pool primed"
+            )
 
         except Exception as e:
             logger.warning(f"⚠️ Search index warmup failed (non-critical): {e}")
@@ -301,7 +332,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Execute all warmups concurrently
         results = await asyncio.gather(
             *[task for _, task in warmup_tasks],
-            return_exceptions=True  # Don't fail startup if one warmup fails
+            return_exceptions=True,  # Don't fail startup if one warmup fails
         )
 
         parallel_elapsed = (time.perf_counter() - parallel_start) * 1000
@@ -309,13 +340,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Log results
         for (service_name, _), result in zip(warmup_tasks, results):
             if isinstance(result, Exception):
-                logger.warning(f"⚠️ {service_name} warmup failed (non-critical): {result}")
+                logger.warning(
+                    f"⚠️ {service_name} warmup failed (non-critical): {result}"
+                )
             elif result:
                 logger.info(f"✅ {service_name} warmed up successfully")
             else:
                 logger.warning(f"⚠️ {service_name} warmup returned False (non-critical)")
 
-        logger.info(f"✅ All warmups completed in {parallel_elapsed:.1f}ms (parallel execution)")
+        logger.info(
+            f"✅ All warmups completed in {parallel_elapsed:.1f}ms (parallel execution)"
+        )
 
     # Initialize Chat Audit Service for RAG quality monitoring
     try:
@@ -331,7 +366,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Log total startup time
     app_startup_elapsed = (time.perf_counter() - app_startup_start) * 1000
     logger.info("=" * 80)
-    logger.info(f"✅ APPLICATION STARTUP COMPLETE - Total time: {app_startup_elapsed:.1f}ms")
+    logger.info(
+        f"✅ APPLICATION STARTUP COMPLETE - Total time: {app_startup_elapsed:.1f}ms"
+    )
     logger.info("=" * 80)
 
     yield

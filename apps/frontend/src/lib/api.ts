@@ -325,11 +325,13 @@ export interface StreamCallbacks {
  *
  * @param message - The user's message
  * @param callbacks - Event handlers for different SSE event types
+ * @param signal - Optional AbortSignal for external cancellation (e.g. on unmount)
  * @returns Promise that resolves when streaming is complete
  */
 export async function sendMessageStream(
   message: string,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal
 ): Promise<void> {
   // Check if rate limited before sending
   if (isRateLimited()) {
@@ -356,6 +358,15 @@ export async function sendMessageStream(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  // Link external signal to our controller so callers can cancel
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timeoutId);
+      return;
+    }
+    signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
 
   try {
     const response = await fetch("/api/chat/stream", {
@@ -408,54 +419,51 @@ export async function sendMessageStream(
       // Parse SSE events from buffer
       const lines = buffer.split("\n");
       buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-      let currentEventType: StreamEventType | null = null;
-
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          currentEventType = line.slice(7).trim() as StreamEventType;
-        } else if (line.startsWith("data: ") && currentEventType) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            handleStreamEvent(currentEventType, data, callbacks);
-          } catch {
-            // Skip malformed JSON
-          }
-          currentEventType = null;
-        }
-      }
+      parseSSELines(lines, callbacks);
     }
 
     // Process any remaining buffer
     if (buffer.trim()) {
-      const lines = buffer.split("\n");
-      let currentEventType: StreamEventType | null = null;
-
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          currentEventType = line.slice(7).trim() as StreamEventType;
-        } else if (line.startsWith("data: ") && currentEventType) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            handleStreamEvent(currentEventType, data, callbacks);
-          } catch {
-            // Skip malformed JSON
-          }
-          currentEventType = null;
-        }
-      }
+      parseSSELines(buffer.split("\n"), callbacks);
     }
   } catch (err) {
     clearTimeout(timeoutId);
 
     if (err instanceof Error) {
       if (err.name === "AbortError") {
-        callbacks.onError?.({ message: "Request timed out. Please try again." });
+        // Don't report as error if externally cancelled
+        if (!signal?.aborted) {
+          callbacks.onError?.({ message: "Request timed out. Please try again." });
+        }
         return;
       }
       callbacks.onError?.({ message: err.message });
     } else {
       callbacks.onError?.({ message: "An unexpected error occurred" });
+    }
+  }
+}
+
+/**
+ * Parse SSE lines and dispatch events to callbacks.
+ */
+function parseSSELines(
+  lines: string[],
+  callbacks: StreamCallbacks
+): void {
+  let currentEventType: StreamEventType | null = null;
+
+  for (const line of lines) {
+    if (line.startsWith("event: ")) {
+      currentEventType = line.slice(7).trim() as StreamEventType;
+    } else if (line.startsWith("data: ") && currentEventType) {
+      try {
+        const data = JSON.parse(line.slice(6));
+        handleStreamEvent(currentEventType, data, callbacks);
+      } catch {
+        // Skip malformed JSON
+      }
+      currentEventType = null;
     }
   }
 }
@@ -470,38 +478,52 @@ function handleStreamEvent(
 ): void {
   switch (eventType) {
     case "status":
-      callbacks.onStatus?.(data.message as string);
+      if (typeof data.message === "string") {
+        callbacks.onStatus?.(data.message);
+      }
       break;
 
     case "answer_chunk":
-      callbacks.onAnswerChunk?.(data.content as string);
+      if (typeof data.content === "string") {
+        callbacks.onAnswerChunk?.(data.content);
+      }
       break;
 
     case "evidence":
-      callbacks.onEvidence?.(data.items as Evidence[]);
+      if (Array.isArray(data.items)) {
+        callbacks.onEvidence?.(data.items as Evidence[]);
+      }
       break;
 
     case "sources":
-      callbacks.onSources?.(data.items as Source[]);
+      if (Array.isArray(data.items)) {
+        callbacks.onSources?.(data.items as Source[]);
+      }
       break;
 
     case "metadata":
       callbacks.onMetadata?.({
-        confidence: data.confidence as "high" | "medium" | "low" | "clarification_needed" | undefined,
-        chunks_used: data.chunks_used as number | undefined,
-        found: data.found as boolean | undefined,
-        from_cache: data.from_cache as boolean | undefined,
+        confidence: typeof data.confidence === "string"
+          ? (data.confidence as "high" | "medium" | "low" | "clarification_needed")
+          : undefined,
+        chunks_used: typeof data.chunks_used === "number" ? data.chunks_used : undefined,
+        found: typeof data.found === "boolean" ? data.found : undefined,
+        from_cache: typeof data.from_cache === "boolean" ? data.from_cache : undefined,
       });
       break;
 
     case "clarification":
-      callbacks.onClarification?.(
-        data as {
-          ambiguous_term: string;
-          message: string;
-          options: Array<{ label: string; expansion: string; type: string }>;
-        }
-      );
+      if (
+        typeof data.ambiguous_term === "string" &&
+        typeof data.message === "string" &&
+        Array.isArray(data.options)
+      ) {
+        callbacks.onClarification?.({
+          ambiguous_term: data.ambiguous_term,
+          message: data.message,
+          options: data.options as Array<{ label: string; expansion: string; type: string }>,
+        });
+      }
       break;
 
     case "done":
@@ -510,8 +532,8 @@ function handleStreamEvent(
 
     case "error":
       callbacks.onError?.({
-        message: data.message as string,
-        retry_after: data.retry_after as number | undefined,
+        message: typeof data.message === "string" ? data.message : "Unknown error",
+        retry_after: typeof data.retry_after === "number" ? data.retry_after : undefined,
       });
       break;
   }

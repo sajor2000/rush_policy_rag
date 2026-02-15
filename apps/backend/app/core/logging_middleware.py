@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from contextvars import ContextVar
-from typing import Optional, Callable, Any
+from typing import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -52,7 +52,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "client_ip": self._get_client_ip(request),
                 **user_info,
-            }
+            },
         )
 
         # Process request
@@ -74,7 +74,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     "latency_ms": latency_ms,
                     "client_ip": self._get_client_ip(request),
                     **user_info,
-                }
+                },
             )
 
             # Add request ID to response headers for client correlation
@@ -96,7 +96,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     "client_ip": self._get_client_ip(request),
                     **user_info,
                 },
-                exc_info=True
+                exc_info=True,
             )
             raise
 
@@ -147,9 +147,17 @@ class StructuredLogFormatter(logging.Formatter):
 
         # Add extra fields as custom dimensions
         extra_fields = [
-            "request_id", "method", "path", "status_code", "latency_ms",
-            "client_ip", "user_id", "client_id", "user_name",
-            "error_type", "error_message"
+            "request_id",
+            "method",
+            "path",
+            "status_code",
+            "latency_ms",
+            "client_ip",
+            "user_id",
+            "client_id",
+            "user_name",
+            "error_type",
+            "error_message",
         ]
 
         for field in extra_fields:
@@ -161,6 +169,7 @@ class StructuredLogFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         import json
+
         return json.dumps(log_entry)
 
 
@@ -185,9 +194,9 @@ def configure_structured_logging(use_json: bool = False):
         console_handler.setFormatter(StructuredLogFormatter())
     else:
         # Human-readable format for development
-        console_handler.setFormatter(logging.Formatter(
-            "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-        ))
+        console_handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
+        )
 
     root_logger.addHandler(console_handler)
     root_logger.setLevel(logging.INFO)

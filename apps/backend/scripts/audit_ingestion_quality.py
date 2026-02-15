@@ -19,31 +19,34 @@ Usage:
     python scripts/audit_ingestion_quality.py --verbose    # Show detailed per-file audit
 """
 
-import os
-import sys
-import json
-import random
 import argparse
-from pathlib import Path
-from typing import Dict, List, Any, Set, Optional
+import json
+import os
+import random
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Set
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
+
 env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
 load_dotenv(env_path)
 
-from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
+from azure.search.documents import SearchClient
+
+from app.core.index_safety import ensure_safe_index_target, resolve_index_name
 from app.core.security import escape_odata_string
-from app.core.index_safety import resolve_index_name, ensure_safe_index_target
 
 
 @dataclass
 class FileAudit:
     """Audit results for a single file."""
+
     filename: str
     chunk_count: int = 0
     has_title: bool = False
@@ -62,6 +65,7 @@ class FileAudit:
 @dataclass
 class AuditReport:
     """Complete audit report."""
+
     total_chunks: int = 0
     total_files: int = 0
     files_audited: int = 0
@@ -101,21 +105,27 @@ class IngestionAuditor:
     """Comprehensive auditor for Docling + Azure AI Search ingestion."""
 
     ENTITY_FIELDS = [
-        'applies_to_rumc', 'applies_to_rumg', 'applies_to_rmg',
-        'applies_to_roph', 'applies_to_rcmc', 'applies_to_rch',
-        'applies_to_roppg', 'applies_to_rcmg', 'applies_to_ru'
+        "applies_to_rumc",
+        "applies_to_rumg",
+        "applies_to_rmg",
+        "applies_to_roph",
+        "applies_to_rcmc",
+        "applies_to_rch",
+        "applies_to_roppg",
+        "applies_to_rcmg",
+        "applies_to_ru",
     ]
 
     ENTITY_NAMES = {
-        'applies_to_rumc': 'RUMC',
-        'applies_to_rumg': 'RUMG',
-        'applies_to_rmg': 'RMG',
-        'applies_to_roph': 'ROPH',
-        'applies_to_rcmc': 'RCMC',
-        'applies_to_rch': 'RCH',
-        'applies_to_roppg': 'ROPPG',
-        'applies_to_rcmg': 'RCMG',
-        'applies_to_ru': 'RU'
+        "applies_to_rumc": "RUMC",
+        "applies_to_rumg": "RUMG",
+        "applies_to_rmg": "RMG",
+        "applies_to_roph": "ROPH",
+        "applies_to_rcmc": "RCMC",
+        "applies_to_rch": "RCH",
+        "applies_to_roppg": "ROPPG",
+        "applies_to_rcmg": "RCMG",
+        "applies_to_ru": "RU",
     }
 
     def __init__(
@@ -141,7 +151,7 @@ class IngestionAuditor:
         self.client = SearchClient(
             endpoint=endpoint,
             index_name=resolved_index_name,
-            credential=AzureKeyCredential(api_key)
+            credential=AzureKeyCredential(api_key),
         )
         self.endpoint = endpoint
         self.index_name = resolved_index_name
@@ -149,15 +159,15 @@ class IngestionAuditor:
     def get_all_source_files(self) -> Set[str]:
         """Get all unique source files in the index."""
         files = set()
-        results = self.client.search('*', top=5000, select='source_file')
+        results = self.client.search("*", top=5000, select="source_file")
         for r in results:
-            if r.get('source_file'):
-                files.add(r['source_file'])
+            if r.get("source_file"):
+                files.add(r["source_file"])
         return files
 
     def get_total_chunks(self) -> int:
         """Get total chunk count."""
-        results = self.client.search('*', top=0, include_total_count=True)
+        results = self.client.search("*", top=0, include_total_count=True)
         return results.get_count()
 
     def audit_file(self, filename: str) -> FileAudit:
@@ -168,16 +178,29 @@ class IngestionAuditor:
         safe_filename = escape_odata_string(filename)
 
         # Fetch all chunks for this file
-        results = list(self.client.search(
-            '*',
-            filter=f"source_file eq '{safe_filename}'",
-            top=500,
-            select=','.join([
-                'id', 'title', 'reference_number', 'section', 'applies_to',
-                'date_updated', 'document_owner', 'page_number', 'chunk_index',
-                'chunk_level', 'content'
-            ] + self.ENTITY_FIELDS)
-        ))
+        results = list(
+            self.client.search(
+                "*",
+                filter=f"source_file eq '{safe_filename}'",
+                top=500,
+                select=",".join(
+                    [
+                        "id",
+                        "title",
+                        "reference_number",
+                        "section",
+                        "applies_to",
+                        "date_updated",
+                        "document_owner",
+                        "page_number",
+                        "chunk_index",
+                        "chunk_level",
+                        "content",
+                    ]
+                    + self.ENTITY_FIELDS
+                ),
+            )
+        )
 
         audit.chunk_count = len(results)
 
@@ -189,32 +212,32 @@ class IngestionAuditor:
         first = results[0]
 
         # Check metadata
-        audit.has_title = bool(first.get('title'))
-        audit.has_reference_number = bool(first.get('reference_number'))
-        audit.has_applies_to = bool(first.get('applies_to'))
-        audit.has_date_updated = bool(first.get('date_updated'))
-        audit.has_document_owner = bool(first.get('document_owner'))
+        audit.has_title = bool(first.get("title"))
+        audit.has_reference_number = bool(first.get("reference_number"))
+        audit.has_applies_to = bool(first.get("applies_to"))
+        audit.has_date_updated = bool(first.get("date_updated"))
+        audit.has_document_owner = bool(first.get("document_owner"))
 
         # Check entity booleans
-        for field in self.ENTITY_FIELDS:
-            if first.get(field):
-                audit.entities.append(self.ENTITY_NAMES[field])
+        for entity_field in self.ENTITY_FIELDS:
+            if first.get(entity_field):
+                audit.entities.append(self.ENTITY_NAMES[entity_field])
         audit.entity_count = len(audit.entities)
 
         # Check page numbers across all chunks
         pages = set()
         for r in results:
-            if r.get('page_number') is not None:
-                pages.add(r['page_number'])
+            if r.get("page_number") is not None:
+                pages.add(r["page_number"])
         audit.page_numbers = sorted(pages)
 
         # Check chunk levels
         for r in results:
-            level = r.get('chunk_level', 'unknown')
+            level = r.get("chunk_level", "unknown")
             audit.chunk_levels[level] = audit.chunk_levels.get(level, 0) + 1
 
         # Check content lengths
-        audit.content_lengths = [len(r.get('content', '')) for r in results]
+        audit.content_lengths = [len(r.get("content", "")) for r in results]
 
         # Identify issues
         if not audit.has_title:
@@ -255,7 +278,7 @@ class IngestionAuditor:
         print(f"\n  Total chunks in index: {report.total_chunks:,}")
         print(f"  Total unique files: {report.total_files}")
         print(f"  Files to audit: {report.files_audited}")
-        print(f"\n  Auditing files...")
+        print("\n  Auditing files...")
 
         all_content_lengths = []
 
@@ -285,27 +308,30 @@ class IngestionAuditor:
                 report.files_with_entities += 1
                 report.total_entity_associations += audit.entity_count
                 for entity in audit.entities:
-                    report.entity_distribution[entity] = \
+                    report.entity_distribution[entity] = (
                         report.entity_distribution.get(entity, 0) + 1
+                    )
 
             if audit.page_numbers:
                 report.files_with_pages += 1
 
             for level, count in audit.chunk_levels.items():
-                report.chunk_level_distribution[level] = \
+                report.chunk_level_distribution[level] = (
                     report.chunk_level_distribution.get(level, 0) + count
+                )
 
             all_content_lengths.extend(audit.content_lengths)
 
             if audit.issues:
                 report.files_with_issues += 1
                 for issue in audit.issues:
-                    report.common_issues[issue] = \
-                        report.common_issues.get(issue, 0) + 1
+                    report.common_issues[issue] = report.common_issues.get(issue, 0) + 1
 
         # Content length stats
         if all_content_lengths:
-            report.avg_content_length = sum(all_content_lengths) / len(all_content_lengths)
+            report.avg_content_length = sum(all_content_lengths) / len(
+                all_content_lengths
+            )
             report.min_content_length = min(all_content_lengths)
             report.max_content_length = max(all_content_lengths)
 
@@ -330,7 +356,9 @@ class IngestionAuditor:
 def print_report(report: AuditReport):
     """Print comprehensive audit report."""
     n = report.files_audited
-    pct = lambda count: (count / n * 100) if n else 0.0
+
+    def pct(count):
+        return (count / n * 100) if n else 0.0
 
     print(f"\n{'='*70}")
     print("AUDIT RESULTS")
@@ -355,40 +383,46 @@ def print_report(report: AuditReport):
         print(f"  {name:<20} {count:<10} {rate:>6.1f}%    {status}")
 
     # Entity booleans
-    print(f"\n🏥 ENTITY BOOLEAN EXTRACTION:")
-    print(f"  Files with entities: {report.files_with_entities}/{n} ({pct(report.files_with_entities):.1f}%)")
+    print("\n🏥 ENTITY BOOLEAN EXTRACTION:")
+    print(
+        f"  Files with entities: {report.files_with_entities}/{n} ({pct(report.files_with_entities):.1f}%)"
+    )
     print(f"  Total associations: {report.total_entity_associations}")
     if n:
         print(f"  Avg entities/file: {report.total_entity_associations/n:.1f}")
 
     if report.entity_distribution:
-        print(f"\n  Entity Distribution:")
-        for entity, count in sorted(report.entity_distribution.items(), key=lambda x: -x[1]):
+        print("\n  Entity Distribution:")
+        for entity, count in sorted(
+            report.entity_distribution.items(), key=lambda x: -x[1]
+        ):
             print(f"    {entity}: {count} files")
 
     # Page numbers
-    print(f"\n📄 PAGE NUMBER EXTRACTION:")
+    print("\n📄 PAGE NUMBER EXTRACTION:")
     rate = report.files_with_pages / n * 100 if n else 0
     status = "✅" if rate >= 80 else "⚠️" if rate >= 50 else "❌"
     print(f"  Files with pages: {report.files_with_pages}/{n} ({rate:.1f}%) {status}")
 
     # Chunking
-    print(f"\n📦 CHUNKING QUALITY:")
-    print(f"  Chunk level distribution:")
+    print("\n📦 CHUNKING QUALITY:")
+    print("  Chunk level distribution:")
     for level, count in sorted(report.chunk_level_distribution.items()):
         print(f"    {level}: {count:,} chunks")
 
-    print(f"\n  Content length stats:")
+    print("\n  Content length stats:")
     print(f"    Min: {report.min_content_length} chars")
     print(f"    Max: {report.max_content_length} chars")
     print(f"    Avg: {report.avg_content_length:.0f} chars")
 
     # Issues summary
-    print(f"\n⚠️  ISSUES SUMMARY:")
-    print(f"  Files with issues: {report.files_with_issues}/{n} ({pct(report.files_with_issues):.1f}%)")
+    print("\n⚠️  ISSUES SUMMARY:")
+    print(
+        f"  Files with issues: {report.files_with_issues}/{n} ({pct(report.files_with_issues):.1f}%)"
+    )
 
     if report.common_issues:
-        print(f"\n  Common issues:")
+        print("\n  Common issues:")
         for issue, count in sorted(report.common_issues.items(), key=lambda x: -x[1]):
             print(f"    {issue}: {count} files")
 
@@ -428,37 +462,29 @@ def main():
         description="Audit Docling + Azure AI Search ingestion quality"
     )
     parser.add_argument(
-        "--sample",
-        type=int,
-        help="Audit random sample of N files (default: all files)"
+        "--sample", type=int, help="Audit random sample of N files (default: all files)"
     )
     parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Show detailed per-file audit results"
+        "--verbose", action="store_true", help="Show detailed per-file audit results"
     )
-    parser.add_argument(
-        "--output",
-        type=str,
-        help="Save report to JSON file"
-    )
+    parser.add_argument("--output", type=str, help="Save report to JSON file")
     parser.add_argument(
         "--index-name",
         type=str,
         default=None,
-        help="Target search index (defaults to SEARCH_INDEX_NAME or active alias)"
+        help="Target search index (defaults to SEARCH_INDEX_NAME or active alias)",
     )
     parser.add_argument(
         "--endpoint",
         type=str,
         default=None,
-        help="Azure Search endpoint override (defaults to SEARCH_ENDPOINT)"
+        help="Azure Search endpoint override (defaults to SEARCH_ENDPOINT)",
     )
     parser.add_argument(
         "--api-key",
         type=str,
         default=None,
-        help="Azure Search API key override (defaults to SEARCH_API_KEY)"
+        help="Azure Search API key override (defaults to SEARCH_API_KEY)",
     )
     parser.add_argument(
         "--allow-direct-index",
@@ -488,17 +514,45 @@ def main():
             "total_files": report.total_files,
             "files_audited": report.files_audited,
             "metadata_rates": {
-                "title": report.files_with_title / report.files_audited if report.files_audited else 0,
-                "reference": report.files_with_reference / report.files_audited if report.files_audited else 0,
-                "applies_to": report.files_with_applies_to / report.files_audited if report.files_audited else 0,
-                "date": report.files_with_date / report.files_audited if report.files_audited else 0,
-                "owner": report.files_with_owner / report.files_audited if report.files_audited else 0,
+                "title": (
+                    report.files_with_title / report.files_audited
+                    if report.files_audited
+                    else 0
+                ),
+                "reference": (
+                    report.files_with_reference / report.files_audited
+                    if report.files_audited
+                    else 0
+                ),
+                "applies_to": (
+                    report.files_with_applies_to / report.files_audited
+                    if report.files_audited
+                    else 0
+                ),
+                "date": (
+                    report.files_with_date / report.files_audited
+                    if report.files_audited
+                    else 0
+                ),
+                "owner": (
+                    report.files_with_owner / report.files_audited
+                    if report.files_audited
+                    else 0
+                ),
             },
             "entity_rates": {
-                "files_with_entities": report.files_with_entities / report.files_audited if report.files_audited else 0,
+                "files_with_entities": (
+                    report.files_with_entities / report.files_audited
+                    if report.files_audited
+                    else 0
+                ),
                 "distribution": report.entity_distribution,
             },
-            "page_number_rate": report.files_with_pages / report.files_audited if report.files_audited else 0,
+            "page_number_rate": (
+                report.files_with_pages / report.files_audited
+                if report.files_audited
+                else 0
+            ),
             "chunk_levels": report.chunk_level_distribution,
             "content_length": {
                 "min": report.min_content_length,
@@ -508,7 +562,7 @@ def main():
             "issues": report.common_issues,
         }
 
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             json.dump(output_data, f, indent=2)
         print(f"  Report saved to: {args.output}")
 

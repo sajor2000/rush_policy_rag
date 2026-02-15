@@ -36,7 +36,6 @@ if REPO_ROOT not in sys.path:
 
 from azure_policy_index import PolicySearchIndex  # noqa: E402
 
-
 DEFAULT_ALIAS = os.environ.get("SEARCH_INDEX_NAME", "rush-policies-active")
 DEFAULT_ENDPOINT = os.environ.get("SEARCH_ENDPOINT")
 DEFAULT_API_KEY = os.environ.get("SEARCH_API_KEY")
@@ -66,7 +65,9 @@ def build_context(endpoint: Optional[str], api_key: Optional[str]) -> Context:
     return Context(endpoint=resolved_endpoint, index_client=index_client)
 
 
-def create_index(index_name: str, endpoint: Optional[str], api_key: Optional[str]) -> None:
+def create_index(
+    index_name: str, endpoint: Optional[str], api_key: Optional[str]
+) -> None:
     resolved_endpoint = endpoint or DEFAULT_ENDPOINT
     if not resolved_endpoint:
         raise RuntimeError("SEARCH_ENDPOINT is required (env or --endpoint)")
@@ -139,25 +140,39 @@ def validate_schema(ctx: Context, index_name: str) -> int:
             print(f"  - {failure}")
         return 1
 
-    print(f"[OK] Schema validated for {index_name}: policy_number + chunk_index are filterable")
+    print(
+        f"[OK] Schema validated for {index_name}: policy_number + chunk_index are filterable"
+    )
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Blue/green index alias manager")
-    parser.add_argument("--endpoint", default=None, help="Azure Search endpoint (defaults to SEARCH_ENDPOINT)")
-    parser.add_argument("--api-key", default=None, help="Azure Search API key (defaults to SEARCH_API_KEY)")
+    parser.add_argument(
+        "--endpoint",
+        default=None,
+        help="Azure Search endpoint (defaults to SEARCH_ENDPOINT)",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="Azure Search API key (defaults to SEARCH_API_KEY)",
+    )
 
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_create = sub.add_parser("create-index", help="Create or update a named index schema")
+    p_create = sub.add_parser(
+        "create-index", help="Create or update a named index schema"
+    )
     p_create.add_argument("--index", required=True, help="Index name to create")
 
     p_alias = sub.add_parser("ensure-alias", help="Create or update alias target")
     p_alias.add_argument("--alias", default=DEFAULT_ALIAS, help="Alias name")
     p_alias.add_argument("--index", required=True, help="Target index name")
 
-    p_swap = sub.add_parser("swap-alias", help="Swap alias to another index (cutover/rollback)")
+    p_swap = sub.add_parser(
+        "swap-alias", help="Swap alias to another index (cutover/rollback)"
+    )
     p_swap.add_argument("--alias", default=DEFAULT_ALIAS, help="Alias name")
     p_swap.add_argument("--index", required=True, help="Target index name")
 
@@ -166,7 +181,9 @@ def main() -> int:
 
     sub.add_parser("list-aliases", help="List all aliases")
 
-    p_validate = sub.add_parser("validate-schema", help="Validate required index fields")
+    p_validate = sub.add_parser(
+        "validate-schema", help="Validate required index fields"
+    )
     p_validate.add_argument("--index", required=True, help="Index name to validate")
 
     args = parser.parse_args()

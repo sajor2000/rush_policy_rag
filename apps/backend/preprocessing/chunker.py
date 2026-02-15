@@ -33,36 +33,31 @@ Usage:
 Legacy PyMuPDF implementation is available in preprocessing/archive/pymupdf_chunker.py
 """
 
-import re
-import os
-import hashlib
 import logging
-from typing import List, Optional, Dict, Tuple
+import os
+import re
 from pathlib import Path
+from typing import Dict, List, Optional
 
-# Import extracted dataclasses and enums
-from preprocessing.rush_metadata import (
-    ProcessingStatus,
-    ProcessingResult,
-    RUSHPolicyMetadata,
-    RUSH_ENTITIES,
-    CHECKED_CHARS,
-    UNCHECKED_CHARS,
-    ENTITY_TO_FIELD,
-)
-from preprocessing.policy_chunk import PolicyChunk
 from preprocessing.checkbox_extractor import (
-    extract_applies_to_from_raw_pdf,
     extract_applies_to_from_checkboxes,
-    extract_applies_to_from_text,
+    extract_applies_to_from_raw_pdf,
 )
 from preprocessing.metadata_extractor import (
     clean_filename,
+    extract_fields_from_text,
     extract_page_number,
     extract_page_number_pymupdf,
-    extract_section_info,
-    extract_fields_from_text,
     extract_policy_number,
+    extract_section_info,
+)
+from preprocessing.policy_chunk import PolicyChunk
+
+# Import extracted dataclasses and enums
+from preprocessing.rush_metadata import (
+    ProcessingResult,
+    ProcessingStatus,
+    RUSHPolicyMetadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,7 +86,7 @@ class PolicyChunker:
         max_chunk_size: int = 1500,
         min_chunk_size: int = 100,
         overlap_sentences: int = 0,  # For literal retrieval, we want 0 overlap
-        backend: Optional[str] = None  # Kept for backward compatibility, ignored
+        backend: Optional[str] = None,  # Kept for backward compatibility, ignored
     ):
         """
         Initialize the Docling-based policy chunker.
@@ -105,13 +100,16 @@ class PolicyChunker:
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
         self.overlap_sentences = overlap_sentences
-        self.backend = 'docling'  # Always use Docling
+        self.backend = "docling"  # Always use Docling
 
         # Initialize Docling components
         try:
-            from docling.document_converter import DocumentConverter, PdfFormatOption
-            from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
             from docling.datamodel.base_models import InputFormat
+            from docling.datamodel.pipeline_options import (
+                PdfPipelineOptions,
+                TableFormerMode,
+            )
+            from docling.document_converter import DocumentConverter, PdfFormatOption
             from docling_core.transforms.chunker import HierarchicalChunker
 
             # Configure pipeline for optimal policy parsing
@@ -129,7 +127,9 @@ class PolicyChunker:
             self.chunker = HierarchicalChunker()
             self._docling_available = True
 
-            logger.info("PolicyChunker initialized with Docling backend (TableFormer ACCURATE mode)")
+            logger.info(
+                "PolicyChunker initialized with Docling backend (TableFormer ACCURATE mode)"
+            )
 
         except ImportError as e:
             logger.error(f"Docling not available: {e}")
@@ -183,7 +183,7 @@ class PolicyChunker:
                 chunks=[],
                 status=ProcessingStatus.DOCLING_UNAVAILABLE,
                 error_message="Docling not installed. Run: pip install docling docling-core",
-                source_file=filename
+                source_file=filename,
             )
 
         # Check file exists
@@ -193,7 +193,7 @@ class PolicyChunker:
                 chunks=[],
                 status=ProcessingStatus.FILE_NOT_FOUND,
                 error_message=f"File not found: {pdf_path}",
-                source_file=filename
+                source_file=filename,
             )
 
         # Check file not empty
@@ -204,7 +204,7 @@ class PolicyChunker:
                 chunks=[],
                 status=ProcessingStatus.EMPTY_DOCUMENT,
                 error_message="PDF file is empty (0 bytes)",
-                source_file=filename
+                source_file=filename,
             )
 
         logger.info(f"Processing PDF with Docling: {filename}")
@@ -224,21 +224,21 @@ class PolicyChunker:
                 # Chunk the document body
                 chunks = self._chunk_document(doc, metadata, filename)
 
-                logger.info(f"Docling processed {filename}: {len(chunks)} chunks, "
-                           f"ref={metadata.reference_number}, applies_to={metadata.applies_to_str}")
+                logger.info(
+                    f"Docling processed {filename}: {len(chunks)} chunks, "
+                    f"ref={metadata.reference_number}, applies_to={metadata.applies_to_str}"
+                )
 
                 # Distinguish between success with chunks vs empty document
                 if not chunks:
                     return ProcessingResult(
                         chunks=[],
                         status=ProcessingStatus.EMPTY_DOCUMENT,
-                        source_file=filename
+                        source_file=filename,
                     )
 
                 return ProcessingResult(
-                    chunks=chunks,
-                    status=ProcessingStatus.SUCCESS,
-                    source_file=filename
+                    chunks=chunks, status=ProcessingStatus.SUCCESS, source_file=filename
                 )
             finally:
                 # Clear PDF path reference to avoid memory retention
@@ -250,7 +250,7 @@ class PolicyChunker:
                 chunks=[],
                 status=ProcessingStatus.PROCESSING_ERROR,
                 error_message=str(e),
-                source_file=filename
+                source_file=filename,
             )
 
     def _extract_header_metadata(self, doc, pdf_path: str) -> RUSHPolicyMetadata:
@@ -269,7 +269,7 @@ class PolicyChunker:
         filename = os.path.basename(pdf_path)
 
         # Get all tables from the document
-        tables = list(doc.tables) if hasattr(doc, 'tables') else []
+        tables = list(doc.tables) if hasattr(doc, "tables") else []
 
         # Also get markdown for fallback text extraction
         try:
@@ -287,17 +287,19 @@ class PolicyChunker:
         # Do this before Docling text extraction which can truncate the checkbox row
         metadata.applies_to = extract_applies_to_from_raw_pdf(pdf_path)
         if metadata.applies_to:
-            logger.info(f"PyMuPDF extracted {len(metadata.applies_to)} entities: {metadata.applies_to}")
+            logger.info(
+                f"PyMuPDF extracted {len(metadata.applies_to)} entities: {metadata.applies_to}"
+            )
 
         # Try to extract from first table (header table)
         if tables:
             try:
                 header_table = tables[0]
                 # Export table to text for parsing
-                if hasattr(header_table, 'export_to_dataframe'):
+                if hasattr(header_table, "export_to_dataframe"):
                     df = header_table.export_to_dataframe()
                     table_text = df.to_string()
-                elif hasattr(header_table, 'export_to_markdown'):
+                elif hasattr(header_table, "export_to_markdown"):
                     table_text = header_table.export_to_markdown()
                 else:
                     table_text = str(header_table)
@@ -326,24 +328,19 @@ class PolicyChunker:
         # Ensure canonical policy number is populated (source-priority extraction).
         if not metadata.policy_number:
             metadata.policy_number = extract_policy_number(
-                filename=filename,
-                text=full_text,
-                title=metadata.title
+                filename=filename, text=full_text, title=metadata.title
             )
 
         # Fallback: extract parenthesized document ID from filename as reference_number
         if not metadata.reference_number and not metadata.policy_number:
-            doc_id_match = re.search(r'\((\d{2,6})\)', filename)
+            doc_id_match = re.search(r"\((\d{2,6})\)", filename)
             if doc_id_match:
                 metadata.reference_number = doc_id_match.group(1)
 
         return metadata
 
     def _chunk_document(
-        self,
-        doc,
-        metadata: RUSHPolicyMetadata,
-        source_file: str
+        self, doc, metadata: RUSHPolicyMetadata, source_file: str
     ) -> List[PolicyChunk]:
         """
         Chunk the document body using Docling's HierarchicalChunker.
@@ -360,6 +357,7 @@ class PolicyChunker:
         else:
             # Create short hash from source filename for uniqueness
             import hashlib
+
             file_hash = hashlib.md5(source_file.encode()).hexdigest()[:8]
             chunk_prefix = f"doc_{file_hash}"
 
@@ -386,11 +384,9 @@ class PolicyChunker:
             page_number = extract_page_number(doc_chunk)
 
             # Fallback to PyMuPDF if Docling didn't provide page number
-            if page_number is None and hasattr(self, '_current_pdf_path'):
+            if page_number is None and hasattr(self, "_current_pdf_path"):
                 page_number = extract_page_number_pymupdf(
-                    self._current_pdf_path,
-                    text,
-                    global_chunk_index
+                    self._current_pdf_path, text, global_chunk_index
                 )
 
             # Determine chunk level based on content/context
@@ -412,7 +408,7 @@ class PolicyChunker:
                             chunk_level="semantic",  # Split chunks are semantic level
                             parent_chunk_id=parent_id if i > 0 else None,
                             chunk_index=global_chunk_index,
-                            page_number=page_number
+                            page_number=page_number,
                         )
                         chunks.append(chunk)
                         global_chunk_index += 1
@@ -428,7 +424,7 @@ class PolicyChunker:
                     chunk_level=chunk_level,
                     parent_chunk_id=None,
                     chunk_index=global_chunk_index,
-                    page_number=page_number
+                    page_number=page_number,
                 )
                 chunks.append(chunk)
                 chunk_counter += 1
@@ -446,16 +442,16 @@ class PolicyChunker:
 
     def _create_policy_chunk(
         self,
-            chunk_id: str,
-            text: str,
-            metadata: RUSHPolicyMetadata,
-            section_number: str,
+        chunk_id: str,
+        text: str,
+        metadata: RUSHPolicyMetadata,
+        section_number: str,
         section_title: str,
         source_file: str,
         chunk_level: str = "semantic",
         parent_chunk_id: Optional[str] = None,
         chunk_index: int = 0,
-        page_number: Optional[int] = None
+        page_number: Optional[int] = None,
     ) -> PolicyChunk:
         """Create a PolicyChunk from parsed data."""
         return PolicyChunk(
@@ -501,11 +497,11 @@ class PolicyChunker:
             return [text]
 
         # Try splitting by double newlines (paragraphs)
-        paragraphs = re.split(r'\n\n+', text)
+        paragraphs = re.split(r"\n\n+", text)
 
         if len(paragraphs) == 1:
             # No paragraph breaks, split by sentences
-            sentences = re.split(r'(?<=[.!?])\s+', text)
+            sentences = re.split(r"(?<=[.!?])\s+", text)
             chunks = []
             current = ""
 
@@ -546,10 +542,7 @@ class PolicyChunker:
         return chunks
 
     def _fallback_chunking(
-        self,
-        doc,
-        metadata: RUSHPolicyMetadata,
-        source_file: str
+        self, doc, metadata: RUSHPolicyMetadata, source_file: str
     ) -> List[PolicyChunk]:
         """Fallback chunking if HierarchicalChunker fails."""
         try:
@@ -566,6 +559,7 @@ class PolicyChunker:
             chunk_prefix = metadata.reference_number
         else:
             import hashlib
+
             file_hash = hashlib.md5(source_file.encode()).hexdigest()[:8]
             chunk_prefix = f"doc_{file_hash}"
 
@@ -576,7 +570,7 @@ class PolicyChunker:
             if len(text) >= self.min_chunk_size:
                 # Extract page number via PyMuPDF text matching
                 page_number = None
-                if hasattr(self, '_current_pdf_path') and self._current_pdf_path:
+                if hasattr(self, "_current_pdf_path") and self._current_pdf_path:
                     page_number = extract_page_number_pymupdf(
                         self._current_pdf_path, text[:150], i
                     )
@@ -591,7 +585,7 @@ class PolicyChunker:
                     chunk_level="semantic",  # Fallback chunks are semantic level
                     parent_chunk_id=None,
                     chunk_index=i,
-                    page_number=page_number
+                    page_number=page_number,
                 )
                 chunks.append(chunk)
                 chunk_counter += 1
@@ -607,11 +601,11 @@ class PolicyChunker:
         """
         all_chunks = []
         stats = {
-            'total_docs': 0,
-            'total_chunks': 0,
-            'avg_chunk_size': 0,
-            'min_chunk_size': float('inf'),
-            'max_chunk_size': 0,
+            "total_docs": 0,
+            "total_chunks": 0,
+            "avg_chunk_size": 0,
+            "min_chunk_size": float("inf"),
+            "max_chunk_size": 0,
         }
         errors = []
 
@@ -621,51 +615,55 @@ class PolicyChunker:
             try:
                 chunks = self.process_pdf(str(pdf_file))
                 all_chunks.extend(chunks)
-                stats['total_docs'] += 1
-                stats['total_chunks'] += len(chunks)
+                stats["total_docs"] += 1
+                stats["total_chunks"] += len(chunks)
 
                 for chunk in chunks:
-                    stats['min_chunk_size'] = min(stats['min_chunk_size'], chunk.char_count)
-                    stats['max_chunk_size'] = max(stats['max_chunk_size'], chunk.char_count)
+                    stats["min_chunk_size"] = min(
+                        stats["min_chunk_size"], chunk.char_count
+                    )
+                    stats["max_chunk_size"] = max(
+                        stats["max_chunk_size"], chunk.char_count
+                    )
 
             except Exception as e:
-                errors.append({'file': pdf_file.name, 'error': str(e)})
+                errors.append({"file": pdf_file.name, "error": str(e)})
 
         if all_chunks:
-            stats['avg_chunk_size'] = sum(c.char_count for c in all_chunks) // len(all_chunks)
+            stats["avg_chunk_size"] = sum(c.char_count for c in all_chunks) // len(
+                all_chunks
+            )
 
-        if stats['min_chunk_size'] == float('inf'):
-            stats['min_chunk_size'] = 0
+        if stats["min_chunk_size"] == float("inf"):
+            stats["min_chunk_size"] = 0
 
-        return {
-            'chunks': all_chunks,
-            'stats': stats,
-            'errors': errors
-        }
+        return {"chunks": all_chunks, "stats": stats, "errors": errors}
 
     def get_backend_info(self) -> Dict[str, str]:
         """Return information about the current backend configuration."""
         info = {
-            'backend': 'docling',
-            'max_chunk_size': str(self.max_chunk_size),
-            'min_chunk_size': str(self.min_chunk_size),
-            'docling_available': str(self._docling_available),
-            'table_mode': 'TableFormer (ACCURATE)',
+            "backend": "docling",
+            "max_chunk_size": str(self.max_chunk_size),
+            "min_chunk_size": str(self.min_chunk_size),
+            "docling_available": str(self._docling_available),
+            "table_mode": "TableFormer (ACCURATE)",
         }
         return info
 
 
 # CLI for testing
 if __name__ == "__main__":
-    import sys
     import json
+    import sys
 
     logging.basicConfig(level=logging.INFO)
 
     if len(sys.argv) < 2:
         print("Usage: python chunker.py <pdf_path_or_folder> [--json]")
         print("\nThis is the Docling-based implementation.")
-        print("Legacy PyMuPDF implementation is in preprocessing/archive/pymupdf_chunker.py")
+        print(
+            "Legacy PyMuPDF implementation is in preprocessing/archive/pymupdf_chunker.py"
+        )
         sys.exit(1)
 
     path = sys.argv[1]
@@ -697,9 +695,9 @@ if __name__ == "__main__":
 
         if output_json:
             output = {
-                'stats': result['stats'],
-                'errors': result['errors'],
-                'chunks': [c.to_dict() for c in result['chunks']]
+                "stats": result["stats"],
+                "errors": result["errors"],
+                "chunks": [c.to_dict() for c in result["chunks"]],
             }
             print(json.dumps(output, indent=2))
         else:
@@ -712,7 +710,7 @@ if __name__ == "__main__":
             print(f"Min size: {result['stats']['min_chunk_size']} chars")
             print(f"Max size: {result['stats']['max_chunk_size']} chars")
 
-            if result['errors']:
+            if result["errors"]:
                 print(f"\nErrors ({len(result['errors'])}):")
-                for err in result['errors']:
+                for err in result["errors"]:
                     print(f"  - {err['file']}: {err['error']}")

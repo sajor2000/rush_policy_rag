@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -139,7 +138,9 @@ def normalize_policy_number(value: str) -> str:
     """Normalize policy code variants into canonical XX-X NN.NN where possible."""
     if not value:
         return ""
-    match = re.search(r"\b([A-Za-z]{2})\s*-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b", value)
+    match = re.search(
+        r"\b([A-Za-z]{2})\s*-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b", value
+    )
     if not match:
         return value.strip().upper()
 
@@ -169,10 +170,14 @@ def _normalize_item(item: Dict[str, Any]) -> Dict[str, Any]:
 def _collect_candidates(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     evidence = payload.get("evidence") or []
     sources = payload.get("sources") or []
-    return [_normalize_item(item) for item in evidence + sources if isinstance(item, dict)]
+    return [
+        _normalize_item(item) for item in evidence + sources if isinstance(item, dict)
+    ]
 
 
-def _matches_case(item: Dict[str, Any], case: VerificationCase, strict_policy_number: bool) -> bool:
+def _matches_case(
+    item: Dict[str, Any], case: VerificationCase, strict_policy_number: bool
+) -> bool:
     expected_policy = normalize_policy_number(case.expected_policy_number)
     title = item.get("title", "").lower()
 
@@ -204,14 +209,17 @@ def run_case(
 
     payload = response.json()
     candidates = _collect_candidates(payload)
-    matching = [item for item in candidates if _matches_case(item, case, strict_policy_number)]
+    matching = [
+        item for item in candidates if _matches_case(item, case, strict_policy_number)
+    ]
 
     if not matching:
         return False, "no matching policy evidence/sources"
 
     if case.min_page is not None:
         has_page = any(
-            isinstance(item.get("page_number"), int) and item["page_number"] >= case.min_page
+            isinstance(item.get("page_number"), int)
+            and item["page_number"] >= case.min_page
             for item in matching
         )
         if not has_page:
@@ -220,7 +228,10 @@ def run_case(
     if case.forbid_unverified_block:
         safety_flags = payload.get("safety_flags") or []
         summary = str(payload.get("summary") or "")
-        if "BLOCKED_UNVERIFIED_FACTS" in safety_flags or "Unable to verify factual accuracy" in summary:
+        if (
+            "BLOCKED_UNVERIFIED_FACTS" in safety_flags
+            or "Unable to verify factual accuracy" in summary
+        ):
             return False, "response blocked by unverified-facts safety gate"
 
     found = payload.get("found")
@@ -232,8 +243,12 @@ def run_case(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run HR retrieval regression checks")
-    parser.add_argument("--base-url", default="http://localhost:8000", help="Backend URL")
-    parser.add_argument("--timeout", type=float, default=90.0, help="Request timeout seconds")
+    parser.add_argument(
+        "--base-url", default="http://localhost:8000", help="Backend URL"
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=90.0, help="Request timeout seconds"
+    )
     parser.add_argument(
         "--strict-policy-number",
         action="store_true",

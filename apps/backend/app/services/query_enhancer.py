@@ -12,13 +12,13 @@ before they are processed by the RAG pipeline. It handles:
 Extracted from chat_service.py as part of tech debt refactoring.
 """
 
-import re
 import logging
+import re
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 from app.services.entity_ranking import LOCATION_CONTEXT_PATTERNS
-from app.services.query_processor import POLICY_HINTS, get_policy_hint
+from app.services.query_processor import POLICY_HINTS
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Healthcare-specific reformulations for multi-query fusion
 QUERY_REFORMULATIONS = {
-    'what is': ['define', 'explain', 'describe'],
-    'how do i': ['procedure for', 'steps to', 'process for'],
-    'when': ['timing for', 'schedule for', 'requirements for'],
-    'who can': ['authorization for', 'eligibility for', 'permitted to'],
-    'policy for': ['guidelines for', 'protocol for', 'procedure for'],
+    "what is": ["define", "explain", "describe"],
+    "how do i": ["procedure for", "steps to", "process for"],
+    "when": ["timing for", "schedule for", "requirements for"],
+    "who can": ["authorization for", "eligibility for", "permitted to"],
+    "policy for": ["guidelines for", "protocol for", "procedure for"],
 }
 
 
@@ -67,8 +67,13 @@ def generate_query_variants(query: str) -> List[str]:
             break  # Apply only first matching pattern
 
     # Add keyword-focused variant (removes question words)
-    keywords = query_lower.replace('what is', '').replace('how do i', '').replace('when', '').replace('who can', '')
-    keywords = ' '.join(keywords.split())  # Normalize whitespace
+    keywords = (
+        query_lower.replace("what is", "")
+        .replace("how do i", "")
+        .replace("when", "")
+        .replace("who can", "")
+    )
+    keywords = " ".join(keywords.split())  # Normalize whitespace
     if keywords and keywords != query_lower:
         variants.append(keywords)
 
@@ -80,10 +85,8 @@ def generate_query_variants(query: str) -> List[str]:
 # Reciprocal Rank Fusion (RRF)
 # ============================================================================
 
-def reciprocal_rank_fusion(
-    result_lists: List[List[Dict]],
-    k: int = 60
-) -> List[Dict]:
+
+def reciprocal_rank_fusion(result_lists: List[List[Dict]], k: int = 60) -> List[Dict]:
     """
     Merge multiple result lists using Reciprocal Rank Fusion (RRF).
 
@@ -121,9 +124,9 @@ def reciprocal_rank_fusion(
         for rank, doc in enumerate(results, start=1):
             # Use reference_number as primary ID, fallback to other identifiers
             doc_id = (
-                doc.get('reference_number') or
-                doc.get('id') or
-                doc.get('title', '')[:50]
+                doc.get("reference_number")
+                or doc.get("id")
+                or doc.get("title", "")[:50]
             )
             if doc_id:
                 scores[doc_id] += 1.0 / (k + rank)
@@ -141,6 +144,7 @@ def reciprocal_rank_fusion(
 # ============================================================================
 # Location Context Normalization
 # ============================================================================
+
 
 def normalize_location_context(query: str) -> Tuple[str, Optional[str]]:
     """
@@ -174,25 +178,27 @@ def normalize_location_context(query: str) -> Tuple[str, Optional[str]]:
         match = re.search(pattern, query, re.IGNORECASE)
         if match:
             extracted.append(match.group().strip())
-            query = re.sub(pattern, '', query, flags=re.IGNORECASE)
+            query = re.sub(pattern, "", query, flags=re.IGNORECASE)
 
     # Clean up extra whitespace
-    query = ' '.join(query.split())
+    query = " ".join(query.split())
 
     # Remove leading/trailing punctuation and spaces (handles leftover commas)
-    query = query.strip(' ,;:')
+    query = query.strip(" ,;:")
 
     # Remove space before punctuation (e.g., "policy ?" -> "policy?")
-    query = re.sub(r'\s+([?!.,;:])', r'\1', query)
+    query = re.sub(r"\s+([?!.,;:])", r"\1", query)
 
     # Ensure space after punctuation when followed by alphanumeric (not another punctuation).
     # Keep decimal numbers intact (e.g., policy codes "05.00" must NOT become "05. 00").
-    query = re.sub(r'([?!,;:])([a-zA-Z0-9])', r'\1 \2', query)
-    query = re.sub(r'(?<!\d)\.([a-zA-Z0-9])', r'. \1', query)
+    query = re.sub(r"([?!,;:])([a-zA-Z0-9])", r"\1 \2", query)
+    query = re.sub(r"(?<!\d)\.([a-zA-Z0-9])", r". \1", query)
 
     if extracted:
-        context = ', '.join(extracted)
-        logger.info(f"Normalized location context: '{original}' -> '{query}' (context: {context})")
+        context = ", ".join(extracted)
+        logger.info(
+            f"Normalized location context: '{original}' -> '{query}' (context: {context})"
+        )
         return query, context
 
     return query, None
@@ -201,6 +207,7 @@ def normalize_location_context(query: str) -> Tuple[str, Optional[str]]:
 # ============================================================================
 # Punctuation Normalization
 # ============================================================================
+
 
 def normalize_query_punctuation(query: str) -> str:
     """
@@ -231,21 +238,21 @@ def normalize_query_punctuation(query: str) -> str:
     normalized = re.sub(r"(\w+)'\b", r"\1", normalized)
 
     # Normalize smart/curly quotes to standard quotes
-    normalized = normalized.replace('\u201c', '"').replace('\u201d', '"')
-    normalized = normalized.replace('\u2018', "'").replace('\u2019', "'")
+    normalized = normalized.replace("\u201c", '"').replace("\u201d", '"')
+    normalized = normalized.replace("\u2018", "'").replace("\u2019", "'")
 
     # BUG-003 FIX: Replace commas, semicolons, colons with spaces throughout query.
     # This ensures partial title searches like "Shift Differentials" match indexed
     # titles like "Shift Differentials, Weekend and Holiday Premium Pay" even when
     # the BM25 tokenizer treats punctuation as part of the token.
     # Preserves: hyphens (HR-C), periods (05.00), question marks (query intent)
-    normalized = re.sub(r'[,;:]+', ' ', normalized)
+    normalized = re.sub(r"[,;:]+", " ", normalized)
 
     # Normalize whitespace (also collapses spaces left by punctuation removal)
-    normalized = ' '.join(normalized.split())
+    normalized = " ".join(normalized.split())
 
     # Strip trailing periods (but not mid-query periods like 05.00)
-    normalized = re.sub(r'\.+$', '', normalized).strip()
+    normalized = re.sub(r"\.+$", "", normalized).strip()
 
     if normalized != query:
         logger.debug(f"Query punctuation normalized: '{query}' -> '{normalized}'")
@@ -256,6 +263,7 @@ def normalize_query_punctuation(query: str) -> str:
 # ============================================================================
 # Policy Hint Application
 # ============================================================================
+
 
 def apply_policy_hints(query: str) -> Tuple[str, List[dict]]:
     """
@@ -301,11 +309,13 @@ def apply_policy_hints(query: str) -> Tuple[str, List[dict]]:
 # Also tolerates malformed forms like HR-C 0.600 for normalization.
 # Dash is REQUIRED to avoid false positives on natural English (e.g., "do I 2")
 POLICY_NUMBER_PATTERN = re.compile(
-    r'\b([A-Za-z]{2})-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b'
+    r"\b([A-Za-z]{2})-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b"
 )
 
 
-def _normalize_policy_number_parts(prefix: str, letter: str, major: str, minor: Optional[str]) -> str:
+def _normalize_policy_number_parts(
+    prefix: str, letter: str, major: str, minor: Optional[str]
+) -> str:
     """
     Normalize policy number components into canonical format: XX-X NN.NN.
 

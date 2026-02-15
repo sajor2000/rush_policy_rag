@@ -1,8 +1,10 @@
-from typing import Optional, List, Dict, Any, Literal
+from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
+
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000)
     filter_applies_to: Optional[str] = None  # e.g., "RMG" to filter by entity
 
 
@@ -21,11 +23,14 @@ class EvidenceItem(BaseModel):
     page_number: Optional[int] = None  # 1-indexed page number for PDF navigation
     score: Optional[float] = None
     reranker_score: Optional[float] = None
-    match_type: Optional[str] = None  # "verified" (exact match), "related" (fallback search)
+    match_type: Optional[str] = (
+        None  # "verified" (exact match), "related" (fallback search)
+    )
 
 
 class SearchResultItem(BaseModel):
     """Search result with complete metadata for frontend attribution."""
+
     # Core content
     citation: str
     content: str
@@ -85,14 +90,16 @@ class ChatResponse(BaseModel):
     needs_human_review: bool = False  # Flag for low-confidence responses
     safety_flags: List[str] = Field(default_factory=list)  # Any safety concerns
     # Ambiguity clarification field - for queries needing user input
-    clarification: Optional[Dict[str, Any]] = None  # Contains message, options, ambiguous_term
+    clarification: Optional[Dict[str, Any]] = (
+        None  # Contains message, options, ambiguous_term
+    )
     # Audit field - expanded query after synonym expansion (for RAG improvement analysis)
     search_query: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
-    query: str
-    top: int = 5
+    query: str = Field(..., min_length=1, max_length=500)
+    top: int = Field(default=5, ge=1, le=50)
     filter_applies_to: Optional[str] = None
 
 
@@ -106,16 +113,30 @@ class SearchResponse(BaseModel):
 # Instance Search Models - Find all occurrences of a term within a policy
 # ============================================================================
 
+
 class InstanceSearchRequest(BaseModel):
     """Request for searching term instances within a specific policy."""
-    policy_ref: str = Field(..., description="Policy reference number (e.g., '528', 'HR-B 13.00')")
-    search_term: str = Field(..., min_length=1, max_length=200, description="Term to search for")
-    case_sensitive: bool = Field(default=False, description="Whether search is case-sensitive")
+
+    policy_ref: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Policy reference number (e.g., '528', 'HR-B 13.00')",
+    )
+    search_term: str = Field(
+        ..., min_length=1, max_length=200, description="Term to search for"
+    )
+    case_sensitive: bool = Field(
+        default=False, description="Whether search is case-sensitive"
+    )
 
 
 class TermInstance(BaseModel):
     """A single instance of a term found within a policy."""
-    page_number: Optional[int] = Field(default=None, description="1-indexed page number in PDF")
+
+    page_number: Optional[int] = Field(
+        default=None, description="1-indexed page number in PDF"
+    )
     section: str = Field(default="", description="Section number where term appears")
     section_title: str = Field(default="", description="Section title")
     context: str = Field(description="Surrounding text context (~200 chars)")
@@ -127,6 +148,7 @@ class TermInstance(BaseModel):
 
 class InstanceSearchResponse(BaseModel):
     """Response containing all instances of a term within a policy."""
+
     policy_title: str
     policy_ref: str
     search_term: str

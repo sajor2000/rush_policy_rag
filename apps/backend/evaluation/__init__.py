@@ -7,34 +7,35 @@ Provides hybrid evaluation using:
 - DeepEval (CI/CD integration + claim-level diagnostics)
 """
 
-from .azure_evaluator import AzureRAGEvaluator, EvaluationResult
-from .test_dataset import TestDataset, TestCase, create_initial_dataset
 from .agent_evaluator import (
-    PolicyAgentEvaluator,
-    HallucinationResult,
-    TaskAdherenceResult,
-    IntentResolutionResult,
-    CompletenessResult,
     AgentEvaluationResult,
+    CompletenessResult,
+    HallucinationResult,
+    IntentResolutionResult,
+    PolicyAgentEvaluator,
+    TaskAdherenceResult,
 )
+from .azure_evaluator import AzureRAGEvaluator, EvaluationResult
+from .test_dataset import TestCase, TestDataset, create_initial_dataset
 
 # DeepEval imports (optional - only available if deepeval is installed)
 try:
-    from app.evaluation.metrics import (
-        DeepEvalMetrics,
-        RUSH_POLICY_METRICS,
-        evaluate_single as deepeval_evaluate_single,
-        evaluate_batch as deepeval_evaluate_batch,
-        DeepEvalResult,
-    )
     from app.evaluation.diagnostics import (
-        decompose_to_claims,
-        classify_claim,
-        diagnose_rag_failure,
         ClaimClassification,
         RAGDiagnostic,
         RAGDiagnostics,
+        classify_claim,
+        decompose_to_claims,
+        diagnose_rag_failure,
     )
+    from app.evaluation.metrics import (
+        RUSH_POLICY_METRICS,
+        DeepEvalMetrics,
+        DeepEvalResult,
+    )
+    from app.evaluation.metrics import evaluate_batch as deepeval_evaluate_batch
+    from app.evaluation.metrics import evaluate_single as deepeval_evaluate_single
+
     DEEPEVAL_AVAILABLE = True
 except ImportError:
     DEEPEVAL_AVAILABLE = False
@@ -79,4 +80,3 @@ __all__ = [
     "RAGDiagnostic",
     "RAGDiagnostics",
 ]
-

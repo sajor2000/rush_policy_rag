@@ -100,9 +100,9 @@ class SearchResult:
         """
         # Extract reference from citation for cleaner display
         ref_part = "N/A"
-        if '(' in self.citation and ')' in self.citation:
+        if "(" in self.citation and ")" in self.citation:
             try:
-                ref_part = self.citation.split('(')[1].split(')')[0]
+                ref_part = self.citation.split("(")[1].split(")")[0]
             except (IndexError, AttributeError):
                 ref_part = "N/A"
 
@@ -176,12 +176,14 @@ def format_rag_context(results: list[SearchResult]) -> str:
         else:
             confidence = f"Score: {result.score:.2f}"
 
-        context_parts.append(f"""
+        context_parts.append(
+            f"""
 ═══════════════════════════════════════════════════════════════
  POLICY CHUNK {i} ({confidence})
 ═══════════════════════════════════════════════════════════════
 {result.format_for_rag()}
-""")
+"""
+        )
 
     return "\n".join(context_parts)
 

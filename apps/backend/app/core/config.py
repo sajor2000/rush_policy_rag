@@ -9,14 +9,14 @@ Features:
 - Backward-compatible property names
 """
 
-import os
-import sys
 import logging
+import os
 from pathlib import Path
-from typing import Optional, List
-from pydantic import field_validator, model_validator, ConfigDict
-from pydantic_settings import BaseSettings
+from typing import List, Optional
+
 from dotenv import load_dotenv
+from pydantic import ConfigDict, field_validator, model_validator
+from pydantic_settings import BaseSettings
 
 # Load environment variables from .env file at project root
 # Assuming this file is in apps/backend/app/core/
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 class ConfigurationError(Exception):
     """Raised when critical configuration is missing in production mode."""
-    pass
 
 
 class Settings(BaseSettings):
@@ -42,6 +41,7 @@ class Settings(BaseSettings):
     AOAI_ENDPOINT: Optional[str] = None
     AOAI_API_KEY: Optional[str] = None
     AOAI_CHAT_DEPLOYMENT: str = "gpt-4.1"
+    AOAI_API_VERSION: str = "2024-08-01-preview"
 
     # Admin
     ADMIN_API_KEY: Optional[str] = None
@@ -51,10 +51,14 @@ class Settings(BaseSettings):
     AZURE_AD_CLIENT_ID: Optional[str] = None
     AZURE_AD_TOKEN_AUDIENCE: Optional[str] = None
     AZURE_AD_ALLOWED_CLIENT_IDS: str = ""
-    REQUIRE_AAD_AUTH: bool = True  # Secure by default; set False only for local dev via .env
+    REQUIRE_AAD_AUTH: bool = (
+        True  # Secure by default; set False only for local dev via .env
+    )
 
     # CORS - stored as comma-separated string, parsed to list via property
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5000,http://127.0.0.1:3000,http://127.0.0.1:5000"
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://localhost:5000,http://127.0.0.1:3000,http://127.0.0.1:5000"
+    )
 
     # Server
     BACKEND_PORT: int = 8000
@@ -64,7 +68,9 @@ class Settings(BaseSettings):
     FAIL_ON_MISSING_CONFIG: bool = False
 
     # Features
-    USE_ON_YOUR_DATA: bool = False  # Enable Azure OpenAI "On Your Data" for vectorSemanticHybrid
+    USE_ON_YOUR_DATA: bool = (
+        False  # Enable Azure OpenAI "On Your Data" for vectorSemanticHybrid
+    )
 
     # Cohere Rerank 4.0 Pro (cross-encoder for negation-aware search)
     # Deployed on Azure AI Foundry as serverless API
@@ -82,7 +88,7 @@ class Settings(BaseSettings):
     # Model name for Cohere rerank (v4.0 Pro recommended for healthcare)
     # Must match exact Azure AI Foundry deployment name
     COHERE_RERANK_MODEL: str = "Cohere-rerank-v4.0-pro"
-    
+
     # Surge capacity policy deprioritization
     # Penalty multiplier for surge level/capacity-based policies (0.0-1.0)
     # Lower values = more aggressive deprioritization
@@ -96,8 +102,12 @@ class Settings(BaseSettings):
     # Pediatric vs Adult population ranking settings
     PEDIATRIC_BOOST: float = 1.3  # Boost pediatric policies when peds keywords detected
     ADULT_DEFAULT_BOOST: float = 1.2  # Boost adult/general policies by default
-    ADULT_PENALTY_IN_PEDS_CONTEXT: float = 0.85  # Penalty for adult policies in peds context
-    PEDS_PENALTY_IN_ADULT_CONTEXT: float = 0.5  # 50% penalty - strong deprioritization for peds in adult default context
+    ADULT_PENALTY_IN_PEDS_CONTEXT: float = (
+        0.85  # Penalty for adult policies in peds context
+    )
+    PEDS_PENALTY_IN_ADULT_CONTEXT: float = (
+        0.5  # 50% penalty - strong deprioritization for peds in adult default context
+    )
 
     # PolicyTech URL - official RUSH policy administration portal
     POLICYTECH_URL: str = "https://rushumc.policytech.com"
@@ -134,21 +144,33 @@ class Settings(BaseSettings):
     # Corrective RAG (cRAG) Document Filtering
     # Controls how many documents pass to Cohere for cross-encoder reranking
     # Ensures consistent behavior across all query types
-    CRAG_MIN_DOCS_FOR_COHERE: int = 20   # Minimum docs to pass (guarantees variety)
-    CRAG_MAX_DOCS_FOR_COHERE: int = 35   # Maximum docs to pass (bounds Cohere cost)
-    CRAG_MAX_AMBIGUOUS_DOCS: int = 20    # Max ambiguous docs to include per case
+    CRAG_MIN_DOCS_FOR_COHERE: int = 20  # Minimum docs to pass (guarantees variety)
+    CRAG_MAX_DOCS_FOR_COHERE: int = 35  # Maximum docs to pass (bounds Cohere cost)
+    CRAG_MAX_AMBIGUOUS_DOCS: int = 20  # Max ambiguous docs to include per case
 
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
         """Parse CORS_ORIGINS string into list (backward compatibility)."""
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        return [
+            origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
+        ]
 
     @property
     def ALLOWED_AAD_CLIENT_IDS(self) -> List[str]:
         """Parse AZURE_AD_ALLOWED_CLIENT_IDS into a list."""
-        return [client.strip() for client in self.AZURE_AD_ALLOWED_CLIENT_IDS.split(",") if client.strip()]
+        return [
+            client.strip()
+            for client in self.AZURE_AD_ALLOWED_CLIENT_IDS.split(",")
+            if client.strip()
+        ]
 
-    @field_validator('USE_ON_YOUR_DATA', 'USE_COHERE_RERANK', 'CHAT_AUDIT_ENABLED', 'CACHE_ENABLED', mode='before')
+    @field_validator(
+        "USE_ON_YOUR_DATA",
+        "USE_COHERE_RERANK",
+        "CHAT_AUDIT_ENABLED",
+        "CACHE_ENABLED",
+        mode="before",
+    )
     @classmethod
     def parse_bool(cls, v):
         """Parse boolean from string (handles 'true', 'false', '1', '0')."""
@@ -156,7 +178,7 @@ class Settings(BaseSettings):
             return v.lower() in ("true", "1", "yes")
         return bool(v)
 
-    @field_validator('REQUIRE_AAD_AUTH', 'FAIL_ON_MISSING_CONFIG', mode='before')
+    @field_validator("REQUIRE_AAD_AUTH", "FAIL_ON_MISSING_CONFIG", mode="before")
     @classmethod
     def parse_auth_flags(cls, v):
         """Parse boolean flags from string."""
@@ -164,7 +186,7 @@ class Settings(BaseSettings):
             return v.lower() in ("true", "1", "yes")
         return bool(v)
 
-    @field_validator('AOAI_API_KEY', mode='before')
+    @field_validator("AOAI_API_KEY", mode="before")
     @classmethod
     def map_aoai_api(cls, v):
         """Support both AOAI_API and AOAI_API_KEY env vars for backward compatibility."""
@@ -172,7 +194,7 @@ class Settings(BaseSettings):
             return v
         return os.environ.get("AOAI_API")
 
-    @field_validator('BACKEND_PORT', mode='before')
+    @field_validator("BACKEND_PORT", mode="before")
     @classmethod
     def parse_port(cls, v):
         """Parse port from string with validation."""
@@ -186,7 +208,7 @@ class Settings(BaseSettings):
                 raise ValueError(f"Invalid port value: {v}") from e
         return v
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_required_services(self):
         """
         Validate configuration at startup.
@@ -200,10 +222,14 @@ class Settings(BaseSettings):
 
         # Critical: SEARCH_ENDPOINT is required for core functionality
         if not self.SEARCH_ENDPOINT:
-            critical_errors.append("SEARCH_ENDPOINT not set - search functionality will fail")
+            critical_errors.append(
+                "SEARCH_ENDPOINT not set - search functionality will fail"
+            )
 
         if not self.SEARCH_API_KEY:
-            warnings.append("SEARCH_API_KEY not set - will attempt DefaultAzureCredential")
+            warnings.append(
+                "SEARCH_API_KEY not set - will attempt DefaultAzureCredential"
+            )
 
         if not self.AOAI_ENDPOINT:
             warnings.append("AOAI_ENDPOINT not set - Azure OpenAI fallback unavailable")
@@ -266,6 +292,7 @@ class Settings(BaseSettings):
         # Warn if auth is disabled
         if not self.REQUIRE_AAD_AUTH:
             import logging
+
             logging.getLogger(__name__).warning(
                 "REQUIRE_AAD_AUTH is False — authentication is DISABLED"
             )
@@ -273,9 +300,9 @@ class Settings(BaseSettings):
         # Critical: Admin API key should be set in production
         # Detect production environment (Azure Container Apps sets these)
         is_production = bool(
-            os.environ.get("WEBSITE_SITE_NAME") or
-            os.environ.get("CONTAINER_APP_NAME") or
-            os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT")
+            os.environ.get("WEBSITE_SITE_NAME")
+            or os.environ.get("CONTAINER_APP_NAME")
+            or os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT")
         )
         if (is_production or self.FAIL_ON_MISSING_CONFIG) and not self.ADMIN_API_KEY:
             critical_errors.append(
@@ -289,7 +316,9 @@ class Settings(BaseSettings):
         # Handle critical errors based on mode
         if critical_errors:
             if self.FAIL_ON_MISSING_CONFIG:
-                error_msg = "Critical configuration errors:\n  - " + "\n  - ".join(critical_errors)
+                error_msg = "Critical configuration errors:\n  - " + "\n  - ".join(
+                    critical_errors
+                )
                 logger.error(f"[CONFIG] {error_msg}")
                 raise ConfigurationError(error_msg)
             else:

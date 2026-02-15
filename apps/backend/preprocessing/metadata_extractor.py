@@ -10,17 +10,17 @@ This module provides utilities for extracting metadata from RUSH policy PDFs:
 Extracted from chunker.py as part of tech debt refactoring.
 """
 
-import re
 import logging
+import re
 from typing import Optional, Tuple
 
-from preprocessing.rush_metadata import RUSHPolicyMetadata
 from preprocessing.checkbox_extractor import extract_applies_to_from_text
+from preprocessing.rush_metadata import RUSHPolicyMetadata
 
 logger = logging.getLogger(__name__)
 
 POLICY_NUMBER_PATTERN = re.compile(
-    r'\b([A-Za-z]{2})\s*-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b'
+    r"\b([A-Za-z]{2})\s*-\s*([A-Za-z])\s*(\d{1,2})(?:\.(\d{1,4}))?\b"
 )
 
 
@@ -35,11 +35,10 @@ def clean_filename(filename: str) -> str:
         Cleaned title string
     """
     return (
-        filename
-        .replace('.pdf', '')
-        .replace('-', ' ')
-        .replace('_', ' ')
-        .replace('  ', ' - ')
+        filename.replace(".pdf", "")
+        .replace("-", " ")
+        .replace("_", " ")
+        .replace("  ", " - ")
         .strip()
     )
 
@@ -88,7 +87,7 @@ def normalize_policy_number(raw: str) -> str:
 def extract_policy_number(
     filename: Optional[str] = None,
     text: Optional[str] = None,
-    title: Optional[str] = None
+    title: Optional[str] = None,
 ) -> str:
     """
     Extract canonical policy number with source priority:
@@ -115,19 +114,19 @@ def extract_page_number(doc_chunk) -> Optional[int]:
     """
     try:
         # Try to get page number from chunk meta/provenance
-        if hasattr(doc_chunk, 'meta') and doc_chunk.meta:
+        if hasattr(doc_chunk, "meta") and doc_chunk.meta:
             meta = doc_chunk.meta
             # Check for doc_items which contain provenance info
-            if hasattr(meta, 'doc_items') and meta.doc_items:
+            if hasattr(meta, "doc_items") and meta.doc_items:
                 for item in meta.doc_items:
-                    if hasattr(item, 'prov') and item.prov:
+                    if hasattr(item, "prov") and item.prov:
                         for prov in item.prov:
-                            if hasattr(prov, 'page_no') and prov.page_no is not None:
+                            if hasattr(prov, "page_no") and prov.page_no is not None:
                                 # Docling page_no is already 1-indexed
                                 return prov.page_no
             # Alternative: check for origin in some Docling versions
-            if hasattr(meta, 'origin') and meta.origin:
-                if hasattr(meta.origin, 'page_no') and meta.origin.page_no is not None:
+            if hasattr(meta, "origin") and meta.origin:
+                if hasattr(meta.origin, "page_no") and meta.origin.page_no is not None:
                     return meta.origin.page_no
     except Exception as e:
         logger.debug(f"Could not extract page number: {e}")
@@ -135,10 +134,7 @@ def extract_page_number(doc_chunk) -> Optional[int]:
 
 
 def extract_page_number_pymupdf(
-    pdf_path: str,
-    chunk_text: str,
-    chunk_index: int,
-    num_pages: Optional[int] = None
+    pdf_path: str, chunk_text: str, chunk_index: int, num_pages: Optional[int] = None
 ) -> Optional[int]:
     """
     Extract page number using PyMuPDF by finding chunk text in PDF.
@@ -164,7 +160,7 @@ def extract_page_number_pymupdf(
 
             # Use first 150 chars for matching (avoid partial matches at boundaries)
             # Strip whitespace and normalize for better matching
-            search_text = ' '.join(chunk_text[:150].split()).strip()
+            search_text = " ".join(chunk_text[:150].split()).strip()
 
             if len(search_text) < 20:
                 # Text too short for reliable matching, use estimation
@@ -178,7 +174,7 @@ def extract_page_number_pymupdf(
                 page_text = page.get_text()
 
                 # Normalize page text for comparison
-                page_text_normalized = ' '.join(page_text.split())
+                page_text_normalized = " ".join(page_text.split())
 
                 if search_text in page_text_normalized:
                     return page_num + 1  # Convert to 1-indexed
@@ -192,7 +188,9 @@ def extract_page_number_pymupdf(
             return estimated_page
 
     except ImportError:
-        logger.warning("PyMuPDF (fitz) not installed, cannot use fallback page extraction")
+        logger.warning(
+            "PyMuPDF (fitz) not installed, cannot use fallback page extraction"
+        )
         return None
     except Exception as e:
         logger.warning(f"PyMuPDF page extraction failed: {e}")
@@ -213,22 +211,21 @@ def extract_section_info(doc_chunk) -> Tuple[str, str]:
     section_title = ""
 
     # Access chunk metadata for headings
-    if hasattr(doc_chunk, 'meta') and hasattr(doc_chunk.meta, 'headings'):
+    if hasattr(doc_chunk, "meta") and hasattr(doc_chunk.meta, "headings"):
         headings = doc_chunk.meta.headings
         if headings:
             last_heading = headings[-1] if isinstance(headings, list) else str(headings)
 
             # Try to parse Roman numeral section (I., II., III., etc.)
             roman_match = re.match(
-                r'^(I{1,3}V?I{0,3}|IV|V|VI{0,3}|IX|X{1,3})\.\s*(.+)',
-                last_heading
+                r"^(I{1,3}V?I{0,3}|IV|V|VI{0,3}|IX|X{1,3})\.\s*(.+)", last_heading
             )
             if roman_match:
                 section_number = roman_match.group(1)
                 section_title = roman_match.group(2).strip()
             else:
                 # Try numbered section (1.0, 2.0, etc.)
-                num_match = re.match(r'^(\d+(?:\.\d+)?)\s*[\.:\s]\s*(.+)', last_heading)
+                num_match = re.match(r"^(\d+(?:\.\d+)?)\s*[\.:\s]\s*(.+)", last_heading)
                 if num_match:
                     section_number = num_match.group(1)
                     section_title = num_match.group(2).strip()
@@ -239,9 +236,7 @@ def extract_section_info(doc_chunk) -> Tuple[str, str]:
 
 
 def extract_fields_from_text(
-    text: str,
-    metadata: RUSHPolicyMetadata,
-    filename: str
+    text: str, metadata: RUSHPolicyMetadata, filename: str
 ) -> None:
     """
     Extract metadata fields from text using regex patterns.
@@ -264,82 +259,109 @@ def extract_fields_from_text(
     if not metadata.title:
         for pattern in [
             # Pattern 1: Capture until next field label (most specific)
-            r'Policy\s+Title[:\s]+(.+?)(?=\s*(?:Policy\s*Number|Reference\s*Number|Effective\s*Date|Document\s*Owner|Applies\s*To))',
+            r"Policy\s+Title[:\s]+(.+?)(?=\s*(?:Policy\s*Number|Reference\s*Number|Effective\s*Date|Document\s*Owner|Applies\s*To))",
             # Pattern 2: Capture full cell content (for table-extracted text)
-            r'Policy\s+Title[:\s]+([^\n|]+)',
+            r"Policy\s+Title[:\s]+([^\n|]+)",
             # Pattern 3: Generic title field
-            r'POLICY\s+TITLE[:\s]+([^\n]+)',
-            r'Title[:\s]+([^\n]+)',
+            r"POLICY\s+TITLE[:\s]+([^\n]+)",
+            r"Title[:\s]+([^\n]+)",
         ]:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
                 # Normalize whitespace (collapse multiple spaces/newlines)
-                title_text = ' '.join(match.group(1).strip().split())
+                title_text = " ".join(match.group(1).strip().split())
                 # Clean repeated "Policy Title:" labels from malformed table extraction
-                if 'Policy Title' in title_text:
-                    title_text = re.sub(r'\s*Policy\s+Title[:\s]*', ' ', title_text, flags=re.IGNORECASE).strip()
-                    title_text = ' '.join(title_text.split())  # Re-normalize whitespace
+                if "Policy Title" in title_text:
+                    title_text = re.sub(
+                        r"\s*Policy\s+Title[:\s]*", " ", title_text, flags=re.IGNORECASE
+                    ).strip()
+                    title_text = " ".join(title_text.split())  # Re-normalize whitespace
                 # Remove "Former" anywhere in the title (artifact from "Former Policy Number" field)
-                title_text = re.sub(r'\s*Former\s*', ' ', title_text, flags=re.IGNORECASE).strip()
-                title_text = ' '.join(title_text.split())  # Re-normalize whitespace
+                title_text = re.sub(
+                    r"\s*Former\s*", " ", title_text, flags=re.IGNORECASE
+                ).strip()
+                title_text = " ".join(title_text.split())  # Re-normalize whitespace
                 # Remove checkbox characters that may leak from table extraction
-                title_text = re.sub(r'[☐☒✓✔■□\[\]x]', '', title_text).strip()
+                title_text = re.sub(r"[☐☒✓✔■□\[\]x]", "", title_text).strip()
                 # Truncate at common table field labels that shouldn't be in title
-                title_text = re.split(r'\s*(?:Approver|Date\s*Approved|Effective|Owner|Department|Version|Status)[:\(]', title_text, flags=re.IGNORECASE)[0].strip()
+                title_text = re.split(
+                    r"\s*(?:Approver|Date\s*Approved|Effective|Owner|Department|Version|Status)[:\(]",
+                    title_text,
+                    flags=re.IGNORECASE,
+                )[0].strip()
                 # Deduplicate repeated title text (e.g., "AI Policy AI Policy AI Policy" -> "AI Policy")
                 words = title_text.split()
                 if len(words) >= 4:
                     # Try to find repeating pattern
                     for pattern_len in range(2, len(words) // 2 + 1):
                         pattern_words = words[:pattern_len]
-                        pattern_str = ' '.join(pattern_words)
+                        pattern_str = " ".join(pattern_words)
                         # Check if the pattern repeats
-                        full_pattern = ' '.join(pattern_words * (len(words) // pattern_len))
-                        if title_text.startswith(full_pattern) and len(pattern_str) >= 5:
+                        full_pattern = " ".join(
+                            pattern_words * (len(words) // pattern_len)
+                        )
+                        if (
+                            title_text.startswith(full_pattern)
+                            and len(pattern_str) >= 5
+                        ):
                             title_text = pattern_str
                             break
                 # Final cleanup: normalize whitespace again
-                title_text = ' '.join(title_text.split())
+                title_text = " ".join(title_text.split())
                 # Skip if it looks like we captured the next field
-                if title_text and not re.match(r'^(Policy\s*Number|Reference|Document|Applies)', title_text, re.IGNORECASE):
+                if title_text and not re.match(
+                    r"^(Policy\s*Number|Reference|Document|Applies)",
+                    title_text,
+                    re.IGNORECASE,
+                ):
                     metadata.title = title_text
                     break
 
     # Canonical policy number extraction (filename -> text -> title fallback)
     if not metadata.policy_number:
         metadata.policy_number = extract_policy_number(
-            filename=filename,
-            text=text,
-            title=metadata.title
+            filename=filename, text=text, title=metadata.title
         )
 
     # Reference number extraction (multiple patterns)
     # Valid ref numbers must contain at least one digit (e.g., "892", "IT-09.02", "POL-2023")
     # Reject pure words like "Document", "Number", "Policy" that regex may incorrectly capture
-    INVALID_REF_WORDS = {'document', 'number', 'policy', 'reference', 'ref', 'title', 'none', 'n/a'}
+    INVALID_REF_WORDS = {
+        "document",
+        "number",
+        "policy",
+        "reference",
+        "ref",
+        "title",
+        "none",
+        "n/a",
+    }
 
     if not metadata.reference_number:
         for pattern in [
-            r'Reference\s*Number[:\s]+([A-Za-z0-9\-\.\s]+)',
-            r'Policy\s*Number[:\s]+([A-Za-z0-9\-\.\s]+)',
-            r'Ref[:\s#]+([A-Za-z0-9\-\.\s]+)',
-            r'Reference[:\s]+(\d{3,6})',
+            r"Reference\s*Number[:\s]+([A-Za-z0-9\-\.\s]+)",
+            r"Policy\s*Number[:\s]+([A-Za-z0-9\-\.\s]+)",
+            r"Ref[:\s#]+([A-Za-z0-9\-\.\s]+)",
+            r"Reference[:\s]+(\d{3,6})",
         ]:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                candidate = ' '.join(match.group(1).strip().split())
+                candidate = " ".join(match.group(1).strip().split())
                 # Validate: must contain at least one digit AND not be an invalid word
-                if (re.search(r'\d', candidate) and
-                    candidate.lower() not in INVALID_REF_WORDS and
-                    len(candidate) >= 2):
+                if (
+                    re.search(r"\d", candidate)
+                    and candidate.lower() not in INVALID_REF_WORDS
+                    and len(candidate) >= 2
+                ):
                     metadata.reference_number = candidate
                     break
 
     # Document owner
     if not metadata.document_owner:
         match = re.search(
-            r'Document\s+Owner[:\s]+([^\n|]+?)(?=\s*(?:Approver|Date|\n))',
-            text, re.IGNORECASE | re.DOTALL
+            r"Document\s+Owner[:\s]+([^\n|]+?)(?=\s*(?:Approver|Date|\n))",
+            text,
+            re.IGNORECASE | re.DOTALL,
         )
         if match:
             metadata.document_owner = match.group(1).strip()
@@ -347,30 +369,31 @@ def extract_fields_from_text(
     # Approvers
     if not metadata.approvers:
         match = re.search(
-            r'Approver[s]?[:\s]+([^\n|]+?)(?=\s*(?:Date|Effective|\n))',
-            text, re.IGNORECASE | re.DOTALL
+            r"Approver[s]?[:\s]+([^\n|]+?)(?=\s*(?:Date|Effective|\n))",
+            text,
+            re.IGNORECASE | re.DOTALL,
         )
         if match:
             metadata.approvers = match.group(1).strip()
 
     # Date fields
     date_patterns = {
-        'date_approved': [
-            r'Date\s+Approved[:\s]+([\d/\-]+)',
-            r'Approved[:\s]+([\d/\-]+)',
+        "date_approved": [
+            r"Date\s+Approved[:\s]+([\d/\-]+)",
+            r"Approved[:\s]+([\d/\-]+)",
         ],
-        'date_updated': [
-            r'Date\s+Updated[:\s]+([\d/\-]+)',
-            r'Last\s+(?:Updated|Modified|Revised)[:\s]+([\d/\-]+)',
-            r'Revised[:\s]+([\d/\-]+)',
+        "date_updated": [
+            r"Date\s+Updated[:\s]+([\d/\-]+)",
+            r"Last\s+(?:Updated|Modified|Revised)[:\s]+([\d/\-]+)",
+            r"Revised[:\s]+([\d/\-]+)",
         ],
-        'date_created': [
-            r'Date\s+Created[:\s]+([\d/\-]+)',
-            r'Created[:\s]+([\d/\-]+)',
+        "date_created": [
+            r"Date\s+Created[:\s]+([\d/\-]+)",
+            r"Created[:\s]+([\d/\-]+)",
         ],
-        'review_due': [
-            r'Review\s+Due[:\s]+([\d/\-]+)',
-            r'Next\s+Review[:\s]+([\d/\-]+)',
+        "review_due": [
+            r"Review\s+Due[:\s]+([\d/\-]+)",
+            r"Next\s+Review[:\s]+([\d/\-]+)",
         ],
     }
 

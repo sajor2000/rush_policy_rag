@@ -12,7 +12,7 @@ Extracted from chat_service.py as part of tech debt refactoring.
 
 import logging
 import re
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -44,43 +44,74 @@ POLICY_NAME_PATTERNS = {
 # Domain-specific hints for policy resolution
 POLICY_HINTS = [
     {
-        "keywords": ["verbal order", "telephone order", "verbal orders", "telephone orders",
-                    "accept verbal", "accept telephone", "receive verbal", "receive telephone",
-                    "authorized to accept", "authorized to receive", "medical assistant",
-                    "unit secretary", "nursing aide", "can accept order", "can receive order"],
+        "keywords": [
+            "verbal order",
+            "telephone order",
+            "verbal orders",
+            "telephone orders",
+            "accept verbal",
+            "accept telephone",
+            "receive verbal",
+            "receive telephone",
+            "authorized to accept",
+            "authorized to receive",
+            "medical assistant",
+            "unit secretary",
+            "nursing aide",
+            "can accept order",
+            "can receive order",
+        ],
         "hint": "Verbal and Telephone Orders policy Ref #486",
         "reference": "486",
-        "policy_query": "Verbal and Telephone Orders"
+        "policy_query": "Verbal and Telephone Orders",
     },
     {
         "keywords": ["hand off", "handoff", "sbar", "change of shift"],
         "hint": "Communication Of Patient Status - Hand Off Communication Ref #1206",
         "reference": "1206",
-        "policy_query": "Communication Of Patient Status - Hand Off Communication"
+        "policy_query": "Communication Of Patient Status - Hand Off Communication",
     },
     {
         "keywords": ["latex"],
         "hint": "Latex Management policy Ref #228",
         "reference": "228",
-        "policy_query": "Latex Management"
+        "policy_query": "Latex Management",
     },
     {
-        "keywords": ["rapid response", "rrt", "cardiac arrest", "code blue",
-                    "emergency number", "call for help", "patient deteriorating",
-                    "mews score", "vital signs", "clinical signs"],
+        "keywords": [
+            "rapid response",
+            "rrt",
+            "cardiac arrest",
+            "code blue",
+            "emergency number",
+            "call for help",
+            "patient deteriorating",
+            "mews score",
+            "vital signs",
+            "clinical signs",
+        ],
         "hint": "Adult Rapid Response policy Ref #346",
         "reference": "346",
-        "policy_query": "Adult Rapid Response"
+        "policy_query": "Adult Rapid Response",
     },
     {
-        "keywords": ["informed consent", "consent form", "agree to treatment",
-                    "patient agreement", "sign consent", "procedure consent",
-                    "surgical consent", "treatment consent", "patient consent",
-                    "consent process", "consent documentation"],
+        "keywords": [
+            "informed consent",
+            "consent form",
+            "agree to treatment",
+            "patient agreement",
+            "sign consent",
+            "procedure consent",
+            "surgical consent",
+            "treatment consent",
+            "patient consent",
+            "consent process",
+            "consent documentation",
+        ],
         "hint": "Informed Consent policy Ref #275",
         "reference": "275",
-        "policy_query": "Informed Consent"
-    }
+        "policy_query": "Informed Consent",
+    },
 ]
 
 # Patterns indicating a "not found" or refusal response
@@ -132,11 +163,17 @@ def detect_instance_search_intent(query: str) -> Optional[Tuple[str, str]]:
                 policy_id = groups[1].strip().strip("'\"")
 
                 # Clean up policy identifier
-                policy_id = re.sub(r'^ref\s*#?\s*', '', policy_id, flags=re.IGNORECASE).strip()
-                policy_id = re.sub(r'\s+policy$', '', policy_id, flags=re.IGNORECASE).strip()
+                policy_id = re.sub(
+                    r"^ref\s*#?\s*", "", policy_id, flags=re.IGNORECASE
+                ).strip()
+                policy_id = re.sub(
+                    r"\s+policy$", "", policy_id, flags=re.IGNORECASE
+                ).strip()
 
                 if search_term and policy_id:
-                    logger.info(f"Instance search detected: term='{search_term}', policy='{policy_id}'")
+                    logger.info(
+                        f"Instance search detected: term='{search_term}', policy='{policy_id}'"
+                    )
                     return (search_term, policy_id)
 
     return None
@@ -155,7 +192,9 @@ def resolve_policy_identifier(policy_id: str) -> Optional[str]:
     policy_id_lower = policy_id.lower().strip()
 
     # If it's already a reference number (digits only or digits with prefix)
-    ref_match = re.match(r'^(?:ref\s*#?\s*)?(\d+(?:\.\d+)?(?:-[a-z]+)?)$', policy_id_lower, re.IGNORECASE)
+    ref_match = re.match(
+        r"^(?:ref\s*#?\s*)?(\d+(?:\.\d+)?(?:-[a-z]+)?)$", policy_id_lower, re.IGNORECASE
+    )
     if ref_match:
         return ref_match.group(1)
 
@@ -191,23 +230,27 @@ def strip_references_from_negative_response(response_text: str) -> str:
     response_lower = response_text.lower()
 
     # Check if this is a negative response type
-    is_negative = any(pattern in response_lower for pattern in NOT_FOUND_OR_REFUSAL_PATTERNS)
+    is_negative = any(
+        pattern in response_lower for pattern in NOT_FOUND_OR_REFUSAL_PATTERNS
+    )
 
     if not is_negative:
         return response_text
 
     # Strip reference patterns
     # Pattern: "1. Ref #XXX — Title (Section: Y; Applies To: Z)"
-    cleaned = re.sub(r'\n*\d+\.\s*Ref\s*#[^\n]+', '', response_text)
+    cleaned = re.sub(r"\n*\d+\.\s*Ref\s*#[^\n]+", "", response_text)
 
     # Pattern: standalone "Ref #XXX" or "(Ref #XXX)"
-    cleaned = re.sub(r'\s*\(?Ref\s*#\s*[A-Za-z0-9.\-]+\)?', '', cleaned)
+    cleaned = re.sub(r"\s*\(?Ref\s*#\s*[A-Za-z0-9.\-]+\)?", "", cleaned)
 
     # Pattern: "Reference Number: XXX"
-    cleaned = re.sub(r'\s*Reference\s*Number[:\s]*[A-Za-z0-9.\-]+', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\s*Reference\s*Number[:\s]*[A-Za-z0-9.\-]+", "", cleaned, flags=re.IGNORECASE
+    )
 
     # Clean up multiple newlines
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
 
     return cleaned.strip()
 

@@ -25,18 +25,18 @@ Best Practices (per Cohere docs):
 """
 
 import logging
-import httpx
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
+import httpx
 import yaml
 from tenacity import (
+    AsyncRetrying,
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
-    AsyncRetrying
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ DEFAULT_MIN_SCORE = 0.1
 @dataclass
 class RerankResult:
     """A document with its Cohere rerank score."""
+
     content: str
     title: str
     reference_number: str
@@ -82,7 +83,7 @@ class CohereRerankService:
         api_key: str,
         top_n: int = 5,
         min_score: float = DEFAULT_MIN_SCORE,
-        model_name: str = "Cohere-rerank-v4.0-pro"
+        model_name: str = "Cohere-rerank-v4.0-pro",
     ):
         """
         Initialize Cohere client for Azure AI Foundry deployment.
@@ -107,8 +108,8 @@ class CohereRerankService:
             # Normalize endpoint - handle both v1 and v2 API formats
             # v1: https://xxx.models.ai.azure.com/v1/rerank
             # v2: https://xxx.services.ai.azure.com/providers/cohere/v2/rerank
-            self.endpoint = endpoint.rstrip('/')
-            if '/rerank' not in self.endpoint:
+            self.endpoint = endpoint.rstrip("/")
+            if "/rerank" not in self.endpoint:
                 # Legacy format without path - append v1/rerank
                 self.endpoint = f"{self.endpoint}/v1/rerank"
             # Otherwise use endpoint as-is (supports v2 format)
@@ -116,17 +117,14 @@ class CohereRerankService:
 
             # Headers for Azure AI Foundry
             headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': f'Bearer {api_key}'
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {api_key}",
             }
 
             # Sync client (for backwards compatibility)
-            self._client = httpx.Client(
-                timeout=20.0,
-                headers=headers
-            )
-            
+            self._client = httpx.Client(timeout=20.0, headers=headers)
+
             # Async client with connection pooling for better performance
             self._async_client = httpx.AsyncClient(
                 timeout=20.0,
@@ -134,10 +132,10 @@ class CohereRerankService:
                 limits=httpx.Limits(
                     max_keepalive_connections=5,
                     max_connections=10,
-                    keepalive_expiry=30.0
-                )
+                    keepalive_expiry=30.0,
+                ),
             )
-            
+
             self._configured = True
             logger.info(
                 f"Initialized Cohere Rerank client (Azure AI Foundry): {self.endpoint}, "
@@ -156,13 +154,13 @@ class CohereRerankService:
     def _format_documents_as_yaml(self, documents: List[Dict[str, Any]]) -> List[str]:
         """
         Format documents as YAML for Cohere Rerank.
-        
+
         Per Cohere best practices:
         - YAML format preserves field structure for better reranking
         - Field order matters: most important fields first, content last
         - v4.0 Pro has 32k context - policy chunks (~1500 chars) fit easily
         - Use sort_keys=False to maintain field order
-        
+
         Healthcare-optimized field order for RUSH policy documents:
         1. policy_title - Primary identifier
         2. reference_number - Critical for citation accuracy
@@ -190,26 +188,28 @@ class CohereRerankService:
                 doc_repr["effective_date"] = doc.get("date_updated")
             # Content LAST - per Cohere best practices (most important fields first)
             doc_repr["content"] = doc.get("content", "")
-            
-            doc_texts.append(yaml.dump(doc_repr, sort_keys=False, default_flow_style=False))
+
+            doc_texts.append(
+                yaml.dump(doc_repr, sort_keys=False, default_flow_style=False)
+            )
         return doc_texts
 
     def _log_score_distribution(self, results: List[RerankResult], query: str) -> None:
         """
         Log score distribution for threshold calibration analysis.
-        
+
         Per Cohere best practices, score thresholds should be calibrated
         on domain-specific queries. This logging helps identify optimal
         thresholds for healthcare policy retrieval.
-        
+
         Uses DEBUG level to avoid production log spam.
         """
         if not results:
             return
-        
+
         scores = [r.cohere_score for r in results]
         sorted_scores = sorted(scores, reverse=True)
-        
+
         logger.debug(
             f"Cohere score distribution for '{query[:40]}...': "
             f"min={min(scores):.3f}, max={max(scores):.3f}, "
@@ -222,38 +222,42 @@ class CohereRerankService:
         self,
         result_data: Dict[str, Any],
         documents: List[Dict[str, Any]],
-        min_score: Optional[float] = None
+        min_score: Optional[float] = None,
     ) -> List[RerankResult]:
         """Build RerankResult list from API response with score filtering."""
         threshold = min_score if min_score is not None else self.min_score
         reranked = []
         filtered_count = 0
-        
+
         for result in result_data.get("results", []):
             idx = result.get("index", 0)
             score = result.get("relevance_score", 0.0)
-            
+
             # Filter low-relevance documents (per Cohere best practices)
             if score < threshold:
                 filtered_count += 1
                 continue
-                
+
             original_doc = documents[idx]
-            reranked.append(RerankResult(
-                content=original_doc.get("content", ""),
-                title=original_doc.get("title", ""),
-                reference_number=original_doc.get("reference_number", ""),
-                policy_number=original_doc.get("policy_number", ""),
-                source_file=original_doc.get("source_file", ""),
-                section=original_doc.get("section", ""),
-                applies_to=original_doc.get("applies_to", ""),
-                page_number=original_doc.get("page_number"),
-                cohere_score=score,
-                original_index=idx
-            ))
-        
+            reranked.append(
+                RerankResult(
+                    content=original_doc.get("content", ""),
+                    title=original_doc.get("title", ""),
+                    reference_number=original_doc.get("reference_number", ""),
+                    policy_number=original_doc.get("policy_number", ""),
+                    source_file=original_doc.get("source_file", ""),
+                    section=original_doc.get("section", ""),
+                    applies_to=original_doc.get("applies_to", ""),
+                    page_number=original_doc.get("page_number"),
+                    cohere_score=score,
+                    original_index=idx,
+                )
+            )
+
         if filtered_count > 0:
-            logger.info(f"Filtered {filtered_count} docs below score threshold {threshold}")
+            logger.info(
+                f"Filtered {filtered_count} docs below score threshold {threshold}"
+            )
 
         return reranked
 
@@ -262,14 +266,14 @@ class CohereRerankService:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         # Retry on HTTP errors AND network/timeout errors for production resilience
         retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TransportError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING)
+        before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def rerank(
         self,
         query: str,
         documents: List[Dict[str, Any]],
         top_n: Optional[int] = None,
-        min_score: Optional[float] = None
+        min_score: Optional[float] = None,
     ) -> List[RerankResult]:
         """
         Rerank documents using Cohere cross-encoder via Azure AI Foundry (sync).
@@ -310,7 +314,7 @@ class CohereRerankService:
                 "query": query,
                 "documents": doc_texts,
                 "top_n": n,
-                "return_documents": False
+                "return_documents": False,
                 # max_tokens_per_doc: Using Cohere default (4096) - sufficient for policy chunks (~1500 chars)
             }
 
@@ -334,7 +338,9 @@ class CohereRerankService:
 
             # Log top results for debugging
             if reranked:
-                top_refs = [f"{r.reference_number}({r.cohere_score:.4f})" for r in reranked[:3]]
+                top_refs = [
+                    f"{r.reference_number}({r.cohere_score:.4f})" for r in reranked[:3]
+                ]
                 logger.info(f"Cohere rerank top-3: {', '.join(top_refs)}")
 
             return reranked
@@ -343,7 +349,9 @@ class CohereRerankService:
             if e.response.status_code == 429:
                 logger.warning(f"Cohere rate limited: {e}")
                 raise  # Let tenacity retry
-            logger.error(f"Cohere rerank HTTP error: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"Cohere rerank HTTP error: {e.response.status_code} - {e.response.text}"
+            )
             raise
         except Exception as e:
             logger.error(f"Cohere rerank failed: {e}")
@@ -354,7 +362,7 @@ class CohereRerankService:
         query: str,
         documents: List[Dict[str, Any]],
         top_n: Optional[int] = None,
-        min_score: Optional[float] = None
+        min_score: Optional[float] = None,
     ) -> List[RerankResult]:
         """
         Rerank documents using Cohere cross-encoder via Azure AI Foundry (async).
@@ -394,7 +402,7 @@ class CohereRerankService:
             "query": query,
             "documents": doc_texts,
             "top_n": n,
-            "return_documents": False
+            "return_documents": False,
             # max_tokens_per_doc: Using Cohere default (4096) - sufficient for policy chunks (~1500 chars)
         }
 
@@ -403,12 +411,16 @@ class CohereRerankService:
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(2),
             wait=wait_exponential(multiplier=1, min=2, max=10),
-            retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TransportError)),
-            reraise=True
+            retry=retry_if_exception_type(
+                (httpx.HTTPStatusError, httpx.TransportError)
+            ),
+            reraise=True,
         ):
             with attempt:
                 try:
-                    response = await self._async_client.post(self.endpoint, json=payload)
+                    response = await self._async_client.post(
+                        self.endpoint, json=payload
+                    )
                     response.raise_for_status()
                     result_data = response.json()
 
@@ -420,53 +432,66 @@ class CohereRerankService:
                     # LOW_RETRIEVAL logging - grep logs for these to find synonym gaps
                     # Note: Truncate query to avoid logging PHI (HIPAA compliance)
                     if not reranked:
-                        logger.warning(f"LOW_RETRIEVAL: query='{query[:50]}...' zero_results")
+                        logger.warning(
+                            f"LOW_RETRIEVAL: query='{query[:50]}...' zero_results"
+                        )
                     elif reranked[0].cohere_score < 0.3:
                         logger.warning(
                             f"LOW_RETRIEVAL: query='{query[:50]}...' top_score={reranked[0].cohere_score:.3f}"
                         )
 
                     if reranked:
-                        top_refs = [f"{r.reference_number}({r.cohere_score:.4f})" for r in reranked[:3]]
-                        logger.info(f"Cohere rerank (async) top-3: {', '.join(top_refs)}")
+                        top_refs = [
+                            f"{r.reference_number}({r.cohere_score:.4f})"
+                            for r in reranked[:3]
+                        ]
+                        logger.info(
+                            f"Cohere rerank (async) top-3: {', '.join(top_refs)}"
+                        )
 
                     return reranked
 
                 except httpx.HTTPStatusError as e:
                     if e.response.status_code == 429:
-                        logger.warning(f"Cohere rate limited (attempt {attempt.retry_state.attempt_number}): {e}")
+                        logger.warning(
+                            f"Cohere rate limited (attempt {attempt.retry_state.attempt_number}): {e}"
+                        )
                         raise  # Let tenacity retry
-                    logger.error(f"Cohere rerank HTTP error: {e.response.status_code} - {e.response.text}")
+                    logger.error(
+                        f"Cohere rerank HTTP error: {e.response.status_code} - {e.response.text}"
+                    )
                     raise
                 except Exception as e:
                     logger.error(f"Cohere rerank (async) failed: {e}")
                     raise
-        
+
         # Should never reach here due to reraise=True
         return []
 
     async def warmup(self) -> bool:
         """
         Warm up the service by making a minimal request.
-        
+
         Primes the connection pool to reduce cold-start latency
         for subsequent requests. Should be called during app startup.
-        
+
         Returns:
             True if warmup succeeded, False otherwise
         """
         if not self.is_configured:
             logger.warning("Cannot warm up CohereRerankService - not configured")
             return False
-        
+
         try:
             logger.info("Warming up CohereRerankService...")
             # Minimal request to prime connections
             await self.rerank_async(
                 query="warmup",
-                documents=[{"content": "test", "title": "warmup", "reference_number": "0"}],
+                documents=[
+                    {"content": "test", "title": "warmup", "reference_number": "0"}
+                ],
                 top_n=1,
-                min_score=0.0  # Don't filter warmup request
+                min_score=0.0,  # Don't filter warmup request
             )
             logger.info("CohereRerankService warmup completed successfully")
             return True
